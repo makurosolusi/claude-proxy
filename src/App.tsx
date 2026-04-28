@@ -174,8 +174,16 @@ function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData; isAdmi
 }
 
 // ── Users table ───────────────────────────────────────────────────────────────
+const USERS_PER_PAGE = 10;
+
 function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenStatus>; isAdmin: boolean }) {
+  const [page, setPage] = useState(1);
+  const entries  = Object.entries(tokens);
+  const pages    = Math.max(1, Math.ceil(entries.length / USERS_PER_PAGE));
+  const visible  = entries.slice((page - 1) * USERS_PER_PAGE, page * USERS_PER_PAGE);
+
   return (
+    <Stack gap={0}>
     <Table className="users-table" highlightOnHover withColumnBorders={false} withRowBorders>
       <Table.Thead>
         <Table.Tr>
@@ -185,7 +193,7 @@ function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenStatus>; 
         </Table.Tr>
       </Table.Thead>
       <Table.Tbody id="token-rows">
-        {Object.entries(tokens).map(([k, tk]) => {
+        {visible.map(([k, tk]) => {
           const pct = tk.limit === null ? 0 : tk.pct;
           const cls = tk.paused ? "" : `u-${usageCls(pct)}`;
           const todayCls = tk.today > 20000 ? "pct-over" : tk.today > 10000 ? "pct-high" : tk.today > 5000 ? "pct-warn" : tk.today > 0 ? "pct-ok" : "";
@@ -251,61 +259,91 @@ function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenStatus>; 
         })}
       </Table.Tbody>
     </Table>
+
+    {pages > 1 && (
+      <Group justify="space-between" p="sm" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
+        <Pagination total={pages} value={page} onChange={setPage} size="sm" />
+        <Text size="xs" c="dimmed">
+          {`${(page - 1) * USERS_PER_PAGE + 1}–${Math.min(page * USERS_PER_PAGE, entries.length)} of ${entries.length} tokens`}
+        </Text>
+      </Group>
+    )}
+    </Stack>
   );
 }
 
 // ── Daily history ─────────────────────────────────────────────────────────────
+const DAILY_PER_PAGE = 7; // one week per page
+
 function DailyHistory({ isAdmin }: { isAdmin: boolean }) {
-  const [data, setData] = useState<{ date: string; total: number; by_user: Record<string, number> }[]>([]);
+  const [data, setData]   = useState<{ date: string; total: number; by_user: Record<string, number> }[]>([]);
   const [users, setUsers] = useState<string[]>([]);
+  const [page, setPage]   = useState(1);
 
   useEffect(() => {
-    fetch("/api/stats").then(r => r.json()).then(d => { setData(d.daily || []); setUsers(d.users || []); }).catch(() => {});
+    fetch("/api/stats").then(r => r.json()).then(d => {
+      setData(d.daily || []);
+      setUsers(d.users || []);
+      setPage(1);
+    }).catch(() => {});
   }, []);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const dates = [...data].reverse().slice(0, 14);
+  const today    = new Date().toISOString().slice(0, 10);
+  const allDates = [...data].reverse();             // newest first
+  const pages    = Math.max(1, Math.ceil(allDates.length / DAILY_PER_PAGE));
+  const dates    = allDates.slice((page - 1) * DAILY_PER_PAGE, page * DAILY_PER_PAGE);
 
-  if (!dates.length) return <Text size="sm" c="dimmed" ta="center" p="xl">No data yet.</Text>;
+  if (!allDates.length) return <Text size="sm" c="dimmed" ta="center" p="xl">No data yet.</Text>;
 
   const cc = (v: number) => !v ? "dimmed" : v > 20000 ? "red" : v > 10000 ? "orange" : v > 5000 ? "yellow" : "teal";
 
   return (
-    <Table.ScrollContainer minWidth={400}>
-      <Table highlightOnHover>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Date</Table.Th>
-            {users.map(k => <Table.Th key={k}>{isAdmin ? k : maskToken(k)}</Table.Th>)}
-            <Table.Th>Total</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {dates.map(d => {
-            const row = d.by_user || {};
-            const total = d.total;
-            return (
-              <Table.Tr key={d.date} style={d.date === today ? { background: "light-dark(rgba(59,130,246,.05),rgba(59,130,246,.1))" } : {}}>
-                <Table.Td pl="md" ff="monospace">
-                  {d.date}
-                  {d.date === today && <Badge color="blue" size="xs" ml="xs">today</Badge>}
-                </Table.Td>
-                {users.map(k => (
-                  <Table.Td key={k}>
-                    <Text size="sm" ff="monospace" fw={600} c={cc(row[k] || 0)}>
-                      {row[k] ? row[k].toLocaleString() : "—"}
-                    </Text>
+    <Stack gap={0}>
+      <Table.ScrollContainer minWidth={400}>
+        <Table highlightOnHover>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Date</Table.Th>
+              {users.map(k => <Table.Th key={k}>{isAdmin ? k : maskToken(k)}</Table.Th>)}
+              <Table.Th>Total</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {dates.map(d => {
+              const row   = d.by_user || {};
+              const total = d.total;
+              return (
+                <Table.Tr key={d.date} style={d.date === today ? { background: "light-dark(rgba(59,130,246,.05),rgba(59,130,246,.1))" } : {}}>
+                  <Table.Td pl="md" ff="monospace">
+                    {d.date}
+                    {d.date === today && <Badge color="blue" size="xs" ml="xs">today</Badge>}
                   </Table.Td>
-                ))}
-                <Table.Td>
-                  <Text size="sm" ff="monospace" fw={700} c={cc(total)}>{total ? total.toLocaleString() : "—"}</Text>
-                </Table.Td>
-              </Table.Tr>
-            );
-          })}
-        </Table.Tbody>
-      </Table>
-    </Table.ScrollContainer>
+                  {users.map(k => (
+                    <Table.Td key={k}>
+                      <Text size="sm" ff="monospace" fw={600} c={cc(row[k] || 0)}>
+                        {row[k] ? row[k].toLocaleString() : "—"}
+                      </Text>
+                    </Table.Td>
+                  ))}
+                  <Table.Td>
+                    <Text size="sm" ff="monospace" fw={700} c={cc(total)}>{total ? total.toLocaleString() : "—"}</Text>
+                  </Table.Td>
+                </Table.Tr>
+              );
+            })}
+          </Table.Tbody>
+        </Table>
+      </Table.ScrollContainer>
+
+      {pages > 1 && (
+        <Group justify="space-between" p="sm" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
+          <Pagination total={pages} value={page} onChange={setPage} size="sm" />
+          <Text size="xs" c="dimmed">
+            {`${(page - 1) * DAILY_PER_PAGE + 1}–${Math.min(page * DAILY_PER_PAGE, allDates.length)} of ${allDates.length} days`}
+          </Text>
+        </Group>
+      )}
+    </Stack>
   );
 }
 
