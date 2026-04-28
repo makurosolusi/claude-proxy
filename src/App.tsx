@@ -1096,24 +1096,28 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const pageBg  = useMemo(() => {
     if (t <= 0) return undefined;
     if (isDark) {
-      // Dark: transparent base at top, deep red glow rises from bottom
-      const a1 = (t * 0.90).toFixed(3);   // core glow opacity
-      const a2 = (t * 0.45).toFixed(3);   // mid-fade opacity
+      // Dark: red dominates bottom 80%, fades to transparent only at very top
+      const a1 = (t * 0.95).toFixed(3);
+      const a2 = (t * 0.75).toFixed(3);
+      const a3 = (t * 0.30).toFixed(3);
       return [
-        `radial-gradient(ellipse 120% 60% at 50% 100%,`,
-        ` rgba(90,6,6,${a1}) 0%,`,
-        ` rgba(55,5,5,${a2}) 35%,`,
-        ` transparent 65%)`,
+        `radial-gradient(ellipse 150% 90% at 50% 100%,`,
+        ` rgba(100,6,6,${a1}) 0%,`,
+        ` rgba(70,5,5,${a2}) 45%,`,
+        ` rgba(40,4,4,${a3}) 70%,`,
+        ` transparent 90%)`,
       ].join("");
     } else {
-      // Light: subtle warm-red tint rises from bottom
-      const a1 = (t * 0.18).toFixed(3);
-      const a2 = (t * 0.07).toFixed(3);
+      // Light: strong warm-red tint covers most of the page
+      const a1 = (t * 0.30).toFixed(3);
+      const a2 = (t * 0.18).toFixed(3);
+      const a3 = (t * 0.07).toFixed(3);
       return [
-        `radial-gradient(ellipse 120% 60% at 50% 100%,`,
+        `radial-gradient(ellipse 150% 90% at 50% 100%,`,
         ` rgba(220,40,40,${a1}) 0%,`,
-        ` rgba(200,30,30,${a2}) 35%,`,
-        ` transparent 65%)`,
+        ` rgba(200,30,30,${a2}) 45%,`,
+        ` rgba(180,20,20,${a3}) 70%,`,
+        ` transparent 90%)`,
       ].join("");
     }
   }, [t, isDark]);
