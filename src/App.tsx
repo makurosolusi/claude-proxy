@@ -8,6 +8,8 @@ import {
   IconLogout, IconLogin,
   IconChevronsLeft, IconChevronsRight, IconMenu2,
   IconPlus, IconHistory, IconBrandGithub,
+  IconPlugConnected, IconCircleCheck, IconCircleX, IconClock, IconPlayerPlay as IconRun,
+  IconWifi,
 } from "@tabler/icons-react";
 import {
   Container, Group, Stack, Grid, Title, Text, Paper, Box, Center, Loader,
@@ -631,8 +633,134 @@ function AdminStats() {
   );
 }
 
+// ── Admin Test Connection ─────────────────────────────────────────────────────
+interface TestResult { ok: boolean; latency: number; detail: string; error?: string; }
+interface TestResponse {
+  ok: boolean; mode: string; ts: string;
+  results: { credential: TestResult; usage: TestResult; messages: TestResult; };
+}
+
+function AdminTest() {
+  const [result,  setResult]  = useState<TestResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err,     setErr]     = useState<string | null>(null);
+
+  const run = async () => {
+    setLoading(true); setErr(null); setResult(null);
+    try {
+      const r = await fetch("/api/admin/test");
+      if (!r.ok) { setErr(`HTTP ${r.status}`); return; }
+      setResult(await r.json());
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const steps: { key: keyof TestResponse["results"]; label: string; desc: string }[] = [
+    { key: "credential", label: "OAuth Credential",    desc: "Read claude-*.json from CLIPROXY_AUTH_DIR" },
+    { key: "usage",      label: "Usage Endpoint",      desc: "GET api.anthropic.com/api/oauth/usage" },
+    { key: "messages",   label: "Messages API",        desc: "POST /v1/messages — minimal test request" },
+  ];
+
+  return (
+    <Stack gap="xl" maw={640}>
+      <Stack gap={4}>
+        <Title order={4}>Connection Test</Title>
+        <Text size="sm" c="dimmed">
+          Verify the full pipeline: credential file → usage API → messages API.
+        </Text>
+      </Stack>
+
+      {result && (
+        <Paper withBorder p="xs" style={{
+          borderColor: `var(--mantine-color-${result.ok ? "teal" : "red"}-5)`,
+          background:  `light-dark(var(--mantine-color-${result.ok ? "teal" : "red"}-0), var(--mantine-color-${result.ok ? "teal" : "red"}-9))`,
+        }}>
+          <Group gap="xs">
+            {result.ok
+              ? <IconCircleCheck size={16} color="var(--mantine-color-teal-5)" />
+              : <IconCircleX    size={16} color="var(--mantine-color-red-5)"  />}
+            <Text size="sm" fw={600} c={result.ok ? "teal" : "red"}>
+              {result.ok ? "All checks passed" : "One or more checks failed"}
+            </Text>
+            <Badge variant="outline" size="xs" color="gray" ml="auto">
+              mode: {result.mode}
+            </Badge>
+          </Group>
+        </Paper>
+      )}
+
+      {/* Result rows */}
+      {result && (
+        <Stack gap="xs">
+          {steps.map(({ key, label, desc }) => {
+            const r = result.results[key];
+            return (
+              <Paper key={key} withBorder p="md">
+                <Group justify="space-between" mb={r.error ? 6 : 0}>
+                  <Group gap="sm">
+                    {r.ok
+                      ? <IconCircleCheck size={18} color="var(--mantine-color-teal-5)" />
+                      : <IconCircleX    size={18} color="var(--mantine-color-red-5)"  />}
+                    <Stack gap={0}>
+                      <Text size="sm" fw={600}>{label}</Text>
+                      <Text size="xs" c="dimmed">{desc}</Text>
+                    </Stack>
+                  </Group>
+                  <Group gap="xs">
+                    {r.latency > 0 && (
+                      <Group gap={4}>
+                        <IconClock size={12} color="var(--mantine-color-dimmed)" />
+                        <Text size="xs" c="dimmed" ff="monospace">{r.latency} ms</Text>
+                      </Group>
+                    )}
+                    <Badge color={r.ok ? "teal" : "red"} variant="light" size="sm">
+                      {r.ok ? "OK" : "FAIL"}
+                    </Badge>
+                  </Group>
+                </Group>
+                <Text size="xs" ff="monospace" c={r.ok ? "dimmed" : "red"} mt={4}>
+                  {r.error ?? r.detail}
+                </Text>
+              </Paper>
+            );
+          })}
+        </Stack>
+      )}
+
+      {err && (
+        <Paper withBorder p="md" style={{ borderColor: "var(--mantine-color-red-5)" }}>
+          <Group gap="xs">
+            <IconCircleX size={16} color="var(--mantine-color-red-5)" />
+            <Text size="sm" c="red">{err}</Text>
+          </Group>
+        </Paper>
+      )}
+
+      <Group>
+        <Button
+          leftSection={loading ? <Loader size={14} color="white" /> : <IconWifi size={16} />}
+          loading={loading}
+          onClick={run}
+          color="blue"
+          size="sm"
+        >
+          {loading ? "Running tests…" : result ? "Run Again" : "Run Connection Test"}
+        </Button>
+        {result && (
+          <Text size="xs" c="dimmed" ff="monospace">
+            last run: {new Date(result.ts).toLocaleTimeString()}
+          </Text>
+        )}
+      </Group>
+    </Stack>
+  );
+}
+
 // ── Admin Dashboard (AppShell layout) ─────────────────────────────────────────
-type AdminSection = "overview" | "users" | "logs" | "stats";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "test";
 
 function AdminDashboard() {
   const status = useStatus()!;
@@ -646,10 +774,11 @@ function AdminDashboard() {
 
   const SZ = 17;
   const navItems: { id: AdminSection; label: string; icon: React.ReactNode; desc: string }[] = [
-    { id: "overview", label: "Overview",    icon: <IconLayoutDashboard size={SZ} />, desc: "Upstream & quick stats" },
-    { id: "users",    label: "Users",       icon: <IconUsers           size={SZ} />, desc: "Token management"       },
-    { id: "logs",     label: "Request Logs",icon: <IconList            size={SZ} />, desc: "Activity & history"     },
-    { id: "stats",    label: "Stats",       icon: <IconChartBar        size={SZ} />, desc: "Daily usage history"    },
+    { id: "overview", label: "Overview",       icon: <IconLayoutDashboard size={SZ} />, desc: "Upstream & quick stats" },
+    { id: "users",    label: "Users",          icon: <IconUsers           size={SZ} />, desc: "Token management"       },
+    { id: "logs",     label: "Request Logs",   icon: <IconList            size={SZ} />, desc: "Activity & history"     },
+    { id: "stats",    label: "Stats",          icon: <IconChartBar        size={SZ} />, desc: "Daily usage history"    },
+    { id: "test",     label: "Test Connection",icon: <IconPlugConnected   size={SZ} />, desc: "Verify API connectivity" },
   ];
   const footerItems: { icon: React.ReactNode; label: string; href: string; target?: string }[] = [
     { icon: <IconSitemap      size={SZ} />, label: "Mind Map",    href: "/mind", target: "_blank" },
@@ -658,7 +787,7 @@ function AdminDashboard() {
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
   const sectionTitles: Record<AdminSection, string> = {
-    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats",
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", test: "Test Connection",
   };
   const statusColor = upstream.ok ? "teal" : "red";
   const SIDEBAR_W   = collapsed ? 56 : 220;
@@ -813,6 +942,7 @@ function AdminDashboard() {
           {section === "users"    && <AdminUsers tokens={tokens} />}
           {section === "logs"     && <RequestLog isAdmin={true} />}
           {section === "stats"    && <AdminStats />}
+          {section === "test"     && <AdminTest />}
         </Box>
       </AppShell.Main>
     </AppShell>

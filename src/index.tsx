@@ -8,6 +8,7 @@ import { handleApiStatus } from "./handlers/apiStatus";
 import { handleApiLogs }   from "./handlers/apiLogs";
 import { handleApiStats }  from "./handlers/apiStats";
 import { handleApiMind }   from "./handlers/apiMind";
+import { handleApiTest }   from "./handlers/apiTest";
 import { handleAdmin }     from "./handlers/admin";
 import { handleProxy }     from "./handlers/proxy";
 import { _broadcast }      from "./broadcast";
@@ -223,6 +224,10 @@ server = serve({
       catch (e: any) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
     },
     "/api/mind": () => handleApiMind(),
+    "/api/admin/test": req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiTest();
+    },
     "/api/stats": req => {
       if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiStats();
