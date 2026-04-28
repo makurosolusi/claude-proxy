@@ -5,6 +5,7 @@ import {
   Container, Group, Stack, Grid, Title, Text, Paper, Box, Center, Loader,
   Table, Badge, Progress, RingProgress, ActionIcon, Button,
   Select, TextInput, Modal, Code, Pagination,
+  AppShell, NavLink, ScrollArea, Divider, Burger, SimpleGrid, NumberFormatter,
   useMantineColorScheme, Tooltip,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
@@ -96,7 +97,11 @@ function NotFoundPage() {
 function RequireAdmin({ children }: { children: React.ReactNode }) {
   const status = useStatus();
   if (!status) return <LoadingScreen />;
-  if (!status.isAdmin) return <Navigate to="/admin/login" replace />;
+  if (!status.isAdmin) {
+    // Hard redirect — /admin/login is server-rendered HTML, not in React Router
+    window.location.replace("/admin/login");
+    return null;
+  }
   return <>{children}</>;
 }
 
@@ -440,6 +445,366 @@ function DetailContent({ log: l }: { log: LogEntry }) {
       {l.system_prompt && <><Text size="xs" c="dimmed" tt="uppercase" fw={700}>System Prompt</Text><Code block maw="100%" style={{ maxHeight: 150, overflow: "auto" }}>{l.system_prompt}</Code></>}
       {l.prompt && <><Text size="xs" c="dimmed" tt="uppercase" fw={700}>User Prompt</Text><Code block maw="100%" style={{ maxHeight: 280, overflow: "auto" }}>{l.prompt}</Code></>}
     </Stack>
+  );
+}
+
+// ── Admin stat card ───────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, color, suffix }: {
+  label: string; value: string | number; sub?: string; color?: string; suffix?: string;
+}) {
+  return (
+    <Paper withBorder p="md" h="100%">
+      <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={6} style={{ letterSpacing: ".07em" }}>{label}</Text>
+      <Group gap={4} align="baseline">
+        <Text size="xl" fw={800} c={color ?? "inherit"}>
+          {typeof value === "number" ? <NumberFormatter value={value} thousandSeparator /> : value}
+        </Text>
+        {suffix && <Text size="sm" c="dimmed">{suffix}</Text>}
+      </Group>
+      {sub && <Text size="xs" c="dimmed" mt={4}>{sub}</Text>}
+    </Paper>
+  );
+}
+
+// ── Admin Overview section ─────────────────────────────────────────────────────
+function AdminOverview({ tokens, upstream }: {
+  tokens: Record<string, TokenStatus>; upstream: UpstreamData;
+}) {
+  const totalToday  = Object.values(tokens).reduce((s, t) => s + (t.today ?? 0), 0);
+  const totalUsed   = Object.values(tokens).reduce((s, t) => s + t.used, 0);
+  const activeUsers = Object.values(tokens).filter(t => (t.today ?? 0) > 0).length;
+  const utilPct     = upstream.fiveHour?.utilization ?? null;
+  const resetsIn    = upstream.fiveHour ? fmtResetAt(upstream.fiveHour.resets_at) : null;
+
+  return (
+    <Stack gap="xl">
+      {/* Stat cards */}
+      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
+        <StatCard
+          label="Tokens today"
+          value={totalToday}
+          sub="across all users"
+          color={totalToday > 50000 ? "red" : totalToday > 20000 ? "orange" : "teal"}
+        />
+        <StatCard
+          label="Upstream 5h"
+          value={utilPct !== null ? `${utilPct.toFixed(1)}` : "—"}
+          suffix="%"
+          sub={resetsIn ? `resets ${resetsIn}` : undefined}
+          color={utilPct !== null ? pctColor(utilPct) : undefined}
+        />
+        <StatCard
+          label="Active users"
+          value={activeUsers}
+          sub={`of ${Object.keys(tokens).length} total`}
+          color="blue"
+        />
+        <StatCard
+          label="Window usage"
+          value={totalUsed}
+          sub="current window"
+        />
+      </SimpleGrid>
+
+      {/* Upstream detail */}
+      <Stack gap="xs">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Upstream Health</Text>
+        <Paper withBorder p="md">
+          <UpstreamSection upstream={upstream} isAdmin={true} />
+        </Paper>
+      </Stack>
+
+      {/* Quick actions */}
+      <Stack gap="xs">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Quick Actions</Text>
+        <Paper withBorder p="md">
+          <Group gap="sm" wrap="wrap">
+            <form method="POST" action="/admin/reset" onSubmit={e => { if (!confirm("Reset all token usage?")) e.preventDefault(); }}>
+              <input type="hidden" name="all" value="true" />
+              <Button type="submit" variant="light" color="gray" size="sm" leftSection="↺">Reset All Usage</Button>
+            </form>
+            <form method="POST" action="/admin/token/pause">
+              <input type="hidden" name="all" value="true" />
+              <Button type="submit" variant="light" color="orange" size="sm" leftSection="⏸">Pause All Tokens</Button>
+            </form>
+            <form method="POST" action="/admin/token/edit-all" onSubmit={e => {
+              const v = prompt("New limit for all tokens:");
+              if (!v) { e.preventDefault(); return; }
+              (e.currentTarget.querySelector('[name=limit]') as HTMLInputElement).value = v;
+            }}>
+              <input type="hidden" name="limit" value="" />
+              <Button type="submit" variant="light" color="blue" size="sm" leftSection="✎">Edit All Limits</Button>
+            </form>
+            <Button component="a" href="/admin/logout" variant="subtle" color="gray" size="sm">Sign out</Button>
+          </Group>
+        </Paper>
+      </Stack>
+    </Stack>
+  );
+}
+
+// ── Admin Users section ────────────────────────────────────────────────────────
+function AdminUsers({ tokens }: { tokens: Record<string, TokenStatus> }) {
+  const [newKey, setNewKey]     = useState("");
+  const [newLimit, setNewLimit] = useState("40000");
+
+  const handleAdd = (e: React.FormEvent) => {
+    if (!newKey.trim()) { e.preventDefault(); }
+  };
+
+  return (
+    <Stack gap="xl">
+      {/* Users table */}
+      <Stack gap="xs">
+        <Group justify="space-between">
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Token Management</Text>
+          <Group gap="xs">
+            <form method="POST" action="/admin/reset" onSubmit={e => { if (!confirm("Reset all?")) e.preventDefault(); }}>
+              <input type="hidden" name="all" value="true" />
+              <Button type="submit" size="xs" variant="subtle" color="gray">↺ Reset All</Button>
+            </form>
+            <form method="POST" action="/admin/token/pause">
+              <input type="hidden" name="all" value="true" />
+              <Button type="submit" size="xs" variant="subtle" color="orange">⏸ Pause All</Button>
+            </form>
+          </Group>
+        </Group>
+        <Paper withBorder style={{ overflow: "hidden" }}>
+          <Table.ScrollContainer minWidth={500}>
+            <UsersTable tokens={tokens} isAdmin={true} />
+          </Table.ScrollContainer>
+        </Paper>
+      </Stack>
+
+      {/* Add token */}
+      <Stack gap="xs">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Add New Token</Text>
+        <Paper withBorder p="lg">
+          <form method="POST" action="/admin/token/add" onSubmit={handleAdd}>
+            <Group align="flex-end" gap="sm" wrap="wrap">
+              <TextInput
+                label="Token key"
+                name="token"
+                placeholder="sk-user-name"
+                required
+                size="sm"
+                w={240}
+                value={newKey}
+                onChange={e => setNewKey(e.currentTarget.value)}
+                description="Must start with sk-user-"
+              />
+              <TextInput
+                label="Limit"
+                name="limit"
+                size="sm"
+                w={140}
+                value={newLimit}
+                onChange={e => setNewLimit(e.currentTarget.value)}
+                description="Token quota (tokens)"
+              />
+              <Button type="submit" color="teal" size="sm" mb={20}>Add Token</Button>
+            </Group>
+          </form>
+        </Paper>
+      </Stack>
+    </Stack>
+  );
+}
+
+// ── Admin Stats section ───────────────────────────────────────────────────────
+function AdminStats() {
+  return (
+    <Stack gap="xs">
+      <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Daily Usage History</Text>
+      <Paper withBorder style={{ overflow: "hidden" }}>
+        <DailyHistory isAdmin={true} />
+      </Paper>
+    </Stack>
+  );
+}
+
+// ── Admin Dashboard (AppShell layout) ─────────────────────────────────────────
+type AdminSection = "overview" | "users" | "logs" | "stats";
+
+function AdminDashboard() {
+  const status = useStatus()!;
+  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const [section,   setSection]   = useState<AdminSection>("overview");
+  const [mobileOpen, { toggle: toggleMobile, close }] = useDisclosure(false);
+  const [collapsed,  { toggle: toggleCollapse }]      = useDisclosure(false);
+
+  const { tokens, upstream } = status;
+  const nav = (s: AdminSection) => { setSection(s); close(); };
+
+  const navItems: { id: AdminSection; label: string; icon: string; desc: string }[] = [
+    { id: "overview", label: "Overview",    icon: "◉", desc: "Upstream & quick stats" },
+    { id: "users",    label: "Users",       icon: "◈", desc: "Token management"       },
+    { id: "logs",     label: "Request Logs",icon: "≡", desc: "Activity & history"     },
+    { id: "stats",    label: "Stats",       icon: "▦", desc: "Daily usage history"    },
+  ];
+  const footerItems = [
+    { icon: "✦", label: "Mind Map",    href: "/mind", target: "_blank" },
+    { icon: "↗", label: "Public View", href: "/",     target: undefined },
+  ];
+
+  const utilPct = upstream.fiveHour?.utilization ?? null;
+  const sectionTitles: Record<AdminSection, string> = {
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats",
+  };
+  const statusColor = upstream.ok ? "teal" : "red";
+  const SIDEBAR_W   = collapsed ? 56 : 220;
+
+  return (
+    <AppShell
+      header={{ height: 56 }}
+      navbar={{ width: SIDEBAR_W, breakpoint: "sm", collapsed: { mobile: !mobileOpen } }}
+      padding={0}
+      transitionDuration={200}
+    >
+      {/* ── Header ── */}
+      <AppShell.Header>
+        <Group h="100%" px="md" justify="space-between">
+          <Group gap="sm">
+            <Burger opened={mobileOpen} onClick={toggleMobile} hiddenFrom="sm" size="sm" />
+            {/* Collapse toggle — desktop only */}
+            <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} position="bottom" withArrow openDelay={400}>
+              <ActionIcon variant="subtle" size="sm" onClick={toggleCollapse} visibleFrom="sm">
+                <Text size="xs" style={{ lineHeight: 1 }}>{collapsed ? "▶" : "◀"}</Text>
+              </ActionIcon>
+            </Tooltip>
+            {!collapsed && (
+              <Text fw={800} ff="monospace" size="sm" style={{ letterSpacing: ".06em" }} visibleFrom="sm">
+                claude-proxy
+              </Text>
+            )}
+            <Text fw={800} ff="monospace" size="sm" style={{ letterSpacing: ".06em" }} hiddenFrom="sm">
+              claude-proxy
+            </Text>
+            <Badge variant="dot" color="teal" size="sm" visibleFrom="sm">admin</Badge>
+          </Group>
+          <Text size="sm" fw={600} visibleFrom="sm">{sectionTitles[section]}</Text>
+          <Group gap="xs">
+            {utilPct !== null && (
+              <Badge color={pctColor(utilPct)} variant="light" size="sm" visibleFrom="xs">
+                {utilPct.toFixed(0)}% upstream
+              </Badge>
+            )}
+            <ActionIcon variant="default" size="md" onClick={() => toggleColorScheme()} title="Toggle theme">
+              {colorScheme === "dark" ? "☀" : "🌙"}
+            </ActionIcon>
+          </Group>
+        </Group>
+      </AppShell.Header>
+
+      {/* ── Sidebar ── */}
+      <AppShell.Navbar style={{ overflow: "hidden", transition: "width 200ms ease" }}>
+
+        {/* ── Main nav items ── */}
+        <AppShell.Section grow component={ScrollArea} p="xs" pt="md">
+          {!collapsed && (
+            <Box px="xs" mb="xs">
+              <Text size="xs" c="dimmed" tt="uppercase" fw={700} style={{ letterSpacing: ".1em" }}>Navigation</Text>
+            </Box>
+          )}
+          <Stack gap={2} align={collapsed ? "center" : "stretch"}>
+            {navItems.map(item => collapsed ? (
+              <Tooltip key={item.id} label={item.label} position="right" withArrow openDelay={100}>
+                <ActionIcon
+                  size={40}
+                  variant={section === item.id ? "filled" : "subtle"}
+                  color={section === item.id ? "blue" : "gray"}
+                  onClick={() => nav(item.id)}
+                  style={{ borderRadius: 8 }}
+                >
+                  <Text size="md" style={{ lineHeight: 1 }}>{item.icon}</Text>
+                </ActionIcon>
+              </Tooltip>
+            ) : (
+              <NavLink
+                key={item.id}
+                active={section === item.id}
+                label={item.label}
+                description={item.desc}
+                leftSection={<Text size="sm">{item.icon}</Text>}
+                onClick={() => nav(item.id)}
+                style={{ borderRadius: 6 }}
+              />
+            ))}
+          </Stack>
+        </AppShell.Section>
+
+        {/* ── Footer links + status ── */}
+        <AppShell.Section p="xs" pb="md">
+          <Divider mb="xs" />
+          <Stack gap={2} align={collapsed ? "center" : "stretch"}>
+            {footerItems.map(fi => collapsed ? (
+              <Tooltip key={fi.label} label={fi.label} position="right" withArrow openDelay={100}>
+                <ActionIcon
+                  size={40}
+                  variant="subtle"
+                  color="gray"
+                  component="a"
+                  href={fi.href}
+                  target={fi.target}
+                  style={{ borderRadius: 8 }}
+                >
+                  <Text size="md" style={{ lineHeight: 1 }}>{fi.icon}</Text>
+                </ActionIcon>
+              </Tooltip>
+            ) : (
+              <NavLink
+                key={fi.label}
+                label={fi.label}
+                description={fi.label === "Mind Map" ? "Graph visualization" : "User dashboard"}
+                leftSection={<Text size="sm">{fi.icon}</Text>}
+                component="a"
+                href={fi.href}
+                target={fi.target}
+                style={{ borderRadius: 6 }}
+              />
+            ))}
+          </Stack>
+          <Divider my="xs" />
+          {collapsed ? (
+            <Tooltip
+              label={`${upstream.email ?? "no credential"} · poll ${status.pollAge}`}
+              position="right"
+              withArrow
+              multiline
+              w={200}
+            >
+              <Box style={{ display: "flex", justifyContent: "center", padding: "4px 0" }}>
+                <Box
+                  w={10} h={10}
+                  style={{ borderRadius: "50%", cursor: "default",
+                    background: `var(--mantine-color-${statusColor}-5)` }}
+                />
+              </Box>
+            </Tooltip>
+          ) : (
+            <Box px="xs" py={4}>
+              <Group gap="xs" mb={2}>
+                <Box w={7} h={7} style={{ borderRadius: "50%", flexShrink: 0, background: `var(--mantine-color-${statusColor}-5)` }} />
+                <Text size="xs" c="dimmed" ff="monospace" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {upstream.email ?? "no credential"}
+                </Text>
+              </Group>
+              <Text size="10px" c="dimmed" pl={15}>poll {status.pollAge}</Text>
+            </Box>
+          )}
+        </AppShell.Section>
+      </AppShell.Navbar>
+
+      {/* ── Main content ── */}
+      <AppShell.Main>
+        <Box p="lg">
+          {section === "overview" && <AdminOverview tokens={tokens} upstream={upstream} />}
+          {section === "users"    && <AdminUsers tokens={tokens} />}
+          {section === "logs"     && <RequestLog isAdmin={true} />}
+          {section === "stats"    && <AdminStats />}
+        </Box>
+      </AppShell.Main>
+    </AppShell>
   );
 }
 
@@ -816,7 +1181,7 @@ export function App() {
         } />
         <Route path="/admin" element={
           <RequireAdmin>
-            <Dashboard isAdmin={true} />
+            <AdminDashboard />
           </RequireAdmin>
         } />
         <Route path="/mind" element={<MindPage />} />
