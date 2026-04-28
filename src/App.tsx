@@ -120,9 +120,9 @@ function PeriodCard({ label, data, size = "sm" }: {
   label: string; data: UpstreamPeriod; size?: "sm" | "lg";
 }) {
   const p       = data.utilization;
-  const ring    = size === "lg" ? 130 : 80;
-  const thick   = size === "lg" ? 10  : 7;
-  const fzPct   = size === "lg" ? "xl" : "sm";
+  const ring    = size === "lg" ? 240 : 80;
+  const thick   = size === "lg" ? 16  : 7;
+  const fzPct   = size === "lg" ? "2xl" : "sm";
   const fwLabel = size === "lg" ? 800  : 700;
 
   return (
