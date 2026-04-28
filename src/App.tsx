@@ -1080,13 +1080,33 @@ function AddTokenInline() {
   );
 }
 
+// Interpolate between two RGB colours by t (0–1)
+function lerpRgb(t: number, r0: number, g0: number, b0: number, r1: number, g1: number, b1: number) {
+  return `rgb(${Math.round(r0 + t*(r1-r0))},${Math.round(g0 + t*(g1-g0))},${Math.round(b0 + t*(b1-b0))})`;
+}
+
 function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { tokens, upstream } = status;
   const title = isAdmin ? "claude-proxy · admin" : "claude-proxy";
 
+  // Dynamic background: shifts towards deep red as upstream 5h utilization rises.
+  // Starts shifting at 20%, reaches full intensity at 90%.
+  const utilPct = upstream?.fiveHour?.utilization ?? 0;
+  const t       = Math.max(0, Math.min(1, (utilPct - 20) / 70));
+  const isDark  = colorScheme === "dark" ||
+    (colorScheme === "auto" && typeof window !== "undefined" &&
+     window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const pageBg  = useMemo(() => {
+    if (t <= 0) return undefined;
+    return isDark
+      ? lerpRgb(t, 26,27,30,  52,8,8)    // #1A1B1E → #340808
+      : lerpRgb(t, 255,255,255, 255,224,224); // #fff → #ffe0e0
+  }, [t, isDark]);
+
   return (
+    <Box style={{ minHeight: "100vh", background: pageBg, transition: "background 3s ease" }}>
     <Container size="lg" py="lg">
       {/* Header */}
       <Group justify="space-between" mb="xl">
@@ -1149,6 +1169,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       {/* Request log */}
       <RequestLog isAdmin={isAdmin} />
     </Container>
+    </Box>
   );
 }
 
