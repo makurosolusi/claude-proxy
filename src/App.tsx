@@ -174,7 +174,17 @@ function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData; isAdmi
 }
 
 // ── Users table ───────────────────────────────────────────────────────────────
+// Shared AJAX helper — no page reload, WebSocket pushes updated state
+async function adminPost(path: string, fields: Record<string, string> = {}) {
+  await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields),
+  });
+}
+
 const USERS_PER_PAGE = 10;
+const ACT_SZ = 15; // consistent icon size for all action buttons
 
 function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenStatus>; isAdmin: boolean }) {
   const [page, setPage] = useState(1);
@@ -233,27 +243,30 @@ function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenStatus>; 
               {isAdmin && (
                 <Table.Td data-label="Actions">
                   <Group gap={4}>
-                    <form method="POST" action="/admin/reset">
-                      <input type="hidden" name="token" value={k} />
-                      <Tooltip label="Reset usage"><ActionIcon variant="subtle" color="gray" type="submit"><IconRefresh size={14} /></ActionIcon></Tooltip>
-                    </form>
-                    <form method="POST" action="/admin/token/edit" onSubmit={e => { const v = prompt("New limit:", lim); if (!v) { e.preventDefault(); return; } (e.currentTarget.querySelector('[name=limit]') as HTMLInputElement).value = v; }}>
-                      <input type="hidden" name="token" value={k} />
-                      <input type="hidden" name="limit" value={lim} />
-                      <Tooltip label="Edit limit"><ActionIcon variant="subtle" color="gray" type="submit"><IconPencil size={14} /></ActionIcon></Tooltip>
-                    </form>
-                    <form method="POST" action="/admin/token/pause">
-                      <input type="hidden" name="token" value={k} />
-                      <Tooltip label={tk.paused ? "Resume" : "Pause"}>
-                        <ActionIcon variant="light" color={tk.paused ? "teal" : "orange"} type="submit">
-                          {tk.paused ? <IconPlayerPlay size={14} /> : <IconPlayerPause size={14} />}
-                        </ActionIcon>
-                      </Tooltip>
-                    </form>
-                    <form method="POST" action="/admin/token/delete" onSubmit={e => { if (!confirm(`Delete ${k}?`)) e.preventDefault(); }}>
-                      <input type="hidden" name="token" value={k} />
-                      <Tooltip label="Delete"><ActionIcon variant="light" color="red" type="submit"><IconTrash size={14} /></ActionIcon></Tooltip>
-                    </form>
+                    <Tooltip label="Reset usage" withArrow>
+                      <ActionIcon variant="subtle" color="gray" size="sm"
+                        onClick={() => adminPost("/admin/reset", { token: k })}>
+                        <IconRefresh size={ACT_SZ} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Edit limit" withArrow>
+                      <ActionIcon variant="subtle" color="gray" size="sm"
+                        onClick={() => { const v = prompt("New limit:", lim); if (v) adminPost("/admin/token/edit", { token: k, limit: v }); }}>
+                        <IconPencil size={ACT_SZ} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={tk.paused ? "Resume" : "Pause"} withArrow>
+                      <ActionIcon variant="subtle" color={tk.paused ? "teal" : "orange"} size="sm"
+                        onClick={() => adminPost("/admin/token/pause", { token: k })}>
+                        {tk.paused ? <IconPlayerPlay size={ACT_SZ} /> : <IconPlayerPause size={ACT_SZ} />}
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Delete" withArrow>
+                      <ActionIcon variant="subtle" color="red" size="sm"
+                        onClick={() => { if (confirm(`Delete ${k}?`)) adminPost("/admin/token/delete", { token: k }); }}>
+                        <IconTrash size={ACT_SZ} />
+                      </ActionIcon>
+                    </Tooltip>
                   </Group>
                 </Table.Td>
               )}
@@ -623,22 +636,18 @@ function AdminOverview({ tokens, upstream }: {
         <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Quick Actions</Text>
         <Paper withBorder p="md">
           <Group gap="sm" wrap="wrap">
-            <form method="POST" action="/admin/reset" onSubmit={e => { if (!confirm("Reset all token usage?")) e.preventDefault(); }}>
-              <input type="hidden" name="all" value="true" />
-              <Button type="submit" variant="light" color="gray" size="sm" leftSection={<IconRefresh size={15} />}>Reset All Usage</Button>
-            </form>
-            <form method="POST" action="/admin/token/pause">
-              <input type="hidden" name="all" value="true" />
-              <Button type="submit" variant="light" color="orange" size="sm" leftSection={<IconPlayerPause size={15} />}>Pause All Tokens</Button>
-            </form>
-            <form method="POST" action="/admin/token/edit-all" onSubmit={e => {
-              const v = prompt("New limit for all tokens:");
-              if (!v) { e.preventDefault(); return; }
-              (e.currentTarget.querySelector('[name=limit]') as HTMLInputElement).value = v;
-            }}>
-              <input type="hidden" name="limit" value="" />
-              <Button type="submit" variant="light" color="blue" size="sm" leftSection={<IconPencil size={15} />}>Edit All Limits</Button>
-            </form>
+            <Button variant="light" color="gray" size="sm" leftSection={<IconRefresh size={15} />}
+              onClick={() => { if (confirm("Reset all token usage?")) adminPost("/admin/reset", { all: "true" }); }}>
+              Reset All Usage
+            </Button>
+            <Button variant="light" color="orange" size="sm" leftSection={<IconPlayerPause size={15} />}
+              onClick={() => adminPost("/admin/token/pause", { all: "true" })}>
+              Pause All Tokens
+            </Button>
+            <Button variant="light" color="blue" size="sm" leftSection={<IconPencil size={15} />}
+              onClick={() => { const v = prompt("New limit for all tokens:"); if (v) adminPost("/admin/token/edit-all", { limit: v }); }}>
+              Edit All Limits
+            </Button>
             <Button component="a" href="/admin/logout" variant="subtle" color="gray" size="sm" leftSection={<IconLogout size={15} />}>Sign out</Button>
           </Group>
         </Paper>
@@ -652,8 +661,10 @@ function AdminUsers({ tokens }: { tokens: Record<string, TokenStatus> }) {
   const [newKey, setNewKey]     = useState("");
   const [newLimit, setNewLimit] = useState("40000");
 
-  const handleAdd = (e: React.FormEvent) => {
-    if (!newKey.trim()) { e.preventDefault(); }
+  const handleAdd = async () => {
+    if (!newKey.trim()) return;
+    await adminPost("/admin/token/add", { token: newKey.trim(), limit: newLimit });
+    setNewKey(""); setNewLimit("40000");
   };
 
   return (
@@ -663,14 +674,14 @@ function AdminUsers({ tokens }: { tokens: Record<string, TokenStatus> }) {
         <Group justify="space-between">
           <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Token Management</Text>
           <Group gap="xs">
-            <form method="POST" action="/admin/reset" onSubmit={e => { if (!confirm("Reset all?")) e.preventDefault(); }}>
-              <input type="hidden" name="all" value="true" />
-              <Button type="submit" size="xs" variant="subtle" color="gray" leftSection={<IconRefresh size={13} />}>Reset All</Button>
-            </form>
-            <form method="POST" action="/admin/token/pause">
-              <input type="hidden" name="all" value="true" />
-              <Button type="submit" size="xs" variant="subtle" color="orange" leftSection={<IconPlayerPause size={13} />}>Pause All</Button>
-            </form>
+            <Button size="xs" variant="subtle" color="gray" leftSection={<IconRefresh size={13} />}
+              onClick={() => { if (confirm("Reset all?")) adminPost("/admin/reset", { all: "true" }); }}>
+              Reset All
+            </Button>
+            <Button size="xs" variant="subtle" color="orange" leftSection={<IconPlayerPause size={13} />}
+              onClick={() => adminPost("/admin/token/pause", { all: "true" })}>
+              Pause All
+            </Button>
           </Group>
         </Group>
         <Paper withBorder style={{ overflow: "hidden" }}>
@@ -684,31 +695,30 @@ function AdminUsers({ tokens }: { tokens: Record<string, TokenStatus> }) {
       <Stack gap="xs">
         <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Add New Token</Text>
         <Paper withBorder p="lg">
-          <form method="POST" action="/admin/token/add" onSubmit={handleAdd}>
-            <Group align="flex-end" gap="sm" wrap="wrap">
-              <TextInput
-                label="Token key"
-                name="token"
-                placeholder="sk-user-name"
-                required
-                size="sm"
-                w={240}
-                value={newKey}
-                onChange={e => setNewKey(e.currentTarget.value)}
-                description="Must start with sk-user-"
-              />
-              <TextInput
-                label="Limit"
-                name="limit"
-                size="sm"
-                w={140}
-                value={newLimit}
-                onChange={e => setNewLimit(e.currentTarget.value)}
-                description="Token quota (tokens)"
-              />
-              <Button type="submit" color="teal" size="sm" mb={20} leftSection={<IconPlus size={15} />}>Add Token</Button>
-            </Group>
-          </form>
+          <Group align="flex-end" gap="sm" wrap="wrap">
+            <TextInput
+              label="Token key"
+              placeholder="sk-user-name"
+              required
+              size="sm"
+              w={240}
+              value={newKey}
+              onChange={e => setNewKey(e.currentTarget.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
+              description="Must start with sk-user-"
+            />
+            <TextInput
+              label="Limit"
+              size="sm"
+              w={140}
+              value={newLimit}
+              onChange={e => setNewLimit(e.currentTarget.value)}
+              description="Token quota (tokens)"
+            />
+            <Button color="teal" size="sm" mb={20} leftSection={<IconPlus size={15} />} onClick={handleAdd}>
+              Add Token
+            </Button>
+          </Group>
         </Paper>
       </Stack>
     </Stack>
@@ -859,12 +869,19 @@ type AdminSection = "overview" | "users" | "logs" | "stats" | "test";
 function AdminDashboard() {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
-  const [section,   setSection]   = useState<AdminSection>("overview");
+  const [section, setSection] = useState<AdminSection>(() => {
+    try { return (localStorage.getItem("admin-section") as AdminSection) || "overview"; }
+    catch { return "overview"; }
+  });
   const [mobileOpen, { toggle: toggleMobile, close }] = useDisclosure(false);
   const [collapsed,  { toggle: toggleCollapse }]      = useDisclosure(false);
 
   const { tokens, upstream } = status;
-  const nav = (s: AdminSection) => { setSection(s); close(); };
+  const nav = (s: AdminSection) => {
+    setSection(s);
+    try { localStorage.setItem("admin-section", s); } catch {}
+    close();
+  };
 
   const SZ = 17;
   const navItems: { id: AdminSection; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -1044,6 +1061,25 @@ function AdminDashboard() {
 }
 
 // ── Dashboard (shared layout) ──────────────────────────────────────────────────
+function AddTokenInline() {
+  const [k, setK] = useState(""); const [l, setL] = useState("40000");
+  return (
+    <Stack gap="xs" mb="xl">
+      <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Add Token</Text>
+      <Paper withBorder p="md">
+        <Group align="flex-end" gap="sm">
+          <TextInput label="Token Key" placeholder="sk-user-name" size="xs" w={220} value={k} onChange={e => setK(e.currentTarget.value)} />
+          <TextInput label="Limit" size="xs" w={120} value={l} onChange={e => setL(e.currentTarget.value)} />
+          <Button color="teal" size="xs" leftSection={<IconPlus size={13} />}
+            onClick={() => { if (k.trim()) { adminPost("/admin/token/add", { token: k.trim(), limit: l }); setK(""); setL("40000"); } }}>
+            Add Token
+          </Button>
+        </Group>
+      </Paper>
+    </Stack>
+  );
+}
+
 function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
@@ -1089,37 +1125,18 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
         </Paper>
         {isAdmin && (
           <Group gap="xs">
-            <form method="POST" action="/admin/reset" onSubmit={e => { if (!confirm("Reset all?")) e.preventDefault(); }}>
-              <input type="hidden" name="all" value="true" />
-              <Button type="submit" variant="light" color="gray" size="xs" leftSection={<IconRefresh size={13} />}>Reset All</Button>
-            </form>
-            <form method="POST" action="/admin/token/pause">
-              <input type="hidden" name="all" value="true" />
-              <Button type="submit" variant="light" color="orange" size="xs" leftSection={<IconPlayerPause size={13} />}>Pause All</Button>
-            </form>
-            <form method="POST" action="/admin/token/edit-all" onSubmit={e => { const v = prompt("New limit for all:"); if (!v) { e.preventDefault(); return; } (e.currentTarget.querySelector('[name=limit]') as HTMLInputElement).value = v; }}>
-              <input type="hidden" name="limit" value="" />
-              <Button type="submit" variant="light" color="blue" size="xs" leftSection={<IconPencil size={13} />}>Edit All Limits</Button>
-            </form>
+            <Button variant="light" color="gray" size="xs" leftSection={<IconRefresh size={13} />}
+              onClick={() => { if (confirm("Reset all?")) adminPost("/admin/reset", { all: "true" }); }}>Reset All</Button>
+            <Button variant="light" color="orange" size="xs" leftSection={<IconPlayerPause size={13} />}
+              onClick={() => adminPost("/admin/token/pause", { all: "true" })}>Pause All</Button>
+            <Button variant="light" color="blue" size="xs" leftSection={<IconPencil size={13} />}
+              onClick={() => { const v = prompt("New limit for all:"); if (v) adminPost("/admin/token/edit-all", { limit: v }); }}>Edit All Limits</Button>
           </Group>
         )}
       </Stack>
 
       {/* Add token */}
-      {isAdmin && (
-        <Stack gap="xs" mb="xl">
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Add Token</Text>
-          <Paper withBorder p="md">
-            <form method="POST" action="/admin/token/add">
-              <Group align="flex-end" gap="sm">
-                <TextInput label="Token Key" name="token" placeholder="sk-user-name" required size="xs" w={220} />
-                <TextInput label="Limit" name="limit" defaultValue="40000" size="xs" w={120} />
-                <Button type="submit" color="teal" size="xs">+ Add Token</Button>
-              </Group>
-            </form>
-          </Paper>
-        </Stack>
-      )}
+      {isAdmin && <AddTokenInline />}
 
       {/* Daily history */}
       <Stack gap="xs" mb="xl">

@@ -13,7 +13,7 @@ async function parseForm(req: Request): Promise<FormData | null> {
 
 function redirect(): Response {
   triggerBroadcast();
-  return new Response(null, { status: 303, headers: { Location: "/admin" } });
+  return Response.json({ ok: true });
 }
 
 export async function handleAdmin(req: Request, url: URL): Promise<Response> {
