@@ -647,9 +647,7 @@ function AdminOverview({ tokens, upstream }: {
       {/* Upstream detail */}
       <Stack gap="xs">
         <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Upstream Health</Text>
-        <Paper withBorder p="md">
-          <UpstreamSection upstream={upstream} isAdmin={true} />
-        </Paper>
+        <UpstreamSection upstream={upstream} isAdmin={true} />
       </Stack>
 
       {/* Quick actions */}
@@ -1170,7 +1168,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       {/* Upstream */}
       <Stack gap="xs" mb="xl">
         <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Upstream</Text>
-        <Paper withBorder p="md"><UpstreamSection upstream={upstream} isAdmin={isAdmin} /></Paper>
+        <UpstreamSection upstream={upstream} isAdmin={isAdmin} />
       </Stack>
 
       {/* Users */}
