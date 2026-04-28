@@ -21,6 +21,19 @@ Prompt diambil dari **LAST user message** yang punya text content (skip tool_res
 ## Admin Auth
 Login via form → `admin_session` cookie (HttpOnly, SameSite=Lax). Session disimpan di SQLite tabel `admin_sessions`, survive server restart. `x-admin-key` header juga work untuk programmatic access.
 
+## Upstream Mode (Direct vs Cliproxy)
+
+`UPSTREAM_MODE` menentukan bagaimana `/v1/messages` di-forward:
+
+- **`cliproxy`** (default): forward ke `UPSTREAM` pakai `UPSTREAM_KEY` — tidak ada perubahan dari sebelumnya
+- **`direct`**: forward langsung ke `ANTHROPIC_API_URL` pakai OAuth `access_token` dari `claude-*.json`
+
+Per-token override via kolom `mode` di tabel `tokens` (`inherit`/`direct`/`cliproxy`). Efektif mode = token.mode jika bukan `inherit`, else global `UPSTREAM_MODE`. Admin endpoint: `POST /admin/token/mode`.
+
+**Token Refresh (direct mode):** Access token TTL 8 jam. Saat 401, `refreshOauthToken()` dipanggil otomatis — hit `https://console.anthropic.com/v1/oauth/token` dengan `client_id: 9d1c250a-e61b-44d9-88ed-5944d1962f5e`. Refresh token **rotate** (single-use) — file credential diupdate langsung setelah refresh. Mutex `isRefreshing` mencegah double-refresh dari concurrent requests.
+
+**Shadow Mode:** `SHADOW_DIRECT=true` — saat mode cliproxy, kirim request paralel ke direct (fire-and-forget), log perbedaan status/token. Digunakan untuk validasi sebelum full cutover.
+
 ## /mind Graph (User → Date → Hour → Request)
 `GET /api/mind` mengambil semua `request_logs` (max 2000), di-group menjadi 4 tier:
 - **Category 0** User root node — ukuran √(requests/maxUser)

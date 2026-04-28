@@ -11,4 +11,8 @@ export const config = {
   dbFile:          process.env.DB_FILE            || "/state/proxy.db",
   tokensEnv:       process.env.TOKENS             || "",
   port:            parseInt(process.env.PORT      || "8080"),
+  // Direct mode: bypass cliproxy, talk to Anthropic directly
+  upstreamMode:    (process.env.UPSTREAM_MODE     || "cliproxy") as "cliproxy" | "direct",
+  anthropicUrl:    process.env.ANTHROPIC_API_URL  || "https://api.anthropic.com",
+  shadowDirect:    process.env.SHADOW_DIRECT      === "true",
 } as const;

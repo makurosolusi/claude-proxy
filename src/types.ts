@@ -5,6 +5,7 @@ export interface TokenEntry {
   windowStart: number;   // epoch ms
   paused:      boolean;
   dynamic:     boolean;
+  mode:        "inherit" | "direct" | "cliproxy";  // per-token override; inherit = use global UPSTREAM_MODE
 }
 
 
@@ -24,7 +25,7 @@ export interface UpstreamState {
   lastKnownResetsAt: string | null;
   detectedWindowMs:  number | null;
   pollBackoffUntil:  number;
-  tokenCache:        { value: string | null; readAt: number; email: string | null };
+  tokenCache:        { value: string | null; readAt: number; email: string | null; credential?: import("./upstream").OauthCredential };
 }
 
 export interface DailyUsage {

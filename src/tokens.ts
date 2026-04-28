@@ -15,6 +15,7 @@ export function initFromEnv() {
       windowStart: now,
       paused:      false,
       dynamic:     false,
+      mode:        "inherit",
     };
     tokens[key] = entry;
     dbInsertEnvToken(key, entry);

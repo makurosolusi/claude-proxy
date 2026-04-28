@@ -1,4 +1,4 @@
-import { tokens, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs } from "../state";
+import { tokens, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpdateTokenMode } from "../state";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
 import type { TokenEntry } from "../types";
@@ -103,6 +103,17 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
     dbSoftDelete(target);
     delete tokens[target];
+    return redirect();
+  }
+
+  // Set per-token mode override (for canary rollout)
+  if (pathname === "/admin/token/mode" && req.method === "POST") {
+    const target = String(form?.get("token") || "").trim();
+    const mode   = String(form?.get("mode")  || "inherit").trim() as "inherit" | "direct" | "cliproxy";
+    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
+    if (!["inherit", "direct", "cliproxy"].includes(mode)) return new Response("Invalid mode\n", { status: 400 });
+    tokens[target].mode = mode;
+    dbUpdateTokenMode(target, mode);
     return redirect();
   }
 

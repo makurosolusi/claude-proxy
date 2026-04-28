@@ -1,7 +1,8 @@
-import { config }                        from "../config";
-import { upstream, dbLogRequest }         from "../state";
-import { checkReset, incrementUsage }     from "../tokens";
-import type { TokenEntry }               from "../types";
+import { config }                              from "../config";
+import { upstream, dbLogRequest }             from "../state";
+import { checkReset, incrementUsage }         from "../tokens";
+import { getOauthCredential, refreshOauthToken } from "../upstream";
+import type { TokenEntry }                    from "../types";
 
 // Strip Claude Code system-injected XML tags from user message content
 function stripInjections(text: string): string {
@@ -128,15 +129,64 @@ export async function handleProxy(
     turns        = Array.isArray(bodyJson.messages) ? Math.ceil(bodyJson.messages.length / 2) : 0;
   } catch {}
 
-  // Forward to upstream
+  // Build upstream request — resolve effective mode (per-token overrides global)
+  const effectiveMode = t.mode !== "inherit" ? t.mode : config.upstreamMode;
+
   const headers = new Headers(req.headers);
-  headers.set("x-api-key",     config.upstreamKey);
-  headers.set("authorization", "Bearer " + config.upstreamKey);
   headers.delete("host");
 
-  const resp = await fetch(config.upstream + pathname, {
-    method: "POST", headers, body: bodyText,
-  });
+  let upstreamUrl: string;
+
+  if (effectiveMode === "direct") {
+    const cred = getOauthCredential();
+    if (!cred) return Response.json(
+      { error: { type: "api_error", message: "No valid OAuth credential available." } },
+      { status: 503 }
+    );
+    upstreamUrl = config.anthropicUrl + pathname;
+    headers.set("authorization",      "Bearer " + cred.token);
+    headers.set("anthropic-version",  "2023-06-01");
+    headers.set("anthropic-beta",     "oauth-2025-04-20");
+    headers.delete("x-api-key");
+  } else {
+    upstreamUrl = config.upstream + pathname;
+    headers.set("x-api-key",     config.upstreamKey);
+    headers.set("authorization", "Bearer " + config.upstreamKey);
+  }
+
+  let resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
+
+  // Direct mode: on 401 refresh token and retry once
+  if (effectiveMode === "direct" && resp.status === 401) {
+    const cred = getOauthCredential();
+    if (cred) {
+      console.log("[proxy] 401 from Anthropic, attempting token refresh...");
+      const newToken = await refreshOauthToken(cred.filePath, cred.refreshToken);
+      if (newToken) {
+        headers.set("authorization", "Bearer " + newToken);
+        resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
+        console.log("[proxy] Retry after refresh:", resp.status);
+      }
+    }
+  }
+
+  // Shadow mode: when in cliproxy mode, fire-and-forget to direct for comparison
+  if (config.shadowDirect && effectiveMode === "cliproxy") {
+    const cred = getOauthCredential();
+    if (cred) {
+      const shadowHeaders = new Headers(headers);
+      shadowHeaders.set("authorization",     "Bearer " + cred.token);
+      shadowHeaders.set("anthropic-version", "2023-06-01");
+      shadowHeaders.set("anthropic-beta",    "oauth-2025-04-20");
+      shadowHeaders.delete("x-api-key");
+      fetch(config.anthropicUrl + pathname, { method: "POST", headers: shadowHeaders, body: bodyText })
+        .then(async sr => {
+          const diff = sr.status !== resp.status ? ` status_diff=${resp.status}vs${sr.status}` : "";
+          console.log(`[shadow] direct=${sr.status}${diff}`);
+        })
+        .catch(e => console.warn("[shadow] error:", e.message));
+    }
+  }
 
   const remaining   = Math.max(0, t.limit === Infinity ? 999_999_999 : t.limit - t.used);
   const rateHeaders = {

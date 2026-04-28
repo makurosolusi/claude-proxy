@@ -78,6 +78,8 @@ try { db.exec("ALTER TABLE request_logs ADD COLUMN stop_reason TEXT DEFAULT ''")
 try { db.exec("ALTER TABLE request_logs ADD COLUMN tool_use_count INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE request_logs ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE request_logs ADD COLUMN turns INTEGER NOT NULL DEFAULT 0"); } catch {}
+// Per-token upstream mode override for canary rollout ('inherit'|'direct'|'cliproxy')
+try { db.exec("ALTER TABLE tokens ADD COLUMN mode TEXT NOT NULL DEFAULT 'inherit'"); } catch {}
 
 // ── Prepared statements ───────────────────────────────────────────────────────
 const stmts = {
@@ -175,6 +177,10 @@ export function dbUpdateToken(key: string, entry: TokenEntry) {
 
 export function dbSoftDelete(key: string) {
   stmts.softDelete.run({ $key: key });
+}
+
+export function dbUpdateTokenMode(key: string, mode: "inherit" | "direct" | "cliproxy") {
+  db.query("UPDATE tokens SET mode=$mode WHERE key=$key").run({ $mode: mode, $key: key });
 }
 
 export function dbResetToken(key: string, windowStart: number) {
@@ -315,6 +321,7 @@ export function loadFromDb() {
       windowStart: expired ? now : row.window_start,
       paused:      row.paused === 1,
       dynamic:     row.dynamic === 1,
+      mode:        (row.mode as "inherit" | "direct" | "cliproxy") || "inherit",
     };
     if (expired) stmts.resetOne.run({ $ws: now, $key: row.key });
   }

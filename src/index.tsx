@@ -228,6 +228,7 @@ server = serve({
     "/admin/token/edit-all":     req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/pause":        req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/delete":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/mode":         req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
 
     // Proxy endpoints
     "/v1/models": async req => {

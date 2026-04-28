@@ -56,6 +56,7 @@ public/
 | POST | `/admin/token/edit-all` | admin | Edit limit semua token |
 | POST | `/admin/token/pause` | admin | Pause/resume token |
 | POST | `/admin/token/delete` | admin | Hapus token |
+| POST | `/admin/token/mode` | admin | Set per-token mode override (`inherit`\|`direct`\|`cliproxy`) |
 | POST | `/admin/logs/clear` | admin | Hapus request logs |
 | GET | `/v1/models` | user token | List model |
 | GET | `/v1/usage` | user token | Usage info token |
@@ -66,8 +67,11 @@ public/
 
 | Var | Default | Keterangan |
 |---|---|---|
-| `UPSTREAM` | — | URL upstream Anthropic-compatible API |
-| `UPSTREAM_KEY` | — | API key untuk upstream |
+| `UPSTREAM_MODE` | `cliproxy` | `cliproxy` atau `direct` — mode proxy |
+| `UPSTREAM` | — | URL cliproxy (hanya dipakai saat `UPSTREAM_MODE=cliproxy`) |
+| `UPSTREAM_KEY` | — | API key cliproxy (hanya dipakai saat `UPSTREAM_MODE=cliproxy`) |
+| `ANTHROPIC_API_URL` | `https://api.anthropic.com` | Override URL Anthropic (direct mode) |
+| `SHADOW_DIRECT` | `false` | `true` = kirim paralel ke direct dan log diff (tidak mempengaruhi response) |
 | `ADMIN_KEY` | — | API key untuk programmatic admin access (`x-admin-key` header) |
 | `ADMIN_USERNAME` | — | Username login form admin |
 | `ADMIN_PASSWORD` | — | Password login form admin |

@@ -9,7 +9,7 @@ Bun + TypeScript + React proxy untuk Claude Max OAuth → multi-user API key den
 - **Styling**: Tailwind v4 (pre-built via `@tailwindcss/cli`)
 - **Realtime**: Bun native WebSocket
 - **Storage**: SQLite (`./state/proxy.db`) via `bun:sqlite`
-- **Auth upstream**: OAuth token dari `CLIPROXY_AUTH_DIR/claude-*.json`
+- **Auth upstream**: OAuth token dari `CLIPROXY_AUTH_DIR/claude-*.json` (dipakai di kedua mode)
 - **Auth admin**: Username/password → session cookie (SQLite-backed, 30-day TTL)
 
 ## Dev
