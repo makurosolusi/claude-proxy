@@ -1080,19 +1080,14 @@ function AddTokenInline() {
   );
 }
 
-// Interpolate between two RGB colours by t (0–1)
-function lerpRgb(t: number, r0: number, g0: number, b0: number, r1: number, g1: number, b1: number) {
-  return `rgb(${Math.round(r0 + t*(r1-r0))},${Math.round(g0 + t*(g1-g0))},${Math.round(b0 + t*(b1-b0))})`;
-}
-
 function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { tokens, upstream } = status;
   const title = isAdmin ? "claude-proxy · admin" : "claude-proxy";
 
-  // Dynamic background: shifts towards deep red as upstream 5h utilization rises.
-  // Starts shifting at 20%, reaches full intensity at 90%.
+  // Dynamic background: radial gradient from bottom grows more intense as
+  // upstream 5h utilization rises. Starts at 20%, full intensity at 90%.
   const utilPct = upstream?.fiveHour?.utilization ?? 0;
   const t       = Math.max(0, Math.min(1, (utilPct - 20) / 70));
   const isDark  = colorScheme === "dark" ||
@@ -1100,9 +1095,27 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
      window.matchMedia("(prefers-color-scheme: dark)").matches);
   const pageBg  = useMemo(() => {
     if (t <= 0) return undefined;
-    return isDark
-      ? lerpRgb(t, 26,27,30,  52,8,8)    // #1A1B1E → #340808
-      : lerpRgb(t, 255,255,255, 255,224,224); // #fff → #ffe0e0
+    if (isDark) {
+      // Dark: transparent base at top, deep red glow rises from bottom
+      const a1 = (t * 0.90).toFixed(3);   // core glow opacity
+      const a2 = (t * 0.45).toFixed(3);   // mid-fade opacity
+      return [
+        `radial-gradient(ellipse 120% 60% at 50% 100%,`,
+        ` rgba(90,6,6,${a1}) 0%,`,
+        ` rgba(55,5,5,${a2}) 35%,`,
+        ` transparent 65%)`,
+      ].join("");
+    } else {
+      // Light: subtle warm-red tint rises from bottom
+      const a1 = (t * 0.18).toFixed(3);
+      const a2 = (t * 0.07).toFixed(3);
+      return [
+        `radial-gradient(ellipse 120% 60% at 50% 100%,`,
+        ` rgba(220,40,40,${a1}) 0%,`,
+        ` rgba(200,30,30,${a2}) 35%,`,
+        ` transparent 65%)`,
+      ].join("");
+    }
   }, [t, isDark]);
 
   return (
