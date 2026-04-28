@@ -22,6 +22,7 @@ src/
     ├── apiStats.ts   # GET /api/stats (analytics aggregation)
     ├── apiMind.ts    # GET /api/mind (User→Date→Hour→Request graph data)
     ├── apiTest.ts    # GET /api/admin/test (connection test: credential, usage, messages)
+    ├── apiAuth.ts    # OAuth PKCE login flow (connect Claude account via admin panel)
     ├── proxy.ts      # Forward POST /v1/messages (cliproxy or direct)
     └── admin.ts      # Admin CRUD — all mutations return JSON {ok:true}
 public/
@@ -37,13 +38,11 @@ docs/
 
 | Tabel | Kolom penting |
 |---|---|
-| `tokens` | key, lim, win, used, window_start, paused, dynamic, deleted (soft delete), **mode** |
+| `tokens` | key, lim, win, used, window_start, paused, dynamic, deleted (soft delete) |
 | `upstream_state` | single row, semua poll data |
 | `daily_usage` | (date, token_key, used) — prune otomatis 30 hari |
 | `request_logs` | ts, token_key, model, input/output/cache tokens, stream, status, stop_reason, tool_use_count, duration_ms, turns, prompt (2000 char), system_prompt (500 char) |
 | `admin_sessions` | session token, created_at, last_used (30-day TTL) |
-
-`tokens.mode` = `'inherit'|'direct'|'cliproxy'` — per-token upstream override.
 
 ## API Endpoints
 
@@ -59,13 +58,15 @@ docs/
 | GET | `/api/stats` | admin | Analytics aggregation |
 | GET | `/api/mind` | — | Mind map graph (User→Date→Hour→Request) |
 | GET | `/api/admin/test` | admin | Connection test (credential, usage API, messages API) |
+| GET | `/api/admin/credentials` | admin | List OAuth credential files (`claude-*.json`) |
+| POST | `/api/admin/credentials/remove` | admin | Disable credential file (`{ file }`) |
+| GET | `/admin/auth/login` | admin | Mulai OAuth PKCE flow → redirect ke claude.ai |
 | POST | `/admin/reset` | admin | Reset usage token |
 | POST | `/admin/token/add` | admin | Tambah token |
 | POST | `/admin/token/edit` | admin | Edit limit |
 | POST | `/admin/token/edit-all` | admin | Edit semua limit |
 | POST | `/admin/token/pause` | admin | Pause/resume |
 | POST | `/admin/token/delete` | admin | Hapus (soft delete) |
-| POST | `/admin/token/mode` | admin | Set per-token upstream mode (`inherit`\|`direct`\|`cliproxy`) |
 | POST | `/admin/logs/clear` | admin | Hapus request logs |
 | GET | `/v1/models` | user token | List model |
 | GET | `/v1/usage` | user token | Usage info token |
@@ -79,11 +80,7 @@ Admin mutations semua return `{ ok: true }` — tidak ada page reload.
 
 | Var | Default | Keterangan |
 |---|---|---|
-| `UPSTREAM_MODE` | `cliproxy` | `cliproxy` atau `direct` |
-| `UPSTREAM` | — | URL cliproxy (cliproxy mode) |
-| `UPSTREAM_KEY` | — | API key cliproxy (cliproxy mode) |
-| `ANTHROPIC_API_URL` | `https://api.anthropic.com` | Override URL Anthropic (direct mode) |
-| `SHADOW_DIRECT` | `false` | Fire-and-forget parallel request ke direct untuk validasi |
+| `ANTHROPIC_API_URL` | `https://api.anthropic.com` | Override URL Anthropic API |
 | `ADMIN_KEY` | — | `x-admin-key` header untuk programmatic access |
 | `ADMIN_USERNAME` | — | Username login form |
 | `ADMIN_PASSWORD` | — | Password login form |

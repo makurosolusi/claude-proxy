@@ -1,6 +1,6 @@
 # claude-proxy
 
-Bun + TypeScript + React proxy untuk Claude Max OAuth → multi-user API key dengan quota management.
+Bun + TypeScript + React proxy untuk Claude Max OAuth → multi-user API key dengan quota management. Fully self-contained — tidak butuh Claude Code CLI atau CLIProxyAPI untuk setup.
 
 ## Stack
 
@@ -9,7 +9,7 @@ Bun + TypeScript + React proxy untuk Claude Max OAuth → multi-user API key den
 - **Styling**: Tailwind v4 (pre-built via `@tailwindcss/cli`)
 - **Realtime**: Bun native WebSocket
 - **Storage**: SQLite (`./state/proxy.db`) via `bun:sqlite`
-- **Auth upstream**: OAuth token dari `CLIPROXY_AUTH_DIR/claude-*.json`
+- **Auth upstream**: OAuth token dari `CLIPROXY_AUTH_DIR/claude-*.json` — di-generate langsung via admin panel (PKCE flow)
 - **Auth admin**: Username/password → session cookie (SQLite-backed, 30-day TTL)
 
 ## Dev
@@ -35,6 +35,7 @@ src/
     ├── proxy.ts     # Forward /v1/messages (cliproxy atau direct)
     ├── admin.ts     # Admin CRUD — returns JSON {ok:true}, bukan redirect
     ├── apiTest.ts   # GET /api/admin/test — connection test endpoint
+    ├── apiAuth.ts   # OAuth PKCE login flow — connect Claude account tanpa CLI
     └── ...
 docs/
 ├── ARCHITECTURE.md  # File structure, DB schema, endpoints, env vars
@@ -56,4 +57,3 @@ docs/
 - @docs/ARCHITECTURE.md — file structure lengkap, DB schema, API endpoints, env vars
 - @docs/LOGIC.md — quota system, upstream mode, token refresh, /mind graph
 - @docs/DEPLOY.md — scripts, dev/prod commands, frpc tunnel setup
-- @docs/MIGRATION_DIRECT.md — rencana + progress migrasi ke direct Anthropic API

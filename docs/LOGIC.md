@@ -51,6 +51,33 @@ Prompt = LAST user message dengan text content. System injections (`<system-remi
 ## Admin Auth
 Login → `admin_session` cookie (HttpOnly, SameSite=Lax, SQLite-backed). `x-admin-key` header untuk programmatic. `/admin/login` server-rendered HTML (bukan React route) — `RequireAdmin` pakai `window.location.replace()` bukan React Router Navigate.
 
+## OAuth PKCE Login (Self-Contained Credential Setup)
+
+Admin bisa connect Claude account langsung dari admin panel tanpa Claude Code CLI:
+
+1. **`GET /admin/auth/login`** (admin required):
+   - Generate `code_verifier` (32 random bytes, base64url) + `code_challenge` (S256)
+   - Simpan `{ codeVerifier, ts }` di in-memory Map dengan key = random `state` UUID
+   - Start temporary Bun server di port **54545** (redirect_uri yang terdaftar di OAuth app)
+   - Return 302 → `https://claude.ai/oauth/authorize?...`
+
+2. **Callback di port 54545**:
+   - Terima `?code=&state=` dari claude.ai redirect
+   - Validasi `state` vs in-memory Map, cek TTL 10 menit
+   - Exchange code ke token via `POST https://api.anthropic.com/v1/oauth/token`
+   - Resolve email: JWT decode → profile endpoint → timestamp fallback
+   - Simpan `CLIPROXY_AUTH_DIR/claude-{email}.json`
+   - Bust `upstream.tokenCache` agar next request pakai credential baru
+   - Shutdown server setelah callback ditangani
+
+**Kenapa port 54545**: OAuth client_id `9d1c250a-e61b-44d9-88ed-5944d1962f5e` (public, dari Claude Code CLI) terdaftar dengan redirect_uri `http://localhost:54545/callback` — tidak bisa diganti.
+
+**Credential file format** (`claude-{email}.json`):
+```json
+{ "access_token": "sk-ant-oat01-...", "refresh_token": "sk-ant-ort01-...",
+  "email": "user@gmail.com", "disabled": false, "created_at": "...", "updated_at": "..." }
+```
+
 ## Upstream Mode (Direct vs Cliproxy)
 
 `UPSTREAM_MODE` menentukan forward `/v1/messages`:

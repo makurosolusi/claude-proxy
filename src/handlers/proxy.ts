@@ -1,8 +1,8 @@
-import { config }                              from "../config";
-import { upstream, dbLogRequest }             from "../state";
+import { config }          from "../config";
+import { upstream, dbLogRequest } from "../state";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration } from "../tokens";
 import { getOauthCredential, refreshOauthToken } from "../upstream";
-import type { TokenEntry }                    from "../types";
+import type { TokenEntry } from "../types";
 
 // Strip Claude Code system-injected XML tags from user message content
 function stripInjections(text: string): string {
@@ -64,27 +64,19 @@ export async function handleProxy(
   checkReset(t, key);
 
   if (req.method === "GET" && pathname === "/v1/models") {
-    // Forward to upstream to return real model list (not a stub)
-    const effMode = t.mode !== "inherit" ? t.mode : config.upstreamMode;
     try {
-      const modHeaders: Record<string, string> = { "Accept": "application/json" };
-      let modUrl: string;
-      if (effMode === "direct") {
-        const cred = getOauthCredential();
-        if (!cred) throw new Error("no credential");
-        modUrl = config.anthropicUrl + "/v1/models";
-        modHeaders["Authorization"]     = "Bearer " + cred.token;
-        modHeaders["anthropic-version"] = "2023-06-01";
-        modHeaders["anthropic-beta"]    = "oauth-2025-04-20";
-      } else {
-        modUrl = config.upstream + "/v1/models";
-        modHeaders["x-api-key"]     = config.upstreamKey;
-        modHeaders["Authorization"] = "Bearer " + config.upstreamKey;
-      }
-      const r = await fetch(modUrl, { headers: modHeaders });
+      const cred = getOauthCredential();
+      if (!cred) throw new Error("no credential");
+      const r = await fetch(config.anthropicUrl + "/v1/models", {
+        headers: {
+          "Accept":           "application/json",
+          "Authorization":    "Bearer " + cred.token,
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta":   "oauth-2025-04-20",
+        },
+      });
       if (r.ok) return new Response(r.body, { status: 200, headers: { "Content-Type": "application/json" } });
     } catch {}
-    // Fallback: return known models
     return Response.json({
       data: [
         { id: "claude-opus-4-7",           type: "model", display_name: "Claude Opus 4.7" },
@@ -158,11 +150,8 @@ export async function handleProxy(
     maxOutputTokens = parseInt(bodyJson.max_tokens) || 4096;
   } catch {}
 
-  // Build upstream request — resolve effective mode (per-token overrides global)
-  const effectiveMode = t.mode !== "inherit" ? t.mode : config.upstreamMode;
-
-  // Direct mode: strip client-specific fields Anthropic API doesn't accept
-  if (effectiveMode === "direct" && bodyJson) {
+  // Strip client-specific fields Anthropic API doesn't accept
+  if (bodyJson) {
     delete bodyJson.context_management;
     bodyText = JSON.stringify(bodyJson);
   }
@@ -199,55 +188,31 @@ export async function handleProxy(
   const reservationId = reserveInFlight(key, estimatedTokens);
 
   // ── Build request ────────────────────────────────────────────────────────────
+  const cred = getOauthCredential();
+  if (!cred) {
+    releaseInFlight(key, reservationId);
+    return Response.json({ error: { type: "api_error", message: "No valid OAuth credential available." } }, { status: 503 });
+  }
+
   const headers = new Headers(req.headers);
   headers.delete("host");
+  headers.delete("x-api-key");
+  headers.set("authorization", "Bearer " + cred.token);
+  headers.set("anthropic-version", "2023-06-01");
+  headers.set("anthropic-beta", "oauth-2025-04-20");
 
-  let upstreamUrl: string;
-  if (effectiveMode === "direct") {
-    const cred = getOauthCredential();
-    if (!cred) {
-      releaseInFlight(key, reservationId);
-      return Response.json({ error: { type: "api_error", message: "No valid OAuth credential available." } }, { status: 503 });
-    }
-    upstreamUrl = config.anthropicUrl + pathname;
-    headers.set("authorization", "Bearer " + cred.token);
-    headers.set("anthropic-version", "2023-06-01");
-    headers.set("anthropic-beta", "oauth-2025-04-20");
-    headers.delete("x-api-key");
-  } else {
-    upstreamUrl = config.upstream + pathname;
-    headers.set("x-api-key", config.upstreamKey);
-    headers.set("authorization", "Bearer " + config.upstreamKey);
-  }
+  const upstreamUrl = config.anthropicUrl + pathname;
 
   // ── Forward & respond — reservation ALWAYS released via try-finally ─────────
   try {
     let resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
 
-    // Direct mode: 401 → refresh token → retry once
-    if (effectiveMode === "direct" && resp.status === 401) {
-      const cred = getOauthCredential();
-      if (cred) {
-        const newToken = await refreshOauthToken(cred.filePath, cred.refreshToken);
-        if (newToken) {
-          headers.set("authorization", "Bearer " + newToken);
-          resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
-        }
-      }
-    }
-
-    // Shadow mode: fire-and-forget to direct for comparison
-    if (config.shadowDirect && effectiveMode === "cliproxy") {
-      const cred = getOauthCredential();
-      if (cred) {
-        const sh = new Headers(headers);
-        sh.set("authorization", "Bearer " + cred.token);
-        sh.set("anthropic-version", "2023-06-01");
-        sh.set("anthropic-beta", "oauth-2025-04-20");
-        sh.delete("x-api-key");
-        fetch(config.anthropicUrl + pathname, { method: "POST", headers: sh, body: bodyText })
-          .then(sr => console.log(`[shadow] ${sr.status}${sr.status !== resp.status ? ` (diff vs ${resp.status})` : ""}`))
-          .catch(e => console.warn("[shadow]", e.message));
+    // 401 → refresh token → retry once
+    if (resp.status === 401) {
+      const newToken = await refreshOauthToken(cred.filePath, cred.refreshToken);
+      if (newToken) {
+        headers.set("authorization", "Bearer " + newToken);
+        resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
       }
     }
 

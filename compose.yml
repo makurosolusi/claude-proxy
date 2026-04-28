@@ -1,39 +1,47 @@
 services:
-  frpc:
-    image: snowdreamtech/frpc:latest
-    container_name: frpc-claude-proxy
+  proxy:
+    build: .
+    container_name: claude-proxy
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    ports:
+      - "54545:54545"    # OAuth PKCE callback — browser must reach localhost:54545
+    volumes:
+      - ./state:/app/state          # SQLite DB
+      - ./credentials:/credentials    # OAuth claude-*.json credentials
+    environment:
+      # App
+      - NODE_ENV=production
+      - PORT=8080
+      - ANTHROPIC_API_URL=${ANTHROPIC_API_URL:-https://api.anthropic.com}
+      # Admin auth
+      - ADMIN_KEY=${ADMIN_KEY}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      # Tokens & quota
+      - TOKENS=${TOKENS}
+      - WINDOW_MS=${WINDOW_MS:-18000000}
+      - UPSTREAM_HARD_CAP_PCT=${UPSTREAM_HARD_CAP_PCT:-95}
+      - UPSTREAM_POLL_MS=${UPSTREAM_POLL_MS:-60000}
+      # Storage
+      - CLIPROXY_AUTH_DIR=/credentials
+      - DB_FILE=/app/state/proxy.db
     networks:
       - public-net
-    configs:
-      - source: frpc_config
-        target: /etc/frp/frpc.toml
-    mem_limit: 64m
-    cpus: "0.25"
+    mem_limit: 512m
+    cpus: "0.5"
     logging:
       driver: json-file
       options:
-        max-size: 10m
+        max-size: "10m"
         max-file: "3"
-
-configs:
-  frpc_config:
-    content: |
-      serverAddr = "connect.wibudev.com"
-      serverPort = 443
-      auth.token = "f435b971b48495e07f3c0a9295ff0c7b242c5078c191879cef42154effeaeb7e"
-      transport.protocol = "wss"
-      transport.heartbeatInterval = 30
-      transport.heartbeatTimeout = 90
-
-      [[proxies]]
-      name = "claude-local"
-      type = "http"
-      localIP = "host.docker.internal"
-      localPort = 8080
-      customDomains = ["claude-local.wibudev.com"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=public-net"
+      - "traefik.http.routers.claude-proxy.rule=Host(`claude-server.wibudev.com`)"
+      - "traefik.http.routers.claude-proxy.entrypoints=websecure"
+      - "traefik.http.routers.claude-proxy.tls=true"
+      - "traefik.http.routers.claude-proxy.tls.certresolver=letsencrypt"
+      - "traefik.http.services.claude-proxy.loadbalancer.server.port=8080"
 
 networks:
   public-net:

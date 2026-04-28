@@ -9,7 +9,7 @@ import {
   IconChevronsLeft, IconChevronsRight, IconMenu2,
   IconPlus, IconHistory, IconBrandGithub,
   IconPlugConnected, IconCircleCheck, IconCircleX, IconClock, IconPlayerPlay as IconRun,
-  IconWifi,
+  IconWifi, IconKey, IconPlayerStop,
 } from "@tabler/icons-react";
 import {
   Container, Group, Stack, Grid, Title, Text, Paper, Box, Center, Loader,
@@ -911,8 +911,136 @@ function AdminTest() {
   );
 }
 
+// ── Admin Accounts section ────────────────────────────────────────────────────
+interface CredentialInfo { file: string; email: string; disabled: boolean; active: boolean; }
+
+function AdminAccounts() {
+  const [creds, setCreds]     = useState<CredentialInfo[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [err, setErr]         = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch("/api/admin/credentials");
+      const d = await r.json() as any;
+      setCreds(d.credentials ?? []);
+    } catch (e: any) { setErr(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const remove = async (file: string) => {
+    setRemoving(file);
+    try {
+      const r = await fetch("/api/admin/credentials/remove", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file }),
+      });
+      const d = await r.json() as any;
+      if (d.ok) load();
+      else setErr(d.error || "Failed");
+    } catch (e: any) { setErr(e.message); }
+    finally { setRemoving(null); }
+  };
+
+  const connect = () => window.open("/admin/auth/login", "_blank", "noopener");
+
+  return (
+    <Stack gap="lg" maw={640}>
+      <Group justify="space-between" align="flex-end">
+        <div>
+          <Title order={3} fw={600}>OAuth Accounts</Title>
+          <Text size="sm" c="dimmed" mt={4}>
+            Claude Max accounts used to forward API requests. Each credential file grants one account's token quota.
+          </Text>
+        </div>
+        <Button leftSection={<IconLogin size={16} />} onClick={connect} size="sm">
+          Connect Account
+        </Button>
+      </Group>
+
+      {err && (
+        <Paper withBorder p="sm" style={{ borderColor: "var(--mantine-color-red-6)" }}>
+          <Text size="sm" c="red">{err}</Text>
+        </Paper>
+      )}
+
+      {loading && <Center py="xl"><Loader size="sm" /></Center>}
+
+      {!loading && creds !== null && creds.length === 0 && (
+        <Paper withBorder p="xl">
+          <Center>
+            <Stack align="center" gap="xs">
+              <IconKey size={32} color="var(--mantine-color-dimmed)" />
+              <Text c="dimmed" size="sm">No credentials found in <Code>{window.location.origin}</Code></Text>
+              <Text c="dimmed" size="xs">Click "Connect Account" to authenticate a Claude Max account via OAuth.</Text>
+            </Stack>
+          </Center>
+        </Paper>
+      )}
+
+      {!loading && creds && creds.length > 0 && (
+        <Stack gap="xs">
+          {creds.map(c => (
+            <Paper key={c.file} withBorder p="sm" style={{ opacity: c.active ? 1 : 0.6 }}>
+              <Group justify="space-between" wrap="nowrap">
+                <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+                  <IconKey size={18} color={c.active ? "var(--mantine-color-teal-5)" : "var(--mantine-color-dimmed)"} />
+                  <div style={{ minWidth: 0 }}>
+                    <Text fw={500} size="sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.email}
+                    </Text>
+                    <Text size="xs" c="dimmed" ff="monospace">{c.file}</Text>
+                  </div>
+                </Group>
+                <Group gap="xs" wrap="nowrap">
+                  <Badge size="sm" color={c.active ? "teal" : "gray"} variant="light">
+                    {c.active ? "active" : "disabled"}
+                  </Badge>
+                  {c.active && (
+                    <Tooltip label="Disable credential" withArrow>
+                      <ActionIcon
+                        size="sm" variant="subtle" color="red"
+                        loading={removing === c.file}
+                        onClick={() => remove(c.file)}
+                      >
+                        <IconPlayerStop size={14} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                </Group>
+              </Group>
+            </Paper>
+          ))}
+        </Stack>
+      )}
+
+      <Paper withBorder p="md" style={{ background: "var(--mantine-color-dark-7)" }}>
+        <Stack gap={4}>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" lts={1}>How it works</Text>
+          <Text size="xs" c="dimmed">
+            1. Click "Connect Account" — your browser opens claude.ai to authorize access.
+          </Text>
+          <Text size="xs" c="dimmed">
+            2. After approval, a temporary server on port 54545 captures the OAuth callback and saves the credential.
+          </Text>
+          <Text size="xs" c="dimmed">
+            3. The saved <Code size="xs">claude-*.json</Code> file is picked up automatically for all API requests.
+          </Text>
+          <Text size="xs" c="dimmed">
+            4. Tokens are refreshed automatically when they expire — no manual action needed.
+          </Text>
+        </Stack>
+      </Paper>
+    </Stack>
+  );
+}
+
 // ── Admin Dashboard (AppShell layout) ─────────────────────────────────────────
-type AdminSection = "overview" | "users" | "logs" | "stats" | "test";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "test" | "accounts";
 
 function AdminDashboard() {
   const status = useStatus()!;
@@ -938,6 +1066,7 @@ function AdminDashboard() {
     { id: "logs",     label: "Request Logs",   icon: <IconList            size={SZ} />, desc: "Activity & history"     },
     { id: "stats",    label: "Stats",          icon: <IconChartBar        size={SZ} />, desc: "Daily usage history"    },
     { id: "test",     label: "Test Connection",icon: <IconPlugConnected   size={SZ} />, desc: "Verify API connectivity" },
+    { id: "accounts", label: "Accounts",       icon: <IconKey             size={SZ} />, desc: "OAuth Claude accounts"   },
   ];
   const footerItems: { icon: React.ReactNode; label: string; href: string; target?: string }[] = [
     { icon: <IconSitemap      size={SZ} />, label: "Mind Map",    href: "/mind", target: "_blank" },
@@ -946,7 +1075,7 @@ function AdminDashboard() {
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
   const sectionTitles: Record<AdminSection, string> = {
-    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", test: "Test Connection",
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", test: "Test Connection", accounts: "Accounts",
   };
   const statusColor = upstream.ok ? "teal" : "red";
   const SIDEBAR_W   = collapsed ? 56 : 220;
@@ -1099,11 +1228,12 @@ function AdminDashboard() {
       {/* ── Main content ── */}
       <AppShell.Main>
         <Box p="lg">
-          {section === "overview" && <AdminOverview tokens={tokens} upstream={upstream} />}
-          {section === "users"    && <AdminUsers tokens={tokens} />}
-          {section === "logs"     && <RequestLog isAdmin={true} />}
-          {section === "stats"    && <AdminStats />}
-          {section === "test"     && <AdminTest />}
+          {section === "overview"  && <AdminOverview tokens={tokens} upstream={upstream} />}
+          {section === "users"     && <AdminUsers tokens={tokens} />}
+          {section === "logs"      && <RequestLog isAdmin={true} />}
+          {section === "stats"     && <AdminStats />}
+          {section === "test"      && <AdminTest />}
+          {section === "accounts"  && <AdminAccounts />}
         </Box>
       </AppShell.Main>
     </AppShell>

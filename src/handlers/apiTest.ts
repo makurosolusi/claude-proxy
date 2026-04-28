@@ -11,7 +11,6 @@ interface TestResult {
 
 export async function handleApiTest(): Promise<Response> {
   const results: Record<string, TestResult> = {};
-  const mode = config.upstreamMode;
 
   // ── 1. Credential file ────────────────────────────────────────────────────
   const t0 = Date.now();
@@ -52,33 +51,22 @@ export async function handleApiTest(): Promise<Response> {
 
   // ── 3. Messages API (real request, minimal tokens) ────────────────────────
   const firstKey = Object.keys(tokens)[0];
-  if (firstKey) {
+  if (firstKey && cred) {
     const t2 = Date.now();
     try {
-      let upstreamUrl: string;
-      let authHeader: string;
-      const reqHeaders: Record<string, string> = { "Content-Type": "application/json" };
-
-      if (mode === "direct" && cred) {
-        upstreamUrl = config.anthropicUrl + "/v1/messages";
-        authHeader  = "Bearer " + cred.token;
-        reqHeaders["anthropic-version"] = "2023-06-01";
-        reqHeaders["anthropic-beta"]    = "oauth-2025-04-20";
-      } else {
-        upstreamUrl = config.upstream + "/v1/messages";
-        authHeader  = "Bearer " + config.upstreamKey;
-        reqHeaders["x-api-key"] = config.upstreamKey;
-      }
-      reqHeaders["authorization"] = authHeader;
-
-      const body = JSON.stringify({
-        model:      "claude-haiku-4-5-20251001",
-        max_tokens: 12,
-        messages:   [{ role: "user", content: "Reply with exactly the word: CONNECTED" }],
-      });
-
-      const r = await fetch(upstreamUrl, {
-        method: "POST", headers: reqHeaders, body,
+      const r = await fetch(config.anthropicUrl + "/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type":    "application/json",
+          "authorization":   "Bearer " + cred.token,
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta":  "oauth-2025-04-20",
+        },
+        body: JSON.stringify({
+          model:      "claude-haiku-4-5-20251001",
+          max_tokens: 12,
+          messages:   [{ role: "user", content: "Reply with exactly the word: CONNECTED" }],
+        }),
         signal: AbortSignal.timeout(15000),
       });
       const lat = Date.now() - t2;
@@ -100,5 +88,5 @@ export async function handleApiTest(): Promise<Response> {
   }
 
   const allOk = Object.values(results).every(r => r.ok);
-  return Response.json({ ok: allOk, mode, results, ts: new Date().toISOString() });
+  return Response.json({ ok: allOk, results, ts: new Date().toISOString() });
 }
