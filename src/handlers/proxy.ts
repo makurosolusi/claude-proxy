@@ -64,8 +64,33 @@ export async function handleProxy(
   checkReset(t, key);
 
   if (req.method === "GET" && pathname === "/v1/models") {
+    // Forward to upstream to return real model list (not a stub)
+    const effMode = t.mode !== "inherit" ? t.mode : config.upstreamMode;
+    try {
+      const modHeaders: Record<string, string> = { "Accept": "application/json" };
+      let modUrl: string;
+      if (effMode === "direct") {
+        const cred = getOauthCredential();
+        if (!cred) throw new Error("no credential");
+        modUrl = config.anthropicUrl + "/v1/models";
+        modHeaders["Authorization"]     = "Bearer " + cred.token;
+        modHeaders["anthropic-version"] = "2023-06-01";
+        modHeaders["anthropic-beta"]    = "oauth-2025-04-20";
+      } else {
+        modUrl = config.upstream + "/v1/models";
+        modHeaders["x-api-key"]     = config.upstreamKey;
+        modHeaders["Authorization"] = "Bearer " + config.upstreamKey;
+      }
+      const r = await fetch(modUrl, { headers: modHeaders });
+      if (r.ok) return new Response(r.body, { status: 200, headers: { "Content-Type": "application/json" } });
+    } catch {}
+    // Fallback: return known models
     return Response.json({
-      data: [{ id: "claude-sonnet-4-6", type: "model", display_name: "Claude Sonnet 4.6" }],
+      data: [
+        { id: "claude-opus-4-7",           type: "model", display_name: "Claude Opus 4.7" },
+        { id: "claude-sonnet-4-6",         type: "model", display_name: "Claude Sonnet 4.6" },
+        { id: "claude-haiku-4-5-20251001", type: "model", display_name: "Claude Haiku 4.5" },
+      ],
       has_more: false,
     });
   }

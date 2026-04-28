@@ -1065,28 +1065,30 @@ function AdminDashboard() {
           </Stack>
           <Divider my="xs" />
           {collapsed ? (
-            <Tooltip
-              label={`${upstream.email ?? "no credential"} · poll ${status.pollAge}`}
-              position="right"
-              withArrow
-              multiline
-              w={200}
-            >
-              <Box style={{ display: "flex", justifyContent: "center", padding: "4px 0" }}>
-                <Box
-                  w={10} h={10}
-                  style={{ borderRadius: "50%", cursor: "default",
-                    background: `var(--mantine-color-${statusColor}-5)` }}
-                />
-              </Box>
-            </Tooltip>
+            <Stack gap={4} align="center" py={4}>
+              <Tooltip label={`${upstream.email ?? "no credential"} · poll ${status.pollAge}`} position="right" withArrow multiline w={200}>
+                <Box w={10} h={10} style={{ borderRadius: "50%", cursor: "default", background: `var(--mantine-color-${statusColor}-5)` }} />
+              </Tooltip>
+              <Tooltip label="Sign out" position="right" withArrow>
+                <ActionIcon variant="subtle" color="gray" size="sm" component="a" href="/admin/logout">
+                  <IconLogout size={14} />
+                </ActionIcon>
+              </Tooltip>
+            </Stack>
           ) : (
             <Box px="xs" py={4}>
-              <Group gap="xs" mb={2}>
-                <Box w={7} h={7} style={{ borderRadius: "50%", flexShrink: 0, background: `var(--mantine-color-${statusColor}-5)` }} />
-                <Text size="xs" c="dimmed" ff="monospace" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {upstream.email ?? "no credential"}
-                </Text>
+              <Group gap="xs" mb={2} justify="space-between">
+                <Group gap="xs" style={{ minWidth: 0, flex: 1 }}>
+                  <Box w={7} h={7} style={{ borderRadius: "50%", flexShrink: 0, background: `var(--mantine-color-${statusColor}-5)` }} />
+                  <Text size="xs" c="dimmed" ff="monospace" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {upstream.email ?? "no credential"}
+                  </Text>
+                </Group>
+                <Tooltip label="Sign out" position="top" withArrow>
+                  <ActionIcon variant="subtle" color="gray" size="sm" component="a" href="/admin/logout">
+                    <IconLogout size={14} />
+                  </ActionIcon>
+                </Tooltip>
               </Group>
               <Text size="10px" c="dimmed" pl={15}>poll {status.pollAge}</Text>
             </Box>

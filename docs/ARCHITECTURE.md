@@ -5,80 +5,92 @@
 ```
 src/
 ├── index.tsx         # Server entry: Bun.serve() routes API + WebSocket
-├── index.html        # HTML template (React SPA entry)
+├── index.html        # HTML template + inline FOUC-prevention script
 ├── frontend.tsx      # React client entry (createRoot + HMR)
-├── App.tsx           # React SPA — semua UI components
-├── index.css         # Tailwind v4 source (input ke build:css)
-├── style.css         # Tailwind output (generated, di-link dari index.html)
-├── broadcast.ts      # WS broadcast trigger (shared, hindari circular import)
-├── config.ts         # Env vars (typed const)
-├── types.ts          # Shared interfaces
+├── App.tsx           # React SPA — semua UI components (Dashboard, AdminDashboard, MindPage)
+├── index.css         # Tailwind v4 source
+├── style.css         # Tailwind output (generated)
+├── broadcast.ts      # WS broadcast trigger
+├── config.ts         # Env vars + resolvePort() (CLI flag > env > default)
+├── types.ts          # Shared interfaces (TokenEntry, UpstreamState, etc.)
 ├── state.ts          # SQLite DB, prepared statements, runtime state
-├── tokens.ts         # Token CRUD, daily usage, checkReset
-├── upstream.ts       # Poll /api/oauth/usage, backoff, window rotation
+├── tokens.ts         # Token CRUD, incrementUsage, in-flight reservation system
+├── upstream.ts       # Poll /api/oauth/usage, backoff, token refresh, window rotation
 └── handlers/
     ├── apiStatus.ts  # GET /api/status (JSON)
     ├── apiLogs.ts    # GET /api/logs (paginated + detail)
     ├── apiStats.ts   # GET /api/stats (analytics aggregation)
-    ├── apiMind.ts    # GET /api/mind (mind map graph data)
-    ├── proxy.ts      # Forward POST /v1/messages ke upstream
-    └── admin.ts      # Admin CRUD endpoints
+    ├── apiMind.ts    # GET /api/mind (User→Date→Hour→Request graph data)
+    ├── apiTest.ts    # GET /api/admin/test (connection test: credential, usage, messages)
+    ├── proxy.ts      # Forward POST /v1/messages (cliproxy or direct)
+    └── admin.ts      # Admin CRUD — all mutations return JSON {ok:true}
 public/
 └── client.js         # Upstream section updater
+docs/
+├── ARCHITECTURE.md
+├── LOGIC.md
+├── DEPLOY.md
+└── MIGRATION_DIRECT.md
 ```
 
 ## Database Schema (SQLite — `./state/proxy.db`)
 
 | Tabel | Kolom penting |
 |---|---|
-| `tokens` | key, lim, win, used, window_start, paused, dynamic, deleted (soft delete) |
+| `tokens` | key, lim, win, used, window_start, paused, dynamic, deleted (soft delete), **mode** |
 | `upstream_state` | single row, semua poll data |
 | `daily_usage` | (date, token_key, used) — prune otomatis 30 hari |
 | `request_logs` | ts, token_key, model, input/output/cache tokens, stream, status, stop_reason, tool_use_count, duration_ms, turns, prompt (2000 char), system_prompt (500 char) |
 | `admin_sessions` | session token, created_at, last_used (30-day TTL) |
 
+`tokens.mode` = `'inherit'|'direct'|'cliproxy'` — per-token upstream override.
+
 ## API Endpoints
 
 | Method | Path | Auth | Keterangan |
 |---|---|---|---|
-| GET | `/*` | — | React SPA (semua non-API routes) |
+| GET | `/*` | — | React SPA |
 | GET | `/ws` | cookie | WebSocket — real-time status push |
-| GET/POST | `/admin/login` | — | Login form |
+| GET/POST | `/admin/login` | — | Login form (server-rendered HTML) |
 | GET | `/admin/logout` | cookie | Logout |
 | GET | `/api/status` | optional | JSON status (tokens + upstream + isAdmin) |
 | GET | `/api/logs` | — | Paginated request logs (`?page&limit&user`) |
 | GET | `/api/logs/:id` | — | Single log detail |
 | GET | `/api/stats` | admin | Analytics aggregation |
-| GET | `/api/mind` | — | Mind map graph data (User→Date→Hour→Request) |
-| POST | `/admin/reset` | admin | Reset pemakaian token |
-| POST | `/admin/token/add` | admin | Tambah token dinamis |
-| POST | `/admin/token/edit` | admin | Edit limit token |
-| POST | `/admin/token/edit-all` | admin | Edit limit semua token |
-| POST | `/admin/token/pause` | admin | Pause/resume token |
-| POST | `/admin/token/delete` | admin | Hapus token |
-| POST | `/admin/token/mode` | admin | Set per-token mode override (`inherit`\|`direct`\|`cliproxy`) |
+| GET | `/api/mind` | — | Mind map graph (User→Date→Hour→Request) |
+| GET | `/api/admin/test` | admin | Connection test (credential, usage API, messages API) |
+| POST | `/admin/reset` | admin | Reset usage token |
+| POST | `/admin/token/add` | admin | Tambah token |
+| POST | `/admin/token/edit` | admin | Edit limit |
+| POST | `/admin/token/edit-all` | admin | Edit semua limit |
+| POST | `/admin/token/pause` | admin | Pause/resume |
+| POST | `/admin/token/delete` | admin | Hapus (soft delete) |
+| POST | `/admin/token/mode` | admin | Set per-token upstream mode (`inherit`\|`direct`\|`cliproxy`) |
 | POST | `/admin/logs/clear` | admin | Hapus request logs |
 | GET | `/v1/models` | user token | List model |
 | GET | `/v1/usage` | user token | Usage info token |
 | POST | `/v1/messages` | user token | Proxy ke upstream |
 | POST | `/v1/messages/count_tokens` | user token | Stub (return 0) |
 
+Auth: `x-api-key` header **atau** `Authorization: Bearer <token>`.  
+Admin mutations semua return `{ ok: true }` — tidak ada page reload.
+
 ## Env Vars
 
 | Var | Default | Keterangan |
 |---|---|---|
-| `UPSTREAM_MODE` | `cliproxy` | `cliproxy` atau `direct` — mode proxy |
-| `UPSTREAM` | — | URL cliproxy (hanya dipakai saat `UPSTREAM_MODE=cliproxy`) |
-| `UPSTREAM_KEY` | — | API key cliproxy (hanya dipakai saat `UPSTREAM_MODE=cliproxy`) |
+| `UPSTREAM_MODE` | `cliproxy` | `cliproxy` atau `direct` |
+| `UPSTREAM` | — | URL cliproxy (cliproxy mode) |
+| `UPSTREAM_KEY` | — | API key cliproxy (cliproxy mode) |
 | `ANTHROPIC_API_URL` | `https://api.anthropic.com` | Override URL Anthropic (direct mode) |
-| `SHADOW_DIRECT` | `false` | `true` = kirim paralel ke direct dan log diff (tidak mempengaruhi response) |
-| `ADMIN_KEY` | — | API key untuk programmatic admin access (`x-admin-key` header) |
-| `ADMIN_USERNAME` | — | Username login form admin |
-| `ADMIN_PASSWORD` | — | Password login form admin |
+| `SHADOW_DIRECT` | `false` | Fire-and-forget parallel request ke direct untuk validasi |
+| `ADMIN_KEY` | — | `x-admin-key` header untuk programmatic access |
+| `ADMIN_USERNAME` | — | Username login form |
+| `ADMIN_PASSWORD` | — | Password login form |
 | `TOKENS` | — | Newline-separated `key:limit` atau `key:limit:windowMs` |
 | `WINDOW_MS` | `18000000` | Default window per token (ms) |
 | `UPSTREAM_HARD_CAP_PCT` | `95` | Block request kalau 5-hour utilization >= nilai ini |
 | `UPSTREAM_POLL_MS` | `60000` | Interval poll usage upstream (ms) |
 | `CLIPROXY_AUTH_DIR` | `/cliproxy-auth` | Dir berisi `claude-*.json` OAuth credentials |
 | `DB_FILE` | `./state/proxy.db` | Path SQLite database |
-| `PORT` | `8080` | HTTP port |
+| `PORT` | `8080` | HTTP port (dapat di-override via `--port` / `-p` CLI flag) |
