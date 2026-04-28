@@ -37,7 +37,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=public-net"
-      - "traefik.http.routers.claude-proxy.rule=Host(`claude-server.wibudev.com`)"
+      - "traefik.http.routers.claude-proxy.rule=Host(`claude-proxy.wibudev.com`)"
       - "traefik.http.routers.claude-proxy.entrypoints=websecure"
       - "traefik.http.routers.claude-proxy.tls=true"
       - "traefik.http.routers.claude-proxy.tls.certresolver=letsencrypt"
