@@ -354,17 +354,33 @@ const ALL_COLS = [
   { k: "type", l: "Type" }, { k: "prompt", l: "Prompt" },
 ];
 
+// Group consecutive log entries with same user + prompt → returns grouped list with count
+function groupDuplicateLogs(logs: LogEntry[]): Array<{ log: LogEntry; count: number }> {
+  const out: Array<{ log: LogEntry; count: number }> = [];
+  for (const log of logs) {
+    const prev = out[out.length - 1];
+    const isDup = prev
+      && prev.log.token_key === log.token_key
+      && prev.log.prompt    === log.prompt
+      && prev.log.prompt    !== "";  // don't group empty prompts
+    if (isDup) { prev.count++; }
+    else       { out.push({ log, count: 1 }); }
+  }
+  return out;
+}
+
 function RequestLog({ isAdmin }: { isAdmin: boolean }) {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [page, setPage] = useState(1);
-  const [pages, setPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [user, setUser] = useState<string | null>(null);
-  const [users, setUsers] = useState<string[]>([]);
+  const [logs, setLogs]       = useState<LogEntry[]>([]);
+  const [page, setPage]       = useState(1);
+  const [pages, setPages]     = useState(1);
+  const [total, setTotal]     = useState(0);
+  const [user, setUser]       = useState<string | null>(null);
+  const [users, setUsers]     = useState<string[]>([]);
+  const [groupDups, setGroupDups] = useState(true);   // on by default
   const [visible, setVisible] = useState<Record<string, boolean>>(
     Object.fromEntries(ALL_COLS.map(c => [c.k, c.k === "time" || c.k === "user" || c.k === "prompt"]))
   );
-  const [detail, setDetail] = useState<LogEntry | null>(null);
+  const [detail, setDetail]   = useState<LogEntry | null>(null);
   const [modalOpen, { open: openModal, close: closeModal }] = useDisclosure(false);
   const LIMIT = 25;
 
@@ -386,8 +402,11 @@ function RequestLog({ isAdmin }: { isAdmin: boolean }) {
     fetchLogs(1, user);
   };
 
-  const visibleCols = ALL_COLS.filter(c => visible[c.k]);
-  const totCls = (tot: number) => tot > 20000 ? "pct-over" : tot > 10000 ? "pct-high" : tot > 5000 ? "pct-warn" : "";
+  const visibleCols    = ALL_COLS.filter(c => visible[c.k]);
+  const totCls         = (tot: number) => tot > 20000 ? "pct-over" : tot > 10000 ? "pct-high" : tot > 5000 ? "pct-warn" : "";
+  const displayEntries = groupDups ? groupDuplicateLogs(logs) : logs.map(l => ({ log: l, count: 1 }));
+  const uniqueCount    = displayEntries.length;
+  const dupCount       = logs.length - uniqueCount;
 
   return (
     <>
@@ -411,7 +430,7 @@ function RequestLog({ isAdmin }: { isAdmin: boolean }) {
           </Group>
         </Group>
 
-        {/* Column toggles */}
+        {/* Column toggles + group dupes toggle */}
         <Group gap={6}>
           {ALL_COLS.map(c => (
             <Badge
@@ -424,6 +443,18 @@ function RequestLog({ isAdmin }: { isAdmin: boolean }) {
               {c.l}
             </Badge>
           ))}
+          <Divider orientation="vertical" />
+          <Tooltip label={groupDups ? "Showing grouped duplicates — click to show all" : "Click to group consecutive duplicates"} withArrow position="top">
+            <Badge
+              variant={groupDups ? "filled" : "outline"}
+              color={groupDups ? "orange" : "gray"}
+              style={{ cursor: "pointer" }}
+              onClick={() => setGroupDups(v => !v)}
+              leftSection={groupDups && dupCount > 0 ? <Text size="10px" fw={700}>{dupCount} hidden</Text> : undefined}
+            >
+              Group Dupes
+            </Badge>
+          </Tooltip>
         </Group>
 
         <Paper withBorder style={{ overflow: "hidden" }}>
@@ -435,26 +466,43 @@ function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {!logs.length ? (
+                {!displayEntries.length ? (
                   <Table.Tr><Table.Td colSpan={visibleCols.length}><Text ta="center" size="sm" c="dimmed" p="xl">No requests found.</Text></Table.Td></Table.Tr>
-                ) : logs.map(l => {
+                ) : displayEntries.map(({ log: l, count }) => {
                   const tot = l.input_tokens + l.output_tokens;
                   const model = l.model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
                   const u = l.token_key.replace(/^sk-user-/, "");
                   const cells: Record<string, React.ReactNode> = {
-                    time: <Table.Td key="time"><Text size="xs" ff="monospace" c="dimmed">{fmtRel(l.ts)}</Text></Table.Td>,
-                    user: <Table.Td key="user"><Badge variant="light" color="gray" size="sm" ff="monospace">{u}</Badge></Table.Td>,
+                    time: (
+                      <Table.Td key="time">
+                        <Group gap={4} wrap="nowrap">
+                          <Text size="xs" ff="monospace" c="dimmed">{fmtRel(l.ts)}</Text>
+                          {count > 1 && (
+                            <Tooltip label={`${count} identical requests grouped`} withArrow position="top">
+                              <Badge size="xs" color="orange" variant="light" style={{ cursor: "default" }}>×{count}</Badge>
+                            </Tooltip>
+                          )}
+                        </Group>
+                      </Table.Td>
+                    ),
+                    user:  <Table.Td key="user"><Badge variant="light" color="gray" size="sm" ff="monospace">{u}</Badge></Table.Td>,
                     model: <Table.Td key="model"><Text size="xs" ff="monospace" c="dimmed">{model}</Text></Table.Td>,
-                    in: <Table.Td key="in"><Text size="xs" ff="monospace" c="dimmed">{l.input_tokens.toLocaleString()}</Text></Table.Td>,
-                    out: <Table.Td key="out"><Text size="xs" ff="monospace" c="dimmed">{l.output_tokens.toLocaleString()}</Text></Table.Td>,
+                    in:    <Table.Td key="in"><Text size="xs" ff="monospace" c="dimmed">{l.input_tokens.toLocaleString()}</Text></Table.Td>,
+                    out:   <Table.Td key="out"><Text size="xs" ff="monospace" c="dimmed">{l.output_tokens.toLocaleString()}</Text></Table.Td>,
                     total: <Table.Td key="total"><Text size="xs" ff="monospace" fw={700} className={totCls(tot)}>{tot.toLocaleString()}</Text></Table.Td>,
-                    type: <Table.Td key="type">{l.stream ? <Badge color="blue" size="xs">stream</Badge> : <Text size="xs" c="dimmed">sync</Text>}</Table.Td>,
-                    prompt: <Table.Td key="prompt" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      <Text size="xs" c="dimmed" truncate title={l.prompt}>{l.prompt || "—"}</Text>
-                    </Table.Td>,
+                    type:  <Table.Td key="type">{l.stream ? <Badge color="blue" size="xs">stream</Badge> : <Text size="xs" c="dimmed">sync</Text>}</Table.Td>,
+                    prompt: (
+                      <Table.Td key="prompt" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <Text size="xs" c="dimmed" truncate title={l.prompt}>{l.prompt || "—"}</Text>
+                      </Table.Td>
+                    ),
                   };
                   return (
-                    <Table.Tr key={l.id} style={{ cursor: "pointer", background: l.status >= 400 ? "light-dark(rgba(239,68,68,.05),rgba(239,68,68,.1))" : undefined }} onClick={() => showDetail(l)}>
+                    <Table.Tr
+                      key={l.id}
+                      style={{ cursor: "pointer", background: l.status >= 400 ? "light-dark(rgba(239,68,68,.05),rgba(239,68,68,.1))" : undefined }}
+                      onClick={() => showDetail(l)}
+                    >
                       {visibleCols.map(c => cells[c.k])}
                     </Table.Tr>
                   );
@@ -465,7 +513,12 @@ function RequestLog({ isAdmin }: { isAdmin: boolean }) {
 
           <Group justify="space-between" p="sm" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
             <Pagination total={pages} value={page} onChange={p => { setPage(p); fetchLogs(p, user); }} size="sm" />
-            <Text size="xs" c="dimmed">{total === 0 ? "No results" : `Showing ${(page-1)*LIMIT+1}–${Math.min(page*LIMIT,total)} of ${total}`}</Text>
+            <Text size="xs" c="dimmed">
+              {total === 0 ? "No results" : groupDups && dupCount > 0
+                ? `${uniqueCount} unique · ${dupCount} grouped · page ${page}/${pages}`
+                : `Showing ${(page-1)*LIMIT+1}–${Math.min(page*LIMIT,total)} of ${total}`
+              }
+            </Text>
           </Group>
         </Paper>
       </Stack>
