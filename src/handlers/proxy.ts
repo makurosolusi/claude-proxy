@@ -1,6 +1,6 @@
 import { config }                              from "../config";
 import { upstream, dbLogRequest }             from "../state";
-import { checkReset, incrementUsage }         from "../tokens";
+import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight } from "../tokens";
 import { getOauthCredential, refreshOauthToken } from "../upstream";
 import type { TokenEntry }                    from "../types";
 
@@ -99,8 +99,9 @@ export async function handleProxy(
     }, { status: 429, headers: { "retry-after": String(resetIn) } });
   }
 
-  // Per-user quota
-  if (t.used >= t.limit) {
+  // Per-user quota — include in-flight reservations from concurrent requests
+  const inFlightNow = getInFlight(key);
+  if (t.used + inFlightNow >= t.limit) {
     const resetIn = Math.ceil((t.windowStart + t.window - Date.now()) / 1000);
     return Response.json({
       error: { type: "rate_limit_error", message: `Token quota exceeded (${t.used}/${t.limit}). Resets in ${resetIn}s.` }
@@ -118,7 +119,7 @@ export async function handleProxy(
   // Read request body to extract model + prompt for logging
   const ts = Date.now();
   let bodyText = "";
-  let model = "", prompt = "", systemPrompt = "";
+  let model = "", prompt = "", systemPrompt = "", maxTokens = 4096;
   let turns = 0;
   try {
     bodyText = await req.text();
@@ -127,7 +128,11 @@ export async function handleProxy(
     prompt       = extractPrompt(bodyJson.messages);
     systemPrompt = extractSystem(bodyJson);
     turns        = Array.isArray(bodyJson.messages) ? Math.ceil(bodyJson.messages.length / 2) : 0;
+    maxTokens    = parseInt(bodyJson.max_tokens) || 4096;
   } catch {}
+
+  // Reserve max_tokens upfront to block concurrent requests that would exceed quota
+  reserveInFlight(key, maxTokens);
 
   // Build upstream request — resolve effective mode (per-token overrides global)
   const effectiveMode = t.mode !== "inherit" ? t.mode : config.upstreamMode;
@@ -249,6 +254,7 @@ export async function handleProxy(
         }
       } finally {
         await writer.close();
+        releaseInFlight(key, maxTokens);  // release reservation after stream ends
         dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
           cache_read: cacheRead, cache_creation: cacheCreation, stream: true, status: httpStatus,
           stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
@@ -268,6 +274,7 @@ export async function handleProxy(
   const stopReason     = body?.stop_reason || "";
   const toolUseCount   = Array.isArray(body?.content)
     ? body.content.filter((b: any) => b.type === "tool_use").length : 0;
+  releaseInFlight(key, maxTokens);  // release reservation after non-stream response
   if (inputTokens || outputTokens) {
     incrementUsage(key, inputTokens + outputTokens);
     console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);

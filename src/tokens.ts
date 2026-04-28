@@ -51,6 +51,25 @@ export function incrementUsage(key: string, delta: number) {
   dbUpdateUsage(key, tokens[key].used);
 }
 
+// In-flight pre-reservation: prevents concurrent requests from exceeding quota
+// Maps token key → total reserved tokens from in-flight requests
+const inFlight = new Map<string, number>();
+
+export function getInFlight(key: string): number {
+  return inFlight.get(key) || 0;
+}
+
+export function reserveInFlight(key: string, amount: number) {
+  inFlight.set(key, (inFlight.get(key) || 0) + amount);
+}
+
+export function releaseInFlight(key: string, amount: number) {
+  const cur = inFlight.get(key) || 0;
+  const next = Math.max(0, cur - amount);
+  if (next === 0) inFlight.delete(key);
+  else            inFlight.set(key, next);
+}
+
 export function maskToken(k: string) {
   const p = "sk-user-";
   if (k.startsWith(p) && k.length > p.length) return k.slice(p.length);

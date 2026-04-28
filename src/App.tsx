@@ -223,8 +223,11 @@ function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenStatus>; 
               </Table.Td>
               <Table.Td data-label="Usage" style={{ minWidth: 140 }}>
                 <Group gap="xs" className="bar-cell">
-                  <Progress value={pct} color={pctColor(pct)} size="sm" style={{ flex: 1 }} animated={false} />
-                  <Text component="span" size="xs" className={`pct-${usageCls(pct)}`}>{pct}%</Text>
+                  <Progress value={Math.min(pct, 100)} color={pctColor(pct)} size="sm" style={{ flex: 1 }} animated={false} />
+                  <Group gap={3} wrap="nowrap">
+                    <Text component="span" size="xs" className={`pct-${usageCls(pct)}`}>{pct}%</Text>
+                    {pct > 100 && <Badge size="xs" color="red" variant="filled" p="2px 4px">OVER</Badge>}
+                  </Group>
                 </Group>
               </Table.Td>
               {isAdmin && (
