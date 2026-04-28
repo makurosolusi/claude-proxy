@@ -1123,7 +1123,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   }, [t, isDark]);
 
   return (
-    <Box style={{ minHeight: "100vh", background: pageBg, transition: "background 3s ease" }}>
+    <Box style={{ minHeight: "100vh", background: pageBg, backgroundAttachment: "fixed", transition: "background 3s ease" }}>
     <Container size="lg" py="lg">
       {/* Header */}
       <Group justify="space-between" mb="xl">
