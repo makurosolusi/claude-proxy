@@ -1,0 +1,40 @@
+services:
+  frpc:
+    image: snowdreamtech/frpc:latest
+    container_name: frpc-claude-proxy
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - public-net
+    configs:
+      - source: frpc_config
+        target: /etc/frp/frpc.toml
+    mem_limit: 64m
+    cpus: "0.25"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+configs:
+  frpc_config:
+    content: |
+      serverAddr = "connect.wibudev.com"
+      serverPort = 443
+      auth.token = "f435b971b48495e07f3c0a9295ff0c7b242c5078c191879cef42154effeaeb7e"
+      transport.protocol = "wss"
+      transport.heartbeatInterval = 30
+      transport.heartbeatTimeout = 90
+
+      [[proxies]]
+      name = "claude-local"
+      type = "http"
+      localIP = "host.docker.internal"
+      localPort = 8080
+      customDomains = ["claude-local.wibudev.com"]
+
+networks:
+  public-net:
+    external: true

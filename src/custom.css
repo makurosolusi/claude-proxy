@@ -1,0 +1,44 @@
+/* Row color indicators — targeted via JS className */
+.u-ok   td:first-child { border-left: 3px solid #10b981; }
+.u-warn td:first-child { border-left: 3px solid #f59e0b; }
+.u-high td:first-child { border-left: 3px solid #f97316; }
+.u-over td:first-child { border-left: 3px solid #ef4444; }
+
+/* Pct text colors */
+.pct-ok   { color: #059669; font-weight: 700; }
+.pct-warn { color: #d97706; font-weight: 700; }
+.pct-high { color: #ea580c; font-weight: 700; }
+.pct-over { color: #dc2626; font-weight: 700; }
+
+/* Bar cell flex layout */
+.bar-cell { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+.bar-cell span { white-space: nowrap; font-size: .8rem; font-weight: 700; min-width: 36px; text-align: right; }
+
+/* Mobile responsive table cards */
+@media (max-width: 640px) {
+  .users-table thead { display: none; }
+  .users-table tbody tr {
+    display: block;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    padding: 4px 0;
+  }
+  .users-table tbody td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    font-size: .85rem;
+  }
+  .users-table tbody td:first-child { border-left: none !important; }
+  .users-table tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    font-size: .75rem;
+    flex-shrink: 0;
+    margin-right: 8px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+}
+

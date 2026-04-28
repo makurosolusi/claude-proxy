@@ -1,0 +1,8 @@
+node_modules/
+dist/
+state/
+.env
+*.db
+*.db-shm
+*.db-wal
+src/style.css

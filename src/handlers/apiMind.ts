@@ -1,0 +1,112 @@
+import { db } from "../state";
+
+export function handleApiMind(): Response {
+  const logs = db.query(`
+    SELECT id, ts, token_key, model,
+           input_tokens + output_tokens + cache_read + cache_creation AS tokens,
+           tool_use_count, stream, duration_ms, status, prompt
+    FROM request_logs
+    ORDER BY ts ASC
+    LIMIT 2000
+  `).all() as any[];
+
+  const nodes: any[] = [];
+  const links: any[] = [];
+
+  const userStats = new Map<string, { requests: number; tokens: number }>();
+  const dateStats = new Map<string, { user: string; date: string; requests: number; tokens: number }>();
+  const hourStats = new Map<string, { user: string; date: string; hour: number; requests: number; tokens: number }>();
+  const dateLinked = new Set<string>();
+  const hourLinked = new Set<string>();
+
+  for (const log of logs) {
+    const user = log.token_key as string;
+    const d    = new Date(log.ts);
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const hour = d.getHours();
+    const dateKey = `${user}::${date}`;
+    const hourKey = `${user}::${date}::${String(hour).padStart(2, "0")}`;
+    const reqId   = `req:${log.id}`;
+    const modelShort = (log.model || "").replace(/^claude-/, "").replace(/-\d{8}$/, "");
+
+    // user totals
+    const u = userStats.get(user) ?? { requests: 0, tokens: 0 };
+    u.requests++;
+    u.tokens += log.tokens ?? 0;
+    userStats.set(user, u);
+
+    // date totals
+    const ds = dateStats.get(dateKey) ?? { user, date, requests: 0, tokens: 0 };
+    ds.requests++;
+    ds.tokens += log.tokens ?? 0;
+    dateStats.set(dateKey, ds);
+
+    // hour totals
+    const hs = hourStats.get(hourKey) ?? { user, date, hour, requests: 0, tokens: 0 };
+    hs.requests++;
+    hs.tokens += log.tokens ?? 0;
+    hourStats.set(hourKey, hs);
+
+    // request leaf node (category 3)
+    nodes.push({
+      id: reqId,
+      name: modelShort,
+      category: 3,
+      tokens: log.tokens ?? 0,
+      tools: log.tool_use_count ?? 0,
+      duration: log.duration_ms ?? 0,
+      status: log.status ?? 200,
+      stream: log.stream ?? 0,
+      ts: log.ts,
+      model: modelShort,
+      prompt: (log.prompt || "").slice(0, 80),
+    });
+
+    // hour → request link
+    links.push({ source: hourKey, target: reqId, type: "hr", value: 1, tokens: log.tokens ?? 0 });
+
+    if (!dateLinked.has(dateKey)) dateLinked.add(dateKey);
+    if (!hourLinked.has(hourKey)) hourLinked.add(hourKey);
+  }
+
+  // hour nodes (category 2)
+  for (const [hourKey, hs] of hourStats.entries()) {
+    nodes.push({
+      id: hourKey,
+      name: `${String(hs.hour).padStart(2, "0")}:00`,
+      category: 2,
+      requests: hs.requests,
+      tokens: hs.tokens,
+    });
+    links.push({ source: `${hs.user}::${hs.date}`, target: hourKey, type: "dh", value: hs.requests, tokens: hs.tokens });
+  }
+
+  // date nodes (category 1)
+  for (const [dateKey, ds] of dateStats.entries()) {
+    nodes.push({
+      id: dateKey,
+      name: ds.date.slice(5), // MM-DD
+      category: 1,
+      requests: ds.requests,
+      tokens: ds.tokens,
+      fullDate: ds.date,
+    });
+    links.push({ source: ds.user, target: dateKey, type: "ud", value: ds.requests, tokens: ds.tokens });
+  }
+
+  // user root nodes (category 0)
+  for (const [user, us] of userStats.entries()) {
+    nodes.push({
+      id: user,
+      name: user.replace(/^sk-user-/, ""),
+      category: 0,
+      requests: us.requests,
+      tokens: us.tokens,
+    });
+  }
+
+  const totalRequests = [...userStats.values()].reduce((s, v) => s + v.requests, 0);
+  const totalTokens   = [...userStats.values()].reduce((s, v) => s + v.tokens, 0);
+
+  return Response.json({ nodes, links, totalRequests, totalTokens });
+}
