@@ -1,4 +1,5 @@
 import { tokens, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpdateTokenMode } from "../state";
+import { clearInFlight } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
 import type { TokenEntry } from "../types";
@@ -30,9 +31,11 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
         tk.used = 0; tk.windowStart = now;
         dbResetToken(k, now);
       }
+      clearInFlight();  // clear all in-flight reservations so post-reset won't inflate
     } else if (target && tokens[target]) {
       tokens[target].used = 0; tokens[target].windowStart = now;
       dbResetToken(target, now);
+      clearInFlight(target);  // clear this token's in-flight reservations
     } else {
       return new Response("Token not found\n", { status: 404 });
     }
@@ -48,7 +51,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     const parsed = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
     const entry: TokenEntry = {
       limit: parsed, window: config.windowMs,
-      used: 0, windowStart: Date.now(), paused: false, dynamic: true,
+      used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit",
     };
     tokens[newKey] = entry;
     dbInsertToken(newKey, entry);

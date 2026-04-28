@@ -70,6 +70,11 @@ export function releaseInFlight(key: string, amount: number) {
   else            inFlight.set(key, next);
 }
 
+export function clearInFlight(key?: string) {
+  if (key) inFlight.delete(key);
+  else     inFlight.clear();
+}
+
 export function maskToken(k: string) {
   const p = "sk-user-";
   if (k.startsWith(p) && k.length > p.length) return k.slice(p.length);

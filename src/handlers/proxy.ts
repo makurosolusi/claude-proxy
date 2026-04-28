@@ -116,36 +116,57 @@ export async function handleProxy(
     });
   }
 
-  // Read request body to extract model + prompt for logging
+  // Parse request body ONCE — used for logging, estimation, and stripping extra fields
   const ts = Date.now();
   let bodyText = "";
-  let model = "", prompt = "", systemPrompt = "", maxTokens = 4096;
+  let bodyJson: any = null;
+  let model = "", prompt = "", systemPrompt = "";
+  let maxOutputTokens = 4096;
   let turns = 0;
   try {
     bodyText = await req.text();
-    const bodyJson = JSON.parse(bodyText);
-    model        = bodyJson.model || "";
-    prompt       = extractPrompt(bodyJson.messages);
-    systemPrompt = extractSystem(bodyJson);
-    turns        = Array.isArray(bodyJson.messages) ? Math.ceil(bodyJson.messages.length / 2) : 0;
-    maxTokens    = parseInt(bodyJson.max_tokens) || 4096;
+    bodyJson = JSON.parse(bodyText);
+    model          = bodyJson.model || "";
+    prompt         = extractPrompt(bodyJson.messages);
+    systemPrompt   = extractSystem(bodyJson);
+    turns          = Array.isArray(bodyJson.messages) ? Math.ceil(bodyJson.messages.length / 2) : 0;
+    maxOutputTokens = parseInt(bodyJson.max_tokens) || 4096;
   } catch {}
-
-  // Reserve max_tokens upfront to block concurrent requests that would exceed quota
-  reserveInFlight(key, maxTokens);
 
   // Build upstream request — resolve effective mode (per-token overrides global)
   const effectiveMode = t.mode !== "inherit" ? t.mode : config.upstreamMode;
 
   // Direct mode: strip client-specific fields Anthropic API doesn't accept
-  // (e.g. context_management sent by Claude Code CLI)
-  if (effectiveMode === "direct" && bodyText) {
-    try {
-      const parsed = JSON.parse(bodyText);
-      delete parsed.context_management;
-      bodyText = JSON.stringify(parsed);
-    } catch {}
+  if (effectiveMode === "direct" && bodyJson) {
+    delete bodyJson.context_management;
+    bodyText = JSON.stringify(bodyJson);
   }
+
+  // Estimate TOTAL tokens (input + output) for reservation.
+  // max_tokens is only the OUTPUT limit. Input can be huge (100k+ for Claude Code).
+  // Count actual message chars and convert to approximate tokens (1 token ≈ 3.5 chars).
+  const estimatedTokens = (() => {
+    let chars = 0;
+    try {
+      for (const msg of (bodyJson?.messages || [])) {
+        const c = msg.content;
+        if (typeof c === "string") chars += c.length;
+        else if (Array.isArray(c)) {
+          for (const b of c) {
+            chars += b.type === "text" ? (b.text || "").length
+                   : Math.ceil(JSON.stringify(b).length * 0.5);
+          }
+        }
+      }
+      const sys = bodyJson?.system;
+      if (typeof sys === "string") chars += sys.length;
+      else if (Array.isArray(sys)) chars += JSON.stringify(sys).length;
+    } catch {}
+    return Math.ceil(chars / 3.5) + 300 + maxOutputTokens;
+  })();
+
+  // Reserve estimated total tokens so concurrent requests can't collectively exceed quota
+  reserveInFlight(key, estimatedTokens);
 
   const headers = new Headers(req.headers);
   headers.delete("host");
@@ -254,7 +275,7 @@ export async function handleProxy(
         }
       } finally {
         await writer.close();
-        releaseInFlight(key, maxTokens);  // release reservation after stream ends
+        releaseInFlight(key, estimatedTokens);  // release reservation after stream ends
         dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
           cache_read: cacheRead, cache_creation: cacheCreation, stream: true, status: httpStatus,
           stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
@@ -274,7 +295,7 @@ export async function handleProxy(
   const stopReason     = body?.stop_reason || "";
   const toolUseCount   = Array.isArray(body?.content)
     ? body.content.filter((b: any) => b.type === "tool_use").length : 0;
-  releaseInFlight(key, maxTokens);  // release reservation after non-stream response
+  releaseInFlight(key, estimatedTokens);  // release reservation after non-stream response
   if (inputTokens || outputTokens) {
     incrementUsage(key, inputTokens + outputTokens);
     console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
