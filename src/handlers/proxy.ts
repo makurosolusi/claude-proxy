@@ -1,6 +1,6 @@
 import { config }                              from "../config";
 import { upstream, dbLogRequest }             from "../state";
-import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight } from "../tokens";
+import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration } from "../tokens";
 import { getOauthCredential, refreshOauthToken } from "../upstream";
 import type { TokenEntry }                    from "../types";
 
@@ -165,144 +165,153 @@ export async function handleProxy(
     return Math.ceil(chars / 3.5) + 300 + maxOutputTokens;
   })();
 
-  // Reserve estimated total tokens so concurrent requests can't collectively exceed quota
-  reserveInFlight(key, estimatedTokens);
+  // Snapshot generation at request start — stale increments ignored after reset
+  const reqGen = getGeneration(key);
 
+  // Reserve with unique ID — guaranteed release via try-finally below.
+  // Using estimatedTokens only (not "full remaining quota") to allow reasonable
+  // concurrency while still limiting overshoot. TTL=10min auto-expires leaked reservations.
+  const reservationId = reserveInFlight(key, estimatedTokens);
+
+  // ── Build request ────────────────────────────────────────────────────────────
   const headers = new Headers(req.headers);
   headers.delete("host");
 
   let upstreamUrl: string;
-
   if (effectiveMode === "direct") {
     const cred = getOauthCredential();
-    if (!cred) return Response.json(
-      { error: { type: "api_error", message: "No valid OAuth credential available." } },
-      { status: 503 }
-    );
+    if (!cred) {
+      releaseInFlight(key, reservationId);
+      return Response.json({ error: { type: "api_error", message: "No valid OAuth credential available." } }, { status: 503 });
+    }
     upstreamUrl = config.anthropicUrl + pathname;
-    headers.set("authorization",      "Bearer " + cred.token);
-    headers.set("anthropic-version",  "2023-06-01");
-    headers.set("anthropic-beta",     "oauth-2025-04-20");
+    headers.set("authorization", "Bearer " + cred.token);
+    headers.set("anthropic-version", "2023-06-01");
+    headers.set("anthropic-beta", "oauth-2025-04-20");
     headers.delete("x-api-key");
   } else {
     upstreamUrl = config.upstream + pathname;
-    headers.set("x-api-key",     config.upstreamKey);
+    headers.set("x-api-key", config.upstreamKey);
     headers.set("authorization", "Bearer " + config.upstreamKey);
   }
 
-  let resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
+  // ── Forward & respond — reservation ALWAYS released via try-finally ─────────
+  try {
+    let resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
 
-  // Direct mode: on 401 refresh token and retry once
-  if (effectiveMode === "direct" && resp.status === 401) {
-    const cred = getOauthCredential();
-    if (cred) {
-      console.log("[proxy] 401 from Anthropic, attempting token refresh...");
-      const newToken = await refreshOauthToken(cred.filePath, cred.refreshToken);
-      if (newToken) {
-        headers.set("authorization", "Bearer " + newToken);
-        resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
-        console.log("[proxy] Retry after refresh:", resp.status);
-      }
-    }
-  }
-
-  // Shadow mode: when in cliproxy mode, fire-and-forget to direct for comparison
-  if (config.shadowDirect && effectiveMode === "cliproxy") {
-    const cred = getOauthCredential();
-    if (cred) {
-      const shadowHeaders = new Headers(headers);
-      shadowHeaders.set("authorization",     "Bearer " + cred.token);
-      shadowHeaders.set("anthropic-version", "2023-06-01");
-      shadowHeaders.set("anthropic-beta",    "oauth-2025-04-20");
-      shadowHeaders.delete("x-api-key");
-      fetch(config.anthropicUrl + pathname, { method: "POST", headers: shadowHeaders, body: bodyText })
-        .then(async sr => {
-          const diff = sr.status !== resp.status ? ` status_diff=${resp.status}vs${sr.status}` : "";
-          console.log(`[shadow] direct=${sr.status}${diff}`);
-        })
-        .catch(e => console.warn("[shadow] error:", e.message));
-    }
-  }
-
-  const remaining   = Math.max(0, t.limit === Infinity ? 999_999_999 : t.limit - t.used);
-  const rateHeaders = {
-    "x-ratelimit-limit-tokens":     t.limit === Infinity ? "unlimited" : String(t.limit),
-    "x-ratelimit-remaining-tokens": String(remaining),
-    "x-ratelimit-reset-tokens":     new Date(t.windowStart + t.window).toISOString(),
-  };
-
-  const isStream = resp.headers.get("content-type")?.includes("text/event-stream");
-
-  if (isStream) {
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
-    const decoder = new TextDecoder();
-    const httpStatus = resp.status;
-    (async () => {
-      const reader = resp.body!.getReader();
-      let buffer = "";
-      let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
-      let stopReason = "", toolUseCount = 0;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          await writer.write(value);
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "message_start" && data.message?.usage) {
-                inputTokens    = data.message.usage.input_tokens || 0;
-                cacheRead      = data.message.usage.cache_read_input_tokens || 0;
-                cacheCreation  = data.message.usage.cache_creation_input_tokens || 0;
-                incrementUsage(key, inputTokens);
-              }
-              if (data.type === "message_delta" && data.usage) {
-                outputTokens = data.usage.output_tokens || 0;
-                stopReason   = data.delta?.stop_reason || stopReason;
-                incrementUsage(key, outputTokens);
-                console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
-              }
-              if (data.type === "content_block_start" && data.content_block?.type === "tool_use") {
-                toolUseCount++;
-              }
-            } catch {}
-          }
+    // Direct mode: 401 → refresh token → retry once
+    if (effectiveMode === "direct" && resp.status === 401) {
+      const cred = getOauthCredential();
+      if (cred) {
+        const newToken = await refreshOauthToken(cred.filePath, cred.refreshToken);
+        if (newToken) {
+          headers.set("authorization", "Bearer " + newToken);
+          resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
         }
-      } finally {
-        await writer.close();
-        releaseInFlight(key, estimatedTokens);  // release reservation after stream ends
-        dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
-          cache_read: cacheRead, cache_creation: cacheCreation, stream: true, status: httpStatus,
-          stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
-          turns, prompt, system_prompt: systemPrompt });
       }
-    })();
-    const outHeaders = new Headers(resp.headers);
-    for (const [k, v] of Object.entries(rateHeaders)) outHeaders.set(k, v);
-    return new Response(readable, { status: resp.status, headers: outHeaders });
-  }
+    }
 
-  const body = await resp.json() as any;
-  const inputTokens    = body?.usage?.input_tokens  || 0;
-  const outputTokens   = body?.usage?.output_tokens || 0;
-  const cacheRead      = body?.usage?.cache_read_input_tokens || 0;
-  const cacheCreation  = body?.usage?.cache_creation_input_tokens || 0;
-  const stopReason     = body?.stop_reason || "";
-  const toolUseCount   = Array.isArray(body?.content)
-    ? body.content.filter((b: any) => b.type === "tool_use").length : 0;
-  releaseInFlight(key, estimatedTokens);  // release reservation after non-stream response
-  if (inputTokens || outputTokens) {
-    incrementUsage(key, inputTokens + outputTokens);
-    console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
+    // Shadow mode: fire-and-forget to direct for comparison
+    if (config.shadowDirect && effectiveMode === "cliproxy") {
+      const cred = getOauthCredential();
+      if (cred) {
+        const sh = new Headers(headers);
+        sh.set("authorization", "Bearer " + cred.token);
+        sh.set("anthropic-version", "2023-06-01");
+        sh.set("anthropic-beta", "oauth-2025-04-20");
+        sh.delete("x-api-key");
+        fetch(config.anthropicUrl + pathname, { method: "POST", headers: sh, body: bodyText })
+          .then(sr => console.log(`[shadow] ${sr.status}${sr.status !== resp.status ? ` (diff vs ${resp.status})` : ""}`))
+          .catch(e => console.warn("[shadow]", e.message));
+      }
+    }
+
+    const remaining   = Math.max(0, t.limit === Infinity ? 999_999_999 : t.limit - t.used);
+    const rateHeaders = {
+      "x-ratelimit-limit-tokens":     t.limit === Infinity ? "unlimited" : String(t.limit),
+      "x-ratelimit-remaining-tokens": String(remaining),
+      "x-ratelimit-reset-tokens":     new Date(t.windowStart + t.window).toISOString(),
+    };
+
+    const isStream = resp.headers.get("content-type")?.includes("text/event-stream");
+
+    if (isStream) {
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const decoder = new TextDecoder();
+      const httpStatus = resp.status;
+      // Streaming async — reservation released in its own finally
+      (async () => {
+        const reader = resp.body!.getReader();
+        let buffer = "";
+        let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
+        let stopReason = "", toolUseCount = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await writer.write(value);
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === "message_start" && data.message?.usage) {
+                  inputTokens   = data.message.usage.input_tokens || 0;
+                  cacheRead     = data.message.usage.cache_read_input_tokens || 0;
+                  cacheCreation = data.message.usage.cache_creation_input_tokens || 0;
+                  incrementUsage(key, inputTokens, reqGen);
+                }
+                if (data.type === "message_delta" && data.usage) {
+                  outputTokens = data.usage.output_tokens || 0;
+                  stopReason   = data.delta?.stop_reason || stopReason;
+                  incrementUsage(key, outputTokens, reqGen);
+                  console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
+                }
+                if (data.type === "content_block_start" && data.content_block?.type === "tool_use") toolUseCount++;
+              } catch {}
+            }
+          }
+        } finally {
+          await writer.close().catch(() => {});
+          releaseInFlight(key, reservationId);
+          dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
+            cache_read: cacheRead, cache_creation: cacheCreation, stream: true, status: httpStatus,
+            stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
+            turns, prompt, system_prompt: systemPrompt });
+        }
+      })();
+      const outHeaders = new Headers(resp.headers);
+      for (const [k, v] of Object.entries(rateHeaders)) outHeaders.set(k, v);
+      // Note: reservation released inside the async stream finally above, not here
+      return new Response(readable, { status: resp.status, headers: outHeaders });
+    }
+
+    // Non-streaming
+    const body         = await resp.json() as any;
+    const inputTokens  = body?.usage?.input_tokens  || 0;
+    const outputTokens = body?.usage?.output_tokens || 0;
+    const cacheRead    = body?.usage?.cache_read_input_tokens || 0;
+    const cacheCreation= body?.usage?.cache_creation_input_tokens || 0;
+    const stopReason   = body?.stop_reason || "";
+    const toolUseCount = Array.isArray(body?.content) ? body.content.filter((b: any) => b.type === "tool_use").length : 0;
+    releaseInFlight(key, reservationId);
+    if (inputTokens || outputTokens) {
+      incrementUsage(key, inputTokens + outputTokens, reqGen);
+      console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
+    }
+    dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
+      cache_read: cacheRead, cache_creation: cacheCreation, stream: false, status: resp.status,
+      stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
+      turns, prompt, system_prompt: systemPrompt });
+    return Response.json(body, { status: resp.status, headers: rateHeaders });
+
+  } catch (err: any) {
+    // Always release on exception — prevents reservation leaks
+    releaseInFlight(key, reservationId);
+    console.error("[proxy] upstream error:", err.message);
+    return Response.json({ error: { type: "api_error", message: "Upstream request failed: " + err.message } }, { status: 502 });
   }
-  dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
-    cache_read: cacheRead, cache_creation: cacheCreation, stream: false, status: resp.status,
-    stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
-    turns, prompt, system_prompt: systemPrompt });
-  return Response.json(body, { status: resp.status, headers: rateHeaders });
 }

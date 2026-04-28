@@ -1,5 +1,5 @@
 import { tokens, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpdateTokenMode } from "../state";
-import { clearInFlight } from "../tokens";
+import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
 import type { TokenEntry } from "../types";
@@ -30,12 +30,14 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       for (const [k, tk] of Object.entries(tokens)) {
         tk.used = 0; tk.windowStart = now;
         dbResetToken(k, now);
+        bumpGeneration(k);  // invalidate all in-flight incrementUsage calls
       }
-      clearInFlight();  // clear all in-flight reservations so post-reset won't inflate
+      clearInFlight();
     } else if (target && tokens[target]) {
       tokens[target].used = 0; tokens[target].windowStart = now;
       dbResetToken(target, now);
-      clearInFlight(target);  // clear this token's in-flight reservations
+      bumpGeneration(target);  // invalidate pre-reset streaming increments
+      clearInFlight(target);
     } else {
       return new Response("Token not found\n", { status: 404 });
     }

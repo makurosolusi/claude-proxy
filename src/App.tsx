@@ -74,6 +74,13 @@ function usageCls(pct: number) {
 function pctColor(pct: number): string {
   return pct >= 90 ? "red" : pct >= 70 ? "orange" : pct >= 50 ? "yellow" : "teal";
 }
+// CSS hex values for neon glow (drop-shadow needs real colors, not Mantine names)
+function neonColor(pct: number): string {
+  if (pct >= 90) return "#ff2222";
+  if (pct >= 70) return "#ff7700";
+  if (pct >= 50) return "#f5c400";
+  return "#14d9c4";
+}
 function maskToken(k: string) {
   return k.startsWith("sk-user-") ? k.slice("sk-user-".length) : k;
 }
@@ -119,23 +126,45 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 function PeriodCard({ label, data, size = "sm" }: {
   label: string; data: UpstreamPeriod; size?: "sm" | "lg";
 }) {
-  const p       = data.utilization;
-  const ring    = size === "lg" ? 240 : 80;
-  const thick   = size === "lg" ? 16  : 7;
-  const fzPct   = size === "lg" ? "2xl" : "sm";
-  const fwLabel = size === "lg" ? 800  : 700;
+  // If resets_at has already passed but poll hasn't refreshed yet,
+  // the stale % is meaningless — show 0 / dimmed to avoid misleading display.
+  const hasReset  = new Date(data.resets_at).getTime() <= Date.now();
+  const p         = hasReset ? 0 : data.utilization;
+  const ring      = size === "lg" ? 320 : 80;
+  const thick     = size === "lg" ? 20  : 7;
+  const fzPct     = size === "lg" ? 72  : 14;
+  const fzLabel   = size === "lg" ? "sm" : "xs";
+  const fzResets  = size === "lg" ? "lg" : "xs";
+  const fwLabel   = size === "lg" ? 800  : 700;
+  const nc        = neonColor(p);
+  const textGlow  = size === "lg" && !hasReset
+    ? `0 0 8px ${nc}99, 0 0 20px ${nc}66, 0 0 40px ${nc}44`
+    : undefined;
 
   return (
-    <Paper withBorder p={size === "lg" ? "lg" : "sm"}
-      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-      <Text size="xs" fw={fwLabel} tt="uppercase" c="dimmed" ta="center"
+    <Paper withBorder p={size === "lg" ? "xl" : "sm"}
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: size === "lg" ? 14 : 8 }}>
+      <Text size={fzLabel} fw={fwLabel} tt="uppercase" c="dimmed" ta="center"
         style={{ letterSpacing: ".08em" }}>{label}</Text>
       <RingProgress
         size={ring} thickness={thick}
-        sections={[{ value: p, color: pctColor(p) }]}
-        label={<Text ta="center" fz={fzPct} fw={800} c={pctColor(p)}>{p.toFixed(0)}%</Text>}
+        sections={[{ value: p, color: hasReset ? "gray" : pctColor(p) }]}
+        label={
+          hasReset ? (
+            <Text ta="center" fz={size === "lg" ? 18 : 10} c="dimmed" lh={1.2}>
+              waiting{"\n"}for poll
+            </Text>
+          ) : (
+            <Text ta="center" fz={fzPct} fw={800} c={pctColor(p)} lh={1}
+              style={textGlow ? { textShadow: textGlow } : undefined}>
+              {data.utilization.toFixed(0)}%
+            </Text>
+          )
+        }
       />
-      <Text size="xs" c="dimmed" ta="center">resets {fmtResetAt(data.resets_at)}</Text>
+      <Text size={fzResets} c="dimmed" ta="center" fw={size === "lg" ? 500 : 400}>
+        resets {fmtResetAt(data.resets_at)}
+      </Text>
     </Paper>
   );
 }
