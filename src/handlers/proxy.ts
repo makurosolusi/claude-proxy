@@ -132,6 +132,16 @@ export async function handleProxy(
   // Build upstream request — resolve effective mode (per-token overrides global)
   const effectiveMode = t.mode !== "inherit" ? t.mode : config.upstreamMode;
 
+  // Direct mode: strip client-specific fields Anthropic API doesn't accept
+  // (e.g. context_management sent by Claude Code CLI)
+  if (effectiveMode === "direct" && bodyText) {
+    try {
+      const parsed = JSON.parse(bodyText);
+      delete parsed.context_management;
+      bodyText = JSON.stringify(parsed);
+    } catch {}
+  }
+
   const headers = new Headers(req.headers);
   headers.delete("host");
 
