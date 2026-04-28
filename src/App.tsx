@@ -116,15 +116,24 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 }
 
 // ── Period card ───────────────────────────────────────────────────────────────
-function PeriodCard({ label, data }: { label: string; data: UpstreamPeriod }) {
-  const p = data.utilization;
+function PeriodCard({ label, data, size = "sm" }: {
+  label: string; data: UpstreamPeriod; size?: "sm" | "lg";
+}) {
+  const p       = data.utilization;
+  const ring    = size === "lg" ? 130 : 80;
+  const thick   = size === "lg" ? 10  : 7;
+  const fzPct   = size === "lg" ? "xl" : "sm";
+  const fwLabel = size === "lg" ? 800  : 700;
+
   return (
-    <Paper withBorder p="sm" style={{ flex: 1, minWidth: 120, maxWidth: 160, display:"flex", flexDirection:"column", alignItems:"center", gap: 8 }}>
-      <Text size="xs" fw={700} tt="uppercase" c="dimmed" ta="center">{label}</Text>
+    <Paper withBorder p={size === "lg" ? "lg" : "sm"}
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      <Text size="xs" fw={fwLabel} tt="uppercase" c="dimmed" ta="center"
+        style={{ letterSpacing: ".08em" }}>{label}</Text>
       <RingProgress
-        size={80} thickness={7}
+        size={ring} thickness={thick}
         sections={[{ value: p, color: pctColor(p) }]}
-        label={<Text ta="center" fz="sm" fw={700} c={pctColor(p)}>{p.toFixed(0)}%</Text>}
+        label={<Text ta="center" fz={fzPct} fw={800} c={pctColor(p)}>{p.toFixed(0)}%</Text>}
       />
       <Text size="xs" c="dimmed" ta="center">resets {fmtResetAt(data.resets_at)}</Text>
     </Paper>
@@ -144,10 +153,9 @@ function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData; isAdmi
     </Stack>
   );
 
-  const dotColor = upstream.ok ? (upstream.stale ? "yellow" : "teal") : "orange";
-  const periods = [
-    upstream.fiveHour && { label: "5-hour", data: upstream.fiveHour },
-    upstream.sevenDay && { label: "7-day", data: upstream.sevenDay },
+  const dotColor   = upstream.ok ? (upstream.stale ? "yellow" : "teal") : "orange";
+  const secondary  = [
+    upstream.sevenDay     && { label: "7-day",        data: upstream.sevenDay },
     upstream.sevenDaySonnet && { label: "7-day Sonnet", data: upstream.sevenDaySonnet },
   ].filter(Boolean) as { label: string; data: UpstreamPeriod }[];
 
@@ -166,9 +174,22 @@ function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData; isAdmi
         </Group>
         {upstream.stale && <Badge color="yellow" variant="light" size="xs">stale</Badge>}
       </Group>
-      <Group gap="sm" style={{ overflowX: "auto", paddingBottom: 4 }}>
-        {periods.map(({ label, data }) => <PeriodCard key={label} label={label} data={data} />)}
-      </Group>
+
+      {/* 5-hour: hero card centered at top */}
+      {upstream.fiveHour && (
+        <Center>
+          <PeriodCard label="5-hour" data={upstream.fiveHour} size="lg" />
+        </Center>
+      )}
+
+      {/* 7-day cards: smaller, side by side below */}
+      {secondary.length > 0 && (
+        <Group gap="sm" justify="center">
+          {secondary.map(({ label, data }) => (
+            <PeriodCard key={label} label={label} data={data} size="sm" />
+          ))}
+        </Group>
+      )}
     </Stack>
   );
 }
