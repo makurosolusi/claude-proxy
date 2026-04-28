@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>claude-proxy</title>
+    <!-- Prevent FOUC: set color scheme before React/CSS loads -->
+    <script>
+      (function () {
+        var s = localStorage.getItem("mantine-color-scheme-value");
+        var dark = s === "dark" || (s !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var scheme = dark ? "dark" : "light";
+        document.documentElement.setAttribute("data-mantine-color-scheme", scheme);
+        document.documentElement.style.background = dark ? "#1A1B1E" : "#ffffff";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
