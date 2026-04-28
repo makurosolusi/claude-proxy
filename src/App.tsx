@@ -2,6 +2,14 @@ import { useState, useEffect, useCallback, useMemo, createContext, useContext } 
 import { Routes, Route, Navigate } from "react-router-dom";
 import ReactECharts from "echarts-for-react";
 import {
+  IconLayoutDashboard, IconUsers, IconList, IconChartBar,
+  IconSitemap, IconExternalLink, IconSun, IconMoon,
+  IconRefresh, IconPencil, IconPlayerPause, IconPlayerPlay, IconTrash,
+  IconLogout, IconLogin,
+  IconChevronsLeft, IconChevronsRight, IconMenu2,
+  IconPlus, IconHistory, IconBrandGithub,
+} from "@tabler/icons-react";
+import {
   Container, Group, Stack, Grid, Title, Text, Paper, Box, Center, Loader,
   Table, Badge, Progress, RingProgress, ActionIcon, Button,
   Select, TextInput, Modal, Code, Pagination,
@@ -214,24 +222,24 @@ function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenStatus>; 
                   <Group gap={4}>
                     <form method="POST" action="/admin/reset">
                       <input type="hidden" name="token" value={k} />
-                      <Tooltip label="Reset usage"><ActionIcon variant="subtle" color="gray" type="submit">↺</ActionIcon></Tooltip>
+                      <Tooltip label="Reset usage"><ActionIcon variant="subtle" color="gray" type="submit"><IconRefresh size={14} /></ActionIcon></Tooltip>
                     </form>
                     <form method="POST" action="/admin/token/edit" onSubmit={e => { const v = prompt("New limit:", lim); if (!v) { e.preventDefault(); return; } (e.currentTarget.querySelector('[name=limit]') as HTMLInputElement).value = v; }}>
                       <input type="hidden" name="token" value={k} />
                       <input type="hidden" name="limit" value={lim} />
-                      <Tooltip label="Edit limit"><ActionIcon variant="subtle" color="gray" type="submit">✎</ActionIcon></Tooltip>
+                      <Tooltip label="Edit limit"><ActionIcon variant="subtle" color="gray" type="submit"><IconPencil size={14} /></ActionIcon></Tooltip>
                     </form>
                     <form method="POST" action="/admin/token/pause">
                       <input type="hidden" name="token" value={k} />
                       <Tooltip label={tk.paused ? "Resume" : "Pause"}>
-                        <ActionIcon variant="light" color={tk.paused ? "teal" : "orange"} type="submit">{tk.paused ? "▶" : "⏸"}</ActionIcon>
+                        <ActionIcon variant="light" color={tk.paused ? "teal" : "orange"} type="submit">
+                          {tk.paused ? <IconPlayerPlay size={14} /> : <IconPlayerPause size={14} />}
+                        </ActionIcon>
                       </Tooltip>
                     </form>
                     <form method="POST" action="/admin/token/delete" onSubmit={e => { if (!confirm(`Delete ${k}?`)) e.preventDefault(); }}>
                       <input type="hidden" name="token" value={k} />
-                      <Tooltip label="Delete">
-                        <ActionIcon variant="light" color="red" type="submit">✕</ActionIcon>
-                      </Tooltip>
+                      <Tooltip label="Delete"><ActionIcon variant="light" color="red" type="submit"><IconTrash size={14} /></ActionIcon></Tooltip>
                     </form>
                   </Group>
                 </Table.Td>
@@ -347,8 +355,8 @@ function RequestLog({ isAdmin }: { isAdmin: boolean }) {
         <Group justify="space-between">
           <Group gap="xs" align="center">
             <Text size="xs" fw={700} tt="uppercase" style={{ letterSpacing: ".08em" }} c="dimmed">Request Log</Text>
-            <Button component="a" href="/mind" variant="subtle" size="xs" color="cyan" style={{ fontFamily: "monospace", letterSpacing: ".04em" }}>
-              ✦ mind map
+            <Button component="a" href="/mind" variant="subtle" size="xs" color="cyan" leftSection={<IconSitemap size={13} />}>
+              mind map
             </Button>
           </Group>
           <Group gap="xs">
@@ -521,11 +529,11 @@ function AdminOverview({ tokens, upstream }: {
           <Group gap="sm" wrap="wrap">
             <form method="POST" action="/admin/reset" onSubmit={e => { if (!confirm("Reset all token usage?")) e.preventDefault(); }}>
               <input type="hidden" name="all" value="true" />
-              <Button type="submit" variant="light" color="gray" size="sm" leftSection="↺">Reset All Usage</Button>
+              <Button type="submit" variant="light" color="gray" size="sm" leftSection={<IconRefresh size={15} />}>Reset All Usage</Button>
             </form>
             <form method="POST" action="/admin/token/pause">
               <input type="hidden" name="all" value="true" />
-              <Button type="submit" variant="light" color="orange" size="sm" leftSection="⏸">Pause All Tokens</Button>
+              <Button type="submit" variant="light" color="orange" size="sm" leftSection={<IconPlayerPause size={15} />}>Pause All Tokens</Button>
             </form>
             <form method="POST" action="/admin/token/edit-all" onSubmit={e => {
               const v = prompt("New limit for all tokens:");
@@ -533,9 +541,9 @@ function AdminOverview({ tokens, upstream }: {
               (e.currentTarget.querySelector('[name=limit]') as HTMLInputElement).value = v;
             }}>
               <input type="hidden" name="limit" value="" />
-              <Button type="submit" variant="light" color="blue" size="sm" leftSection="✎">Edit All Limits</Button>
+              <Button type="submit" variant="light" color="blue" size="sm" leftSection={<IconPencil size={15} />}>Edit All Limits</Button>
             </form>
-            <Button component="a" href="/admin/logout" variant="subtle" color="gray" size="sm">Sign out</Button>
+            <Button component="a" href="/admin/logout" variant="subtle" color="gray" size="sm" leftSection={<IconLogout size={15} />}>Sign out</Button>
           </Group>
         </Paper>
       </Stack>
@@ -561,11 +569,11 @@ function AdminUsers({ tokens }: { tokens: Record<string, TokenStatus> }) {
           <Group gap="xs">
             <form method="POST" action="/admin/reset" onSubmit={e => { if (!confirm("Reset all?")) e.preventDefault(); }}>
               <input type="hidden" name="all" value="true" />
-              <Button type="submit" size="xs" variant="subtle" color="gray">↺ Reset All</Button>
+              <Button type="submit" size="xs" variant="subtle" color="gray" leftSection={<IconRefresh size={13} />}>Reset All</Button>
             </form>
             <form method="POST" action="/admin/token/pause">
               <input type="hidden" name="all" value="true" />
-              <Button type="submit" size="xs" variant="subtle" color="orange">⏸ Pause All</Button>
+              <Button type="submit" size="xs" variant="subtle" color="orange" leftSection={<IconPlayerPause size={13} />}>Pause All</Button>
             </form>
           </Group>
         </Group>
@@ -602,7 +610,7 @@ function AdminUsers({ tokens }: { tokens: Record<string, TokenStatus> }) {
                 onChange={e => setNewLimit(e.currentTarget.value)}
                 description="Token quota (tokens)"
               />
-              <Button type="submit" color="teal" size="sm" mb={20}>Add Token</Button>
+              <Button type="submit" color="teal" size="sm" mb={20} leftSection={<IconPlus size={15} />}>Add Token</Button>
             </Group>
           </form>
         </Paper>
@@ -636,15 +644,16 @@ function AdminDashboard() {
   const { tokens, upstream } = status;
   const nav = (s: AdminSection) => { setSection(s); close(); };
 
-  const navItems: { id: AdminSection; label: string; icon: string; desc: string }[] = [
-    { id: "overview", label: "Overview",    icon: "◉", desc: "Upstream & quick stats" },
-    { id: "users",    label: "Users",       icon: "◈", desc: "Token management"       },
-    { id: "logs",     label: "Request Logs",icon: "≡", desc: "Activity & history"     },
-    { id: "stats",    label: "Stats",       icon: "▦", desc: "Daily usage history"    },
+  const SZ = 17;
+  const navItems: { id: AdminSection; label: string; icon: React.ReactNode; desc: string }[] = [
+    { id: "overview", label: "Overview",    icon: <IconLayoutDashboard size={SZ} />, desc: "Upstream & quick stats" },
+    { id: "users",    label: "Users",       icon: <IconUsers           size={SZ} />, desc: "Token management"       },
+    { id: "logs",     label: "Request Logs",icon: <IconList            size={SZ} />, desc: "Activity & history"     },
+    { id: "stats",    label: "Stats",       icon: <IconChartBar        size={SZ} />, desc: "Daily usage history"    },
   ];
-  const footerItems = [
-    { icon: "✦", label: "Mind Map",    href: "/mind", target: "_blank" },
-    { icon: "↗", label: "Public View", href: "/",     target: undefined },
+  const footerItems: { icon: React.ReactNode; label: string; href: string; target?: string }[] = [
+    { icon: <IconSitemap      size={SZ} />, label: "Mind Map",    href: "/mind", target: "_blank" },
+    { icon: <IconExternalLink size={SZ} />, label: "Public View", href: "/",     target: undefined },
   ];
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
@@ -669,7 +678,7 @@ function AdminDashboard() {
             {/* Collapse toggle — desktop only */}
             <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} position="bottom" withArrow openDelay={400}>
               <ActionIcon variant="subtle" size="sm" onClick={toggleCollapse} visibleFrom="sm">
-                <Text size="xs" style={{ lineHeight: 1 }}>{collapsed ? "▶" : "◀"}</Text>
+                {collapsed ? <IconChevronsRight size={16} /> : <IconChevronsLeft size={16} />}
               </ActionIcon>
             </Tooltip>
             {!collapsed && (
@@ -689,9 +698,11 @@ function AdminDashboard() {
                 {utilPct.toFixed(0)}% upstream
               </Badge>
             )}
-            <ActionIcon variant="default" size="md" onClick={() => toggleColorScheme()} title="Toggle theme">
-              {colorScheme === "dark" ? "☀" : "🌙"}
-            </ActionIcon>
+            <Tooltip label="Toggle theme" position="bottom" withArrow openDelay={400}>
+              <ActionIcon variant="default" size="md" onClick={() => toggleColorScheme()}>
+                {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+              </ActionIcon>
+            </Tooltip>
           </Group>
         </Group>
       </AppShell.Header>
@@ -725,7 +736,7 @@ function AdminDashboard() {
                 active={section === item.id}
                 label={item.label}
                 description={item.desc}
-                leftSection={<Text size="sm">{item.icon}</Text>}
+                leftSection={item.icon}
                 onClick={() => nav(item.id)}
                 style={{ borderRadius: 6 }}
               />
@@ -756,7 +767,7 @@ function AdminDashboard() {
                 key={fi.label}
                 label={fi.label}
                 description={fi.label === "Mind Map" ? "Graph visualization" : "User dashboard"}
-                leftSection={<Text size="sm">{fi.icon}</Text>}
+                leftSection={fi.icon}
                 component="a"
                 href={fi.href}
                 target={fi.target}
@@ -826,12 +837,14 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           </Text>
         </Stack>
         <Group gap="xs">
-          <ActionIcon variant="default" size="lg" onClick={() => toggleColorScheme()} title="Toggle theme">
-            {colorScheme === "dark" ? "☀" : "🌙"}
-          </ActionIcon>
+          <Tooltip label="Toggle theme" position="bottom" withArrow openDelay={400}>
+            <ActionIcon variant="default" size="lg" onClick={() => toggleColorScheme()}>
+              {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+            </ActionIcon>
+          </Tooltip>
           {isAdmin
-            ? <Button component="a" href="/admin/logout" variant="default" size="xs">Sign out</Button>
-            : <Button component="a" href="/admin" variant="subtle" size="xs" c="dimmed">Admin</Button>
+            ? <Button component="a" href="/admin/logout" variant="default" size="xs" leftSection={<IconLogout size={13} />}>Sign out</Button>
+            : <Button component="a" href="/admin" variant="subtle" size="xs" c="dimmed" leftSection={<IconLogin size={13} />}>Admin</Button>
           }
         </Group>
       </Group>
@@ -854,15 +867,15 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           <Group gap="xs">
             <form method="POST" action="/admin/reset" onSubmit={e => { if (!confirm("Reset all?")) e.preventDefault(); }}>
               <input type="hidden" name="all" value="true" />
-              <Button type="submit" variant="light" color="gray" size="xs">↺ Reset All</Button>
+              <Button type="submit" variant="light" color="gray" size="xs" leftSection={<IconRefresh size={13} />}>Reset All</Button>
             </form>
             <form method="POST" action="/admin/token/pause">
               <input type="hidden" name="all" value="true" />
-              <Button type="submit" variant="light" color="orange" size="xs">⏸ Pause All</Button>
+              <Button type="submit" variant="light" color="orange" size="xs" leftSection={<IconPlayerPause size={13} />}>Pause All</Button>
             </form>
             <form method="POST" action="/admin/token/edit-all" onSubmit={e => { const v = prompt("New limit for all:"); if (!v) { e.preventDefault(); return; } (e.currentTarget.querySelector('[name=limit]') as HTMLInputElement).value = v; }}>
               <input type="hidden" name="limit" value="" />
-              <Button type="submit" variant="light" color="blue" size="xs">✎ Edit All Limits</Button>
+              <Button type="submit" variant="light" color="blue" size="xs" leftSection={<IconPencil size={13} />}>Edit All Limits</Button>
             </form>
           </Group>
         )}
