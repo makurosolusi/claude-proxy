@@ -2,6 +2,8 @@ node_modules/
 dist/
 state/
 .env
+.env.dev
+.env.local
 *.db
 *.db-shm
 *.db-wal

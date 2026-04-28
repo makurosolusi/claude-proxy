@@ -82,6 +82,14 @@ function parseCookie(req: Request, name: string): string {
   return "";
 }
 
+function extractKey(req: Request): string {
+  const apiKey = req.headers.get("x-api-key") || "";
+  if (apiKey) return apiKey;
+  const auth = req.headers.get("authorization") || "";
+  if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
+  return "";
+}
+
 function checkAdmin(req: Request): boolean {
   if (config.adminKey) {
     const h = req.headers.get("x-admin-key") || "";
@@ -232,25 +240,25 @@ server = serve({
 
     // Proxy endpoints
     "/v1/models": async req => {
-      const key = req.headers.get("x-api-key") || "";
+      const key = extractKey(req);
       const t = tokens[key];
       if (!t) return Response.json({ error: { type: "authentication_error", message: "Invalid API key" } }, { status: 401 });
       return handleProxy(req, new URL(req.url), key, t);
     },
     "/v1/usage": async req => {
-      const key = req.headers.get("x-api-key") || "";
+      const key = extractKey(req);
       const t = tokens[key];
       if (!t) return Response.json({ error: { type: "authentication_error", message: "Invalid API key" } }, { status: 401 });
       return handleProxy(req, new URL(req.url), key, t);
     },
     "/v1/messages": async req => {
-      const key = req.headers.get("x-api-key") || "";
+      const key = extractKey(req);
       const t = tokens[key];
       if (!t) return Response.json({ error: { type: "authentication_error", message: "Invalid API key" } }, { status: 401 });
       return handleProxy(req, new URL(req.url), key, t);
     },
     "/v1/messages/count_tokens": async req => {
-      const key = req.headers.get("x-api-key") || "";
+      const key = extractKey(req);
       const t = tokens[key];
       if (!t) return Response.json({ error: { type: "authentication_error", message: "Invalid API key" } }, { status: 401 });
       return handleProxy(req, new URL(req.url), key, t);
