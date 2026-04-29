@@ -6,7 +6,7 @@ import { triggerBroadcast } from "./broadcast";
 
 const TOKEN_CACHE_MS    = 30_000;
 const OAUTH_CLIENT_ID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const OAUTH_REFRESH_URL = "https://console.anthropic.com/v1/oauth/token";
+const OAUTH_REFRESH_URL = "https://api.anthropic.com/v1/oauth/token";
 
 export interface OauthCredential {
   token:        string;
@@ -62,8 +62,14 @@ export async function refreshOauthToken(filePath: string, refreshToken: string):
     console.log("[upstream] Refreshing OAuth token...");
     const resp = await fetch(OAUTH_REFRESH_URL, {
       method:  "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "claude-proxy/2.0" },
-      body:    new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: OAUTH_CLIENT_ID }).toString(),
+      headers: {
+        "Content-Type":    "application/json",
+        "Accept":          "application/json",
+        "Origin":          "https://claude.ai",
+        "Referer":         "https://claude.ai/",
+        "User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      },
+      body: JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: OAUTH_CLIENT_ID }),
     });
 
     if (!resp.ok) {

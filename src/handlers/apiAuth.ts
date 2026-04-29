@@ -6,7 +6,7 @@ import { upstream } from "../state";
 
 const OAUTH_CLIENT_ID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const OAUTH_AUTH_URL    = "https://claude.ai/oauth/authorize";
-const OAUTH_TOKEN_URL   = "https://console.anthropic.com/v1/oauth/token";
+const OAUTH_TOKEN_URL   = "https://api.anthropic.com/v1/oauth/token";
 const CALLBACK_URI      = "http://localhost:54545/callback";
 const SCOPES            = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 const PENDING_TTL_MS    = 10 * 60 * 1000;
@@ -43,25 +43,27 @@ async function resolveEmail(accessToken: string): Promise<string> {
   return `account-${Date.now()}`;
 }
 
-async function exchangeAndSave(code: string, codeVerifier: string): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
+async function exchangeAndSave(code: string, codeVerifier: string, state: string): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
   let tokenData: any;
   try {
-    const reqBody = JSON.stringify({
-      grant_type:    "authorization_code",
-      code,
-      redirect_uri:  CALLBACK_URI,
-      client_id:     OAUTH_CLIENT_ID,
-      code_verifier: codeVerifier,
-    });
-    console.log("[auth] Exchange →", OAUTH_TOKEN_URL, JSON.parse(reqBody));
     const resp = await fetch(OAUTH_TOKEN_URL, {
       method:  "POST",
       headers: {
-        "Content-Type":   "application/json",
-        "anthropic-beta": "oauth-2025-04-20",
-        "User-Agent":     "claude-proxy/2.0",
+        "Content-Type":    "application/json",
+        "Accept":          "application/json",
+        "Origin":          "https://claude.ai",
+        "Referer":         "https://claude.ai/",
+        "User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
       },
-      body: reqBody,
+      body: JSON.stringify({
+        grant_type:    "authorization_code",
+        client_id:     OAUTH_CLIENT_ID,
+        code,
+        redirect_uri:  CALLBACK_URI,
+        code_verifier: codeVerifier,
+        state,
+      }),
     });
     if (!resp.ok) {
       const body = await resp.text();
@@ -174,7 +176,7 @@ export async function handleAuthExchange(req: Request): Promise<Response> {
   }
   pendingAuth.delete(state);
 
-  const result = await exchangeAndSave(code, pending.codeVerifier);
+  const result = await exchangeAndSave(code, pending.codeVerifier, state);
   return result.ok
     ? Response.json({ ok: true, email: result.email })
     : Response.json({ ok: false, error: result.error }, { status: 400 });
