@@ -24,13 +24,18 @@ startPoller();
 
 // ── Chat store ────────────────────────────────────────────────────────────────
 interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
-const chatStore: ChatMsg[] = [];
+const chatStore:    ChatMsg[]    = [];
+const chatBlocklist = new Set<string>(); // lowercase nicks
 const chatRateLimit = new Map<ServerWebSocket<any>, number>();
 
 function broadcastChatMsg(msg: ChatMsg) {
   chatStore.push(msg);
   if (chatStore.length > 100) chatStore.splice(0, chatStore.length - 100);
   const payload = JSON.stringify({ type: "chat_message", message: msg });
+  for (const ws of wsClients) ws.send(payload);
+}
+
+function broadcastRaw(payload: string) {
   for (const ws of wsClients) ws.send(payload);
 }
 
@@ -190,6 +195,7 @@ server = serve({
         const nick = String(msg.nick || "").trim().slice(0, 20) || "Anonymous";
         const text = String(msg.text || "").trim().slice(0, 500);
         if (!text) return;
+        if (chatBlocklist.has(nick.toLowerCase())) return; // silently drop
         broadcastChatMsg({ id: crypto.randomUUID(), type: "chat", nick, text, ts: now });
       } catch {}
     },
@@ -282,6 +288,36 @@ server = serve({
       if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiStats();
     },
+    // Chat moderation
+    "/admin/chat/clear": req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      chatStore.splice(0, chatStore.length);
+      broadcastRaw(JSON.stringify({ type: "chat_clear" }));
+      broadcastChatMsg({ id: crypto.randomUUID(), type: "system", nick: "system", text: "🗑️ Chat cleared by admin", ts: Date.now() });
+      return Response.json({ ok: true });
+    },
+    "/admin/chat/block": async req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const { nick } = await req.json() as any;
+      const n = String(nick || "").trim();
+      if (!n) return Response.json({ error: "Missing nick" }, { status: 400 });
+      chatBlocklist.add(n.toLowerCase());
+      broadcastChatMsg({ id: crypto.randomUUID(), type: "system", nick: "system", text: `🚫 ${n} has been blocked`, ts: Date.now() });
+      return Response.json({ ok: true });
+    },
+    "/admin/chat/unblock": async req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const { nick } = await req.json() as any;
+      const n = String(nick || "").trim();
+      chatBlocklist.delete(n.toLowerCase());
+      broadcastChatMsg({ id: crypto.randomUUID(), type: "system", nick: "system", text: `✅ ${n} has been unblocked`, ts: Date.now() });
+      return Response.json({ ok: true });
+    },
+    "/admin/chat/blocked": req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return Response.json({ blocked: [...chatBlocklist] });
+    },
+
     "/api/admin/db/info": req => {
       if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleDbInfo();

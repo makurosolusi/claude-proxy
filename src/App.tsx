@@ -12,11 +12,12 @@ import {
   IconWifi, IconKey, IconPlayerStop,
   IconDatabase, IconDownload, IconUpload, IconAlertTriangle,
   IconMessageCircle, IconSend, IconMinus, IconBolt, IconPencil,
+  IconBan, IconDotsVertical, IconUserOff, IconTrash,
 } from "@tabler/icons-react";
 import {
   Container, Group, Stack, Grid, Title, Text, Paper, Box, Center, Loader,
   Table, Badge, Progress, RingProgress, ActionIcon, Button,
-  Select, TextInput, Modal, Code, Pagination,
+  Select, TextInput, Modal, Code, Pagination, Menu,
   AppShell, NavLink, ScrollArea, Divider, Burger, SimpleGrid, NumberFormatter,
   useMantineColorScheme, Tooltip,
 } from "@mantine/core";
@@ -1993,6 +1994,7 @@ function nickColor(nick: string): string {
 
 function FloatingChat() {
   const { messages, send } = useChat();
+  const isAdmin = useStatus()?.isAdmin ?? false;
   const [open, setOpen]         = useState(false);
   const [unread, setUnread]     = useState(0);
   const [nick, setNick]         = useState(() => {
@@ -2001,9 +2003,43 @@ function FloatingChat() {
   const [editingNick, setEditingNick] = useState(false);
   const [nickDraft, setNickDraft]     = useState("");
   const [text, setText]               = useState("");
+  const [hoveredId, setHoveredId]     = useState<string | null>(null);
+  const [blocked, setBlocked]         = useState<string[]>([]);
+  const [showBlocked, setShowBlocked] = useState(false);
   const bottomRef  = useRef<HTMLDivElement>(null);
   const inputRef   = useRef<HTMLInputElement>(null);
   const prevLen    = useRef(0);
+
+  const loadBlocked = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const r = await fetch("/admin/chat/blocked");
+      const d = await r.json() as any;
+      setBlocked(d.blocked ?? []);
+    } catch {}
+  }, [isAdmin]);
+
+  useEffect(() => { if (open && isAdmin) loadBlocked(); }, [open, isAdmin, loadBlocked]);
+
+  const adminClear = async () => {
+    await fetch("/admin/chat/clear", { method: "POST" });
+  };
+
+  const adminBlock = async (blockNick: string) => {
+    await fetch("/admin/chat/block", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nick: blockNick }),
+    });
+    setBlocked(prev => [...prev, blockNick.toLowerCase()]);
+  };
+
+  const adminUnblock = async (blockNick: string) => {
+    await fetch("/admin/chat/unblock", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nick: blockNick }),
+    });
+    setBlocked(prev => prev.filter(b => b !== blockNick.toLowerCase()));
+  };
 
   // Unread tracking + browser notification
   useEffect(() => {
@@ -2072,42 +2108,129 @@ function FloatingChat() {
               <IconMessageCircle size={15} />
               <Text size="sm" fw={600}>Team Chat</Text>
               {messages.length > 0 && (
-                <Text size="xs" c="dimmed">· {messages.filter(m => m.type === "chat").length} messages</Text>
+                <Text size="xs" c="dimmed">· {messages.filter(m => m.type === "chat").length}</Text>
               )}
             </Group>
-            <ActionIcon size="sm" variant="subtle" color="gray" onClick={toggle}>
-              <IconMinus size={13} />
-            </ActionIcon>
+            <Group gap={4}>
+              {isAdmin && (
+                <>
+                  <Tooltip label="Clear chat" withArrow position="left">
+                    <ActionIcon size="sm" variant="subtle" color="red" onClick={adminClear}>
+                      <IconTrash size={13} />
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label={showBlocked ? "Hide blocked" : `Blocked users${blocked.length > 0 ? ` (${blocked.length})` : ""}`} withArrow position="left">
+                    <ActionIcon
+                      size="sm" variant={showBlocked ? "filled" : "subtle"} color="orange"
+                      onClick={() => { setShowBlocked(v => !v); loadBlocked(); }}
+                    >
+                      <IconBan size={13} />
+                    </ActionIcon>
+                  </Tooltip>
+                </>
+              )}
+              <ActionIcon size="sm" variant="subtle" color="gray" onClick={toggle}>
+                <IconMinus size={13} />
+              </ActionIcon>
+            </Group>
           </Group>
 
           {/* Messages */}
-          <ScrollArea style={{ flex: 1 }} p="xs">
+          <ScrollArea style={{ flex: 1 }} px="xs" py={6}>
             {messages.length === 0 && (
               <Text size="xs" c="dimmed" ta="center" mt="xl">No messages yet. Say hi! 👋</Text>
             )}
-            {messages.map(msg => (
-              <div key={msg.id} style={{ marginBottom: 8 }}>
-                {msg.type === "system" ? (
-                  <Group gap={4}>
-                    <IconBolt size={11} color="var(--mantine-color-yellow-5)" style={{ flexShrink: 0, marginTop: 2 }} />
-                    <Text size="xs" c="dimmed" fs="italic" style={{ lineHeight: 1.5 }}>{msg.text}</Text>
-                    <Text size="xs" c="dimmed" style={{ marginLeft: "auto", flexShrink: 0 }}>{fmtTs(msg.ts)}</Text>
-                  </Group>
-                ) : (
-                  <div>
-                    <Group gap={4} mb={1}>
-                      <Text size="xs" fw={700} c={nickColor(msg.nick)}>{msg.nick}</Text>
-                      <Text size="xs" c="dimmed">{fmtTs(msg.ts)}</Text>
+            {messages.map(msg => {
+              const isMine = msg.type === "chat" && msg.nick === nick;
+
+              // System message — centered pill
+              if (msg.type === "system") return (
+                <div key={msg.id} style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4,
+                    background: "var(--mantine-color-dark-6)", borderRadius: 20, padding: "3px 10px" }}>
+                    <IconBolt size={10} color="var(--mantine-color-yellow-4)" />
+                    <Text size="xs" c="dimmed" fs="italic">{msg.text}</Text>
+                    <Text size="xs" c="dimmed" style={{ opacity: 0.6 }}>{fmtTs(msg.ts)}</Text>
+                  </div>
+                </div>
+              );
+
+              // Chat bubble
+              const isBlocked = blocked.includes(msg.nick.toLowerCase());
+              return (
+                <div key={msg.id}
+                  style={{ display: "flex", flexDirection: "column",
+                    alignItems: isMine ? "flex-end" : "flex-start", marginBottom: 10 }}
+                  onMouseEnter={() => setHoveredId(msg.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                >
+                  {/* Nick + block button row — only for others */}
+                  {!isMine && (
+                    <Group gap={4} mb={2} align="center" style={{ paddingLeft: 4 }}>
+                      <Text size="xs" fw={700} c={isBlocked ? "dimmed" : nickColor(msg.nick)}>
+                        {msg.nick}{isBlocked && " 🚫"}
+                      </Text>
+                      {isAdmin && hoveredId === msg.id && (
+                        <Tooltip label={isBlocked ? "Unblock" : "Block user"} withArrow position="top">
+                          <ActionIcon
+                            size="xs" variant="subtle" color={isBlocked ? "teal" : "red"}
+                            onClick={() => isBlocked ? adminUnblock(msg.nick) : adminBlock(msg.nick)}
+                          >
+                            <IconUserOff size={11} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
                     </Group>
-                    <Text size="xs" style={{ wordBreak: "break-word", lineHeight: 1.5, paddingLeft: 4 }}>
+                  )}
+
+                  {/* Bubble */}
+                  <div style={{
+                    maxWidth: "78%", padding: "7px 11px",
+                    borderRadius: isMine ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                    background: isMine ? "var(--mantine-color-blue-6)" : "var(--mantine-color-dark-5)",
+                    opacity: isBlocked ? 0.5 : 1,
+                  }}>
+                    <Text size="xs" style={{ wordBreak: "break-word", lineHeight: 1.55,
+                      color: isMine ? "#fff" : "var(--mantine-color-text)" }}>
                       {msg.text}
                     </Text>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Timestamp */}
+                  <Text size="xs" c="dimmed" mt={2} style={{ paddingInline: 4, opacity: 0.7 }}>
+                    {fmtTs(msg.ts)}
+                  </Text>
+                </div>
+              );
+            })}
             <div ref={bottomRef} />
           </ScrollArea>
+
+          {/* Blocked list panel — admin only */}
+          {isAdmin && showBlocked && (
+            <div style={{ borderTop: "1px solid var(--mantine-color-default-border)",
+              padding: "8px", flexShrink: 0, maxHeight: 120, overflowY: "auto" }}>
+              <Text size="xs" fw={600} c="dimmed" mb={4}>Blocked users</Text>
+              {blocked.length === 0 ? (
+                <Text size="xs" c="dimmed">No blocked users</Text>
+              ) : (
+                <Stack gap={4}>
+                  {blocked.map(b => (
+                    <Group key={b} justify="space-between">
+                      <Group gap={4}>
+                        <IconBan size={11} color="var(--mantine-color-red-5)" />
+                        <Text size="xs" ff="monospace">{b}</Text>
+                      </Group>
+                      <Button size="xs" variant="subtle" color="teal" compact
+                        onClick={() => adminUnblock(b)}>
+                        Unblock
+                      </Button>
+                    </Group>
+                  ))}
+                </Stack>
+              )}
+            </div>
+          )}
 
           {/* Nick setup */}
           {showNickSetup && (
@@ -2208,6 +2331,7 @@ export function App() {
           const data = JSON.parse(e.data);
           if (data.type === "chat_history")  { setChatMsgs(data.messages); return; }
           if (data.type === "chat_message")  { setChatMsgs(prev => [...prev.slice(-99), data.message]); return; }
+          if (data.type === "chat_clear")    { setChatMsgs([]); return; }
           setStatus(data);
         } catch {}
       };
