@@ -6,7 +6,7 @@ import { upstream } from "../state";
 
 const OAUTH_CLIENT_ID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const OAUTH_AUTH_URL    = "https://claude.ai/oauth/authorize";
-const OAUTH_TOKEN_URL   = "https://api.anthropic.com/v1/oauth/token";
+const OAUTH_TOKEN_URL   = "https://console.anthropic.com/v1/oauth/token";
 const CALLBACK_URI      = "http://localhost:54545/callback";
 const SCOPES            = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 const PENDING_TTL_MS    = 10 * 60 * 1000;
@@ -46,20 +46,27 @@ async function resolveEmail(accessToken: string): Promise<string> {
 async function exchangeAndSave(code: string, codeVerifier: string): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
   let tokenData: any;
   try {
+    const reqBody = JSON.stringify({
+      grant_type:    "authorization_code",
+      code,
+      redirect_uri:  CALLBACK_URI,
+      client_id:     OAUTH_CLIENT_ID,
+      code_verifier: codeVerifier,
+    });
+    console.log("[auth] Exchange →", OAUTH_TOKEN_URL, JSON.parse(reqBody));
     const resp = await fetch(OAUTH_TOKEN_URL, {
       method:  "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "claude-proxy/2.0" },
-      body:    new URLSearchParams({
-        grant_type:    "authorization_code",
-        code,
-        redirect_uri:  CALLBACK_URI,
-        client_id:     OAUTH_CLIENT_ID,
-        code_verifier: codeVerifier,
-      }).toString(),
+      headers: {
+        "Content-Type":   "application/json",
+        "anthropic-beta": "oauth-2025-04-20",
+        "User-Agent":     "claude-proxy/2.0",
+      },
+      body: reqBody,
     });
     if (!resp.ok) {
       const body = await resp.text();
-      return { ok: false, error: `Token exchange HTTP ${resp.status}: ${body.slice(0, 200)}` };
+      console.error("[auth] Exchange failed:", resp.status, body);
+      return { ok: false, error: `Token exchange HTTP ${resp.status}: ${body.slice(0, 300)}` };
     }
     tokenData = await resp.json();
   } catch (e: any) {
