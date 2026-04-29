@@ -7,6 +7,9 @@ const SQLITE_MAGIC = "SQLite format 3";
 
 export function handleDbDownload(): Response {
   try {
+    // Flush WAL into the main file so the downloaded DB is complete
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+
     const filename = `claude-proxy-${new Date().toISOString().slice(0, 10)}.db`;
     const file = Bun.file(config.dbFile);
     return new Response(file, {
