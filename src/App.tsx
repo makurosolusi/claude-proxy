@@ -422,11 +422,20 @@ function DailyHistory({ isAdmin }: { isAdmin: boolean }) {
 }
 
 // ── Request log ───────────────────────────────────────────────────────────────
+// User is always first — sticky on horizontal scroll for small screens
 const ALL_COLS = [
-  { k: "time", l: "Time" }, { k: "user", l: "User" }, { k: "model", l: "Model" },
+  { k: "user", l: "User" }, { k: "time", l: "Time" }, { k: "model", l: "Model" },
   { k: "in", l: "In" }, { k: "out", l: "Out" }, { k: "total", l: "Total" },
   { k: "type", l: "Type" }, { k: "prompt", l: "Prompt" },
 ];
+
+const STICKY_COL: React.CSSProperties = {
+  position: "sticky",
+  left: 0,
+  zIndex: 2,
+  background: "var(--mantine-color-body)",
+  borderRight: "1px solid var(--mantine-color-default-border)",
+};
 
 // Group consecutive log entries with same user + prompt → returns grouped list with count
 function groupDuplicateLogs(logs: LogEntry[]): Array<{ log: LogEntry; count: number }> {
@@ -536,7 +545,11 @@ function RequestLog({ isAdmin }: { isAdmin: boolean }) {
             <Table highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
-                  {visibleCols.map(c => <Table.Th key={c.k}>{c.l}</Table.Th>)}
+                  {visibleCols.map(c => (
+                    <Table.Th key={c.k} style={c.k === "user" ? { ...STICKY_COL, zIndex: 3 } : undefined}>
+                      {c.l}
+                    </Table.Th>
+                  ))}
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -559,7 +572,7 @@ function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                         </Group>
                       </Table.Td>
                     ),
-                    user:  <Table.Td key="user"><Badge variant="light" color="gray" size="sm" ff="monospace">{u}</Badge></Table.Td>,
+                    user:  <Table.Td key="user" style={STICKY_COL}><Badge variant="light" color="gray" size="sm" ff="monospace">{u}</Badge></Table.Td>,
                     model: <Table.Td key="model"><Text size="xs" ff="monospace" c="dimmed">{model}</Text></Table.Td>,
                     in:    <Table.Td key="in"><Text size="xs" ff="monospace" c="dimmed">{l.input_tokens.toLocaleString()}</Text></Table.Td>,
                     out:   <Table.Td key="out"><Text size="xs" ff="monospace" c="dimmed">{l.output_tokens.toLocaleString()}</Text></Table.Td>,
