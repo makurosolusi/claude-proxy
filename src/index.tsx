@@ -10,6 +10,7 @@ import { handleApiStats }  from "./handlers/apiStats";
 import { handleApiMind }   from "./handlers/apiMind";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
+import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
 import { handleAdmin }     from "./handlers/admin";
 import { handleProxy }     from "./handlers/proxy";
 import { _broadcast }      from "./broadcast";
@@ -248,6 +249,18 @@ server = serve({
     "/api/stats": req => {
       if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiStats();
+    },
+    "/api/admin/db/info": req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleDbInfo();
+    },
+    "/api/admin/db/download": req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleDbDownload();
+    },
+    "/api/admin/db/upload": async req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleDbUpload(req);
     },
 
     // Admin actions

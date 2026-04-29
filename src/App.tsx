@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import ReactECharts from "echarts-for-react";
 import {
@@ -10,6 +10,7 @@ import {
   IconPlus, IconHistory, IconBrandGithub,
   IconPlugConnected, IconCircleCheck, IconCircleX, IconClock, IconPlayerPlay as IconRun,
   IconWifi, IconKey, IconPlayerStop,
+  IconDatabase, IconDownload, IconUpload, IconAlertTriangle,
 } from "@tabler/icons-react";
 import {
   Container, Group, Stack, Grid, Title, Text, Paper, Box, Center, Loader,
@@ -1121,8 +1122,171 @@ function AdminAccounts() {
   );
 }
 
+// ── Admin Database section ────────────────────────────────────────────────────
+function AdminDb() {
+  const [info, setInfo]         = useState<{ path: string; size: number; modified: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/db/info")
+      .then(r => r.json())
+      .then(d => setInfo(d as any))
+      .catch(() => {});
+  }, []);
+
+  const fmt = (bytes: number) => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1024 / 1024).toFixed(2) + " MB";
+  };
+
+  const upload = async () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file) return;
+    setUploading(true); setUploadErr(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await fetch("/api/admin/db/upload", { method: "POST", body: form });
+      const d = await r.json() as any;
+      if (d.ok) {
+        // Server is restarting — show message and reload after delay
+        setTimeout(() => window.location.reload(), 3000);
+      } else {
+        setUploadErr(d.error || "Upload failed");
+        setUploading(false);
+      }
+    } catch (e: any) {
+      setUploadErr(e.message);
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Stack gap="lg" maw={560}>
+      <div>
+        <Title order={3} fw={600}>Database</Title>
+        <Text size="sm" c="dimmed" mt={4}>Backup and restore the SQLite database.</Text>
+      </div>
+
+      {/* Current DB info */}
+      <Paper withBorder p="md">
+        <Stack gap="xs">
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" lts={1}>Current Database</Text>
+          {info ? (
+            <>
+              <Group gap="xs">
+                <IconDatabase size={16} color="var(--mantine-color-dimmed)" />
+                <Text size="sm" ff="monospace">{info.path}</Text>
+              </Group>
+              <Group gap="xl">
+                <Text size="sm" c="dimmed">Size: <Text span fw={500} c="inherit">{fmt(info.size)}</Text></Text>
+                <Text size="sm" c="dimmed">Modified: <Text span fw={500} c="inherit">{new Date(info.modified).toLocaleString()}</Text></Text>
+              </Group>
+            </>
+          ) : (
+            <Text size="sm" c="dimmed">Loading...</Text>
+          )}
+        </Stack>
+      </Paper>
+
+      {/* Download */}
+      <Paper withBorder p="md">
+        <Stack gap="sm">
+          <Text size="sm" fw={600}>Backup — Download</Text>
+          <Text size="xs" c="dimmed">Download a copy of the current database file.</Text>
+          <div>
+            <Button
+              component="a"
+              href="/api/admin/db/download"
+              download
+              leftSection={<IconDownload size={15} />}
+              size="sm"
+              variant="light"
+            >
+              Download Database
+            </Button>
+          </div>
+        </Stack>
+      </Paper>
+
+      {/* Upload / Restore */}
+      <Paper withBorder p="md" style={{ borderColor: confirmed ? "var(--mantine-color-orange-6)" : undefined }}>
+        <Stack gap="sm">
+          <Text size="sm" fw={600}>Restore — Upload</Text>
+          <Paper p="xs" style={{ background: "var(--mantine-color-orange-light)", borderRadius: 6 }}>
+            <Group gap="xs" align="flex-start">
+              <IconAlertTriangle size={15} color="var(--mantine-color-orange-6)" style={{ marginTop: 2, flexShrink: 0 }} />
+              <Text size="xs" c="orange">
+                This will replace the current database and restart the server (~2s downtime).
+                Download a backup first if needed.
+              </Text>
+            </Group>
+          </Paper>
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".db"
+            style={{ display: "none" }}
+            onChange={() => setConfirmed(false)}
+          />
+
+          <Group gap="xs">
+            <Button
+              size="sm"
+              variant="light"
+              color="gray"
+              leftSection={<IconUpload size={15} />}
+              onClick={() => fileRef.current?.click()}
+            >
+              {fileRef.current?.files?.[0]?.name ?? "Choose .db file"}
+            </Button>
+          </Group>
+
+          {fileRef.current?.files?.[0] && !confirmed && (
+            <Group gap="xs" align="center">
+              <Text size="xs" c="dimmed">
+                Selected: <Text span ff="monospace">{fileRef.current.files[0].name}</Text> ({fmt(fileRef.current.files[0].size)})
+              </Text>
+              <Button size="xs" color="orange" onClick={() => setConfirmed(true)}>
+                Confirm Replace
+              </Button>
+            </Group>
+          )}
+
+          {confirmed && (
+            <Group gap="xs">
+              <Button
+                size="sm"
+                color="orange"
+                loading={uploading}
+                leftSection={<IconUpload size={15} />}
+                onClick={upload}
+              >
+                {uploading ? "Uploading & restarting…" : "Upload & Restart"}
+              </Button>
+              <Button size="sm" variant="subtle" color="gray" onClick={() => { setConfirmed(false); if (fileRef.current) fileRef.current.value = ""; }}>
+                Cancel
+              </Button>
+            </Group>
+          )}
+
+          {uploadErr && <Text size="xs" c="red">{uploadErr}</Text>}
+          {uploading && (
+            <Text size="xs" c="dimmed">Server restarting, page will reload automatically...</Text>
+          )}
+        </Stack>
+      </Paper>
+    </Stack>
+  );
+}
+
 // ── Admin Dashboard (AppShell layout) ─────────────────────────────────────────
-type AdminSection = "overview" | "users" | "logs" | "stats" | "test" | "accounts";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "test" | "accounts" | "database";
 
 function AdminDashboard() {
   const status = useStatus()!;
@@ -1149,6 +1313,7 @@ function AdminDashboard() {
     { id: "stats",    label: "Stats",          icon: <IconChartBar        size={SZ} />, desc: "Daily usage history"    },
     { id: "test",     label: "Test Connection",icon: <IconPlugConnected   size={SZ} />, desc: "Verify API connectivity" },
     { id: "accounts", label: "Accounts",       icon: <IconKey             size={SZ} />, desc: "OAuth Claude accounts"   },
+    { id: "database", label: "Database",       icon: <IconDatabase        size={SZ} />, desc: "Backup & restore DB"     },
   ];
   const footerItems: { icon: React.ReactNode; label: string; href: string; target?: string }[] = [
     { icon: <IconSitemap      size={SZ} />, label: "Mind Map",    href: "/mind", target: "_blank" },
@@ -1157,7 +1322,7 @@ function AdminDashboard() {
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
   const sectionTitles: Record<AdminSection, string> = {
-    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", test: "Test Connection", accounts: "Accounts",
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", test: "Test Connection", accounts: "Accounts", database: "Database",
   };
   const statusColor = upstream.ok ? "teal" : "red";
   const SIDEBAR_W   = collapsed ? 56 : 220;
@@ -1316,6 +1481,7 @@ function AdminDashboard() {
           {section === "stats"     && <AdminStats />}
           {section === "test"      && <AdminTest />}
           {section === "accounts"  && <AdminAccounts />}
+          {section === "database"  && <AdminDb />}
         </Box>
       </AppShell.Main>
     </AppShell>
