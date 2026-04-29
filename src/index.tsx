@@ -13,7 +13,7 @@ import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove
 import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
 import { handleAdmin }     from "./handlers/admin";
 import { handleProxy }     from "./handlers/proxy";
-import { _broadcast }      from "./broadcast";
+import { _broadcast, _broadcastSystemMsg } from "./broadcast";
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 loadFromDb();
@@ -21,6 +21,18 @@ initFromEnv();
 process.on("SIGTERM", () => onShutdown("SIGTERM"));
 process.on("SIGINT",  () => onShutdown("SIGINT"));
 startPoller();
+
+// ── Chat store ────────────────────────────────────────────────────────────────
+interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
+const chatStore: ChatMsg[] = [];
+const chatRateLimit = new Map<ServerWebSocket<any>, number>();
+
+function broadcastChatMsg(msg: ChatMsg) {
+  chatStore.push(msg);
+  if (chatStore.length > 100) chatStore.splice(0, chatStore.length - 100);
+  const payload = JSON.stringify({ type: "chat_message", message: msg });
+  for (const ws of wsClients) ws.send(payload);
+}
 
 // ── WebSocket clients ─────────────────────────────────────────────────────────
 type WsData = { isAdmin: boolean };
@@ -73,6 +85,10 @@ _broadcast.fn = () => {
   for (const ws of wsClients) {
     ws.send(ws.data.isAdmin ? adminPayload : publicPayload);
   }
+};
+
+_broadcastSystemMsg.fn = (text: string) => {
+  broadcastChatMsg({ id: crypto.randomUUID(), type: "system", nick: "system", text, ts: Date.now() });
 };
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -156,11 +172,27 @@ server = serve({
     open(ws: ServerWebSocket<WsData>) {
       wsClients.add(ws);
       ws.send(JSON.stringify(buildStatusPayload(ws.data.isAdmin)));
+      if (chatStore.length > 0) {
+        ws.send(JSON.stringify({ type: "chat_history", messages: chatStore }));
+      }
     },
     close(ws: ServerWebSocket<WsData>) {
       wsClients.delete(ws);
+      chatRateLimit.delete(ws);
     },
-    message() {},
+    message(ws: ServerWebSocket<WsData>, raw: string | Buffer) {
+      try {
+        const msg = JSON.parse(String(raw));
+        if (msg.type !== "chat") return;
+        const now = Date.now();
+        if (now - (chatRateLimit.get(ws) ?? 0) < 2000) return;
+        chatRateLimit.set(ws, now);
+        const nick = String(msg.nick || "").trim().slice(0, 20) || "Anonymous";
+        const text = String(msg.text || "").trim().slice(0, 500);
+        if (!text) return;
+        broadcastChatMsg({ id: crypto.randomUUID(), type: "chat", nick, text, ts: now });
+      } catch {}
+    },
   },
 
   error(err: Error) {

@@ -8,9 +8,39 @@ import type { TokenEntry, UpstreamState, DailyUsage, RequestLogEntry } from "./t
 const dir = path.dirname(config.dbFile);
 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-export const db = new Database(config.dbFile, { create: true });
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA synchronous = NORMAL");
+function openDb(): InstanceType<typeof Database> {
+  try {
+    const d = new Database(config.dbFile, { create: true });
+    d.exec("PRAGMA journal_mode = WAL");
+    d.exec("PRAGMA synchronous = NORMAL");
+    return d;
+  } catch (e) {
+    // Corrupted DB (e.g. incompatible WAL after file replace) — delete WAL/SHM and retry once
+    console.error("[db] Open failed, attempting WAL recovery:", (e as any).message);
+    for (const suffix of ["-wal", "-shm"]) {
+      try { fs.unlinkSync(config.dbFile + suffix); } catch {}
+    }
+    try {
+      const d = new Database(config.dbFile, { create: true });
+      d.exec("PRAGMA journal_mode = WAL");
+      d.exec("PRAGMA synchronous = NORMAL");
+      console.log("[db] WAL recovery successful");
+      return d;
+    } catch (e2) {
+      // Truly unrecoverable — delete DB and start fresh
+      console.error("[db] Recovery failed, starting fresh:", (e2 as any).message);
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try { fs.unlinkSync(config.dbFile + suffix); } catch {}
+      }
+      const d = new Database(config.dbFile, { create: true });
+      d.exec("PRAGMA journal_mode = WAL");
+      d.exec("PRAGMA synchronous = NORMAL");
+      return d;
+    }
+  }
+}
+
+export const db = openDb();
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS tokens (

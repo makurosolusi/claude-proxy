@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "./config";
 import { upstream, tokens, dbSaveUpstream, dbResetAllTokens, dbAlignAllTokens } from "./state";
-import { triggerBroadcast } from "./broadcast";
+import { triggerBroadcast, broadcastSystemMsg } from "./broadcast";
 
 const TOKEN_CACHE_MS    = 30_000;
 const OAUTH_CLIENT_ID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -17,6 +17,7 @@ export interface OauthCredential {
 
 // Mutex: prevent concurrent refresh calls (refresh tokens are single-use)
 let isRefreshing = false;
+let lastUtilAlertPct = 0; // track last utilization threshold that triggered a system message
 
 export function getOauthCredential(): OauthCredential | null {
   const now = Date.now();
@@ -183,6 +184,8 @@ export async function poll() {
           tk.used = 0; tk.window = win; tk.windowStart = resetsAtMs - win;
         }
         console.log("[upstream] Window rotated → reset all users. resets_at:", newResetsAt);
+        broadcastSystemMsg("🔄 Window reset — usage counters cleared");
+        lastUtilAlertPct = 0;
         upstream.lastKnownResetsAt = newResetsAt;
         dbResetAllTokens(win, resetsAtMs - win);
         dbSaveUpstream();
@@ -208,7 +211,18 @@ export async function poll() {
     }
 
     if (data.five_hour) {
-      console.log(`[upstream] 5h: ${data.five_hour.utilization}% resets ${data.five_hour.resets_at}`);
+      const util = data.five_hour.utilization as number;
+      console.log(`[upstream] 5h: ${util}% resets ${data.five_hour.resets_at}`);
+      // System messages on utilization milestones (avoid repeat spam)
+      if (util >= 95 && lastUtilAlertPct < 95) {
+        broadcastSystemMsg(`🚨 Upstream at ${util.toFixed(0)}% — requests are being blocked`);
+        lastUtilAlertPct = 95;
+      } else if (util >= 80 && lastUtilAlertPct < 80) {
+        broadcastSystemMsg(`⚠️ Upstream at ${util.toFixed(0)}% utilization — nearing limit`);
+        lastUtilAlertPct = 80;
+      } else if (util < 70 && lastUtilAlertPct > 0) {
+        lastUtilAlertPct = 0; // reset so next crossing triggers again
+      }
     }
   } catch (e: any) {
     upstream.lastPollOk = false;

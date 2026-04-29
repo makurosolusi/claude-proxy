@@ -11,6 +11,7 @@ import {
   IconPlugConnected, IconCircleCheck, IconCircleX, IconClock, IconPlayerPlay as IconRun,
   IconWifi, IconKey, IconPlayerStop,
   IconDatabase, IconDownload, IconUpload, IconAlertTriangle,
+  IconMessageCircle, IconSend, IconMinus, IconBolt, IconPencil,
 } from "@tabler/icons-react";
 import {
   Container, Group, Stack, Grid, Title, Text, Paper, Box, Center, Loader,
@@ -48,6 +49,11 @@ interface LogEntry {
 // ── Status context ─────────────────────────────────────────────────────────────
 const StatusCtx = createContext<StatusResponse | null>(null);
 function useStatus() { return useContext(StatusCtx); }
+
+interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
+interface ChatCtxType { messages: ChatMsg[]; send: (nick: string, text: string) => void; }
+const ChatCtx = createContext<ChatCtxType>({ messages: [], send: () => {} });
+function useChat() { return useContext(ChatCtx); }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtCountdown(ms: number): string {
@@ -1714,6 +1720,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       {/* Request log */}
       <RequestLog isAdmin={isAdmin} />
     </Container>
+    <FloatingChat />
     </Box>
   );
 }
@@ -1976,9 +1983,218 @@ function MindPage() {
   );
 }
 
+// ── Floating Chat ─────────────────────────────────────────────────────────────
+function nickColor(nick: string): string {
+  const palette = ["blue","teal","grape","violet","cyan","green","orange","pink"];
+  let h = 0;
+  for (let i = 0; i < nick.length; i++) h = nick.charCodeAt(i) + ((h << 5) - h);
+  return palette[Math.abs(h) % palette.length];
+}
+
+function FloatingChat() {
+  const { messages, send } = useChat();
+  const [open, setOpen]         = useState(false);
+  const [unread, setUnread]     = useState(0);
+  const [nick, setNick]         = useState(() => {
+    try { return localStorage.getItem("chat-nick") || ""; } catch { return ""; }
+  });
+  const [editingNick, setEditingNick] = useState(false);
+  const [nickDraft, setNickDraft]     = useState("");
+  const [text, setText]               = useState("");
+  const bottomRef  = useRef<HTMLDivElement>(null);
+  const inputRef   = useRef<HTMLInputElement>(null);
+  const prevLen    = useRef(0);
+
+  // Unread tracking + browser notification
+  useEffect(() => {
+    if (messages.length <= prevLen.current) { prevLen.current = messages.length; return; }
+    const newMsgs = messages.slice(prevLen.current);
+    prevLen.current = messages.length;
+    const chatMsgs = newMsgs.filter(m => m.type === "chat");
+    if (chatMsgs.length === 0) return;
+    if (!open) {
+      setUnread(u => u + chatMsgs.length);
+      if (Notification.permission === "granted" && document.hidden) {
+        const last = chatMsgs[chatMsgs.length - 1];
+        new Notification(last.nick, { body: last.text.slice(0, 120) });
+      }
+    }
+  }, [messages, open]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    if (open) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  }, [messages, open]);
+
+  // Request notification permission when opening for first time
+  useEffect(() => {
+    if (open && Notification.permission === "default") Notification.requestPermission();
+  }, [open]);
+
+  const toggle = () => setOpen(o => { if (!o) setUnread(0); return !o; });
+
+  const saveNick = (draft: string) => {
+    const n = draft.trim().slice(0, 20);
+    if (!n) return;
+    setNick(n);
+    setEditingNick(false);
+    try { localStorage.setItem("chat-nick", n); } catch {}
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const onSend = () => {
+    const t = text.trim();
+    if (!t || !nick) return;
+    send(nick, t);
+    setText("");
+    inputRef.current?.focus();
+  };
+
+  const fmtTs = (ts: number) => {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  };
+
+  const showNickSetup = !nick || editingNick;
+
+  return (
+    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+
+      {/* ── Expanded panel ── */}
+      {open && (
+        <Paper withBorder shadow="xl" mb={10}
+          style={{ width: 320, height: 420, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+          {/* Header */}
+          <Group justify="space-between" px="sm" py={8}
+            style={{ borderBottom: "1px solid var(--mantine-color-default-border)", flexShrink: 0 }}>
+            <Group gap={6}>
+              <IconMessageCircle size={15} />
+              <Text size="sm" fw={600}>Team Chat</Text>
+              {messages.length > 0 && (
+                <Text size="xs" c="dimmed">· {messages.filter(m => m.type === "chat").length} messages</Text>
+              )}
+            </Group>
+            <ActionIcon size="sm" variant="subtle" color="gray" onClick={toggle}>
+              <IconMinus size={13} />
+            </ActionIcon>
+          </Group>
+
+          {/* Messages */}
+          <ScrollArea style={{ flex: 1 }} p="xs">
+            {messages.length === 0 && (
+              <Text size="xs" c="dimmed" ta="center" mt="xl">No messages yet. Say hi! 👋</Text>
+            )}
+            {messages.map(msg => (
+              <div key={msg.id} style={{ marginBottom: 8 }}>
+                {msg.type === "system" ? (
+                  <Group gap={4}>
+                    <IconBolt size={11} color="var(--mantine-color-yellow-5)" style={{ flexShrink: 0, marginTop: 2 }} />
+                    <Text size="xs" c="dimmed" fs="italic" style={{ lineHeight: 1.5 }}>{msg.text}</Text>
+                    <Text size="xs" c="dimmed" style={{ marginLeft: "auto", flexShrink: 0 }}>{fmtTs(msg.ts)}</Text>
+                  </Group>
+                ) : (
+                  <div>
+                    <Group gap={4} mb={1}>
+                      <Text size="xs" fw={700} c={nickColor(msg.nick)}>{msg.nick}</Text>
+                      <Text size="xs" c="dimmed">{fmtTs(msg.ts)}</Text>
+                    </Group>
+                    <Text size="xs" style={{ wordBreak: "break-word", lineHeight: 1.5, paddingLeft: 4 }}>
+                      {msg.text}
+                    </Text>
+                  </div>
+                )}
+              </div>
+            ))}
+            <div ref={bottomRef} />
+          </ScrollArea>
+
+          {/* Nick setup */}
+          {showNickSetup && (
+            <div style={{ borderTop: "1px solid var(--mantine-color-default-border)", padding: "8px 8px", flexShrink: 0 }}>
+              <Text size="xs" c="dimmed" mb={4}>
+                {editingNick ? "Change your nickname:" : "Set your nickname to start chatting:"}
+              </Text>
+              <Group gap="xs">
+                <TextInput
+                  placeholder="Your name…"
+                  value={nickDraft}
+                  onChange={e => setNickDraft(e.currentTarget.value)}
+                  onKeyDown={e => { if (e.key === "Enter") saveNick(nickDraft); if (e.key === "Escape") { setEditingNick(false); setNickDraft(""); } }}
+                  size="xs"
+                  style={{ flex: 1 }}
+                  maxLength={20}
+                  autoFocus
+                />
+                <Button size="xs" disabled={!nickDraft.trim()} onClick={() => saveNick(nickDraft)}>
+                  {editingNick ? "Save" : "Set"}
+                </Button>
+                {editingNick && (
+                  <Button size="xs" variant="subtle" color="gray" onClick={() => { setEditingNick(false); setNickDraft(""); }}>
+                    Cancel
+                  </Button>
+                )}
+              </Group>
+            </div>
+          )}
+
+          {/* Message input */}
+          {!showNickSetup && (
+            <div style={{ borderTop: "1px solid var(--mantine-color-default-border)", padding: "6px 8px", flexShrink: 0 }}>
+              <Group gap={4} mb={4} align="center">
+                <Text size="xs" c="dimmed">as <Text span fw={600} c={nickColor(nick)}>{nick}</Text></Text>
+                <Tooltip label="Change nickname" withArrow position="top">
+                  <ActionIcon size="xs" variant="subtle" color="gray"
+                    onClick={() => { setNickDraft(nick); setEditingNick(true); }}>
+                    <IconPencil size={10} />
+                  </ActionIcon>
+                </Tooltip>
+              </Group>
+              <Group gap="xs">
+                <TextInput
+                  ref={inputRef}
+                  placeholder="Message…"
+                  value={text}
+                  onChange={e => setText(e.currentTarget.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }}
+                  size="xs"
+                  style={{ flex: 1 }}
+                  maxLength={500}
+                />
+                <ActionIcon size="md" variant="filled" disabled={!text.trim()} onClick={onSend}>
+                  <IconSend size={14} />
+                </ActionIcon>
+              </Group>
+            </div>
+          )}
+        </Paper>
+      )}
+
+      {/* ── Toggle button ── */}
+      <div style={{ position: "relative" }}>
+        <ActionIcon size={48} radius="xl" variant="filled" color="blue" onClick={toggle}>
+          <IconMessageCircle size={22} />
+        </ActionIcon>
+        {unread > 0 && (
+          <Badge size="xs" color="red" circle
+            style={{ position: "absolute", top: -2, right: -2, minWidth: 18, height: 18, padding: 0, fontSize: 10 }}>
+            {unread > 9 ? "9+" : unread}
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export function App() {
-  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [status, setStatus]   = useState<StatusResponse | null>(null);
+  const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const sendChat = useCallback((nick: string, text: string) => {
+    wsRef.current?.send(JSON.stringify({ type: "chat", nick, text }));
+  }, []);
 
   useEffect(() => {
     let ws: WebSocket, dead = false;
@@ -1986,7 +2202,15 @@ export function App() {
       if (dead) return;
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
       ws = new WebSocket(`${proto}//${location.host}/ws`);
-      ws.onmessage = e => { try { setStatus(JSON.parse(e.data)); } catch {} };
+      wsRef.current = ws;
+      ws.onmessage = e => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === "chat_history")  { setChatMsgs(data.messages); return; }
+          if (data.type === "chat_message")  { setChatMsgs(prev => [...prev.slice(-99), data.message]); return; }
+          setStatus(data);
+        } catch {}
+      };
       ws.onclose = () => { if (!dead) setTimeout(connect, 3000); };
     }
     connect();
@@ -1994,19 +2218,21 @@ export function App() {
   }, []);
 
   return (
-    <StatusCtx.Provider value={status}>
-      <Routes>
-        <Route path="/" element={
-          status ? <Dashboard isAdmin={false} /> : <LoadingScreen />
-        } />
-        <Route path="/admin" element={
-          <RequireAdmin>
-            <AdminDashboard />
-          </RequireAdmin>
-        } />
-        <Route path="/mind" element={<MindPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </StatusCtx.Provider>
+    <ChatCtx.Provider value={{ messages: chatMsgs, send: sendChat }}>
+      <StatusCtx.Provider value={status}>
+        <Routes>
+          <Route path="/" element={
+            status ? <Dashboard isAdmin={false} /> : <LoadingScreen />
+          } />
+          <Route path="/admin" element={
+            <RequireAdmin>
+              <AdminDashboard />
+            </RequireAdmin>
+          } />
+          <Route path="/mind" element={<MindPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </StatusCtx.Provider>
+    </ChatCtx.Provider>
   );
 }

@@ -35,12 +35,20 @@ export async function handleDbUpload(req: Request): Promise<Response> {
       return Response.json({ error: "Invalid file — not a SQLite database" }, { status: 400 });
     }
 
-    // Write to temp path first, then atomically replace
+    // Write to temp path first
     const tmpPath = config.dbFile + ".upload.tmp";
     fs.writeFileSync(tmpPath, buf);
 
-    // Close DB cleanly (flushes WAL), replace file, then restart
+    // Close DB cleanly (checkpoints WAL into main file)
     db.close();
+
+    // Delete old WAL/SHM — they belong to the old DB and would corrupt the new one
+    for (const suffix of ["-wal", "-shm"]) {
+      const p = config.dbFile + suffix;
+      try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
+    }
+
+    // Atomically replace DB file
     fs.renameSync(tmpPath, config.dbFile);
 
     console.log("[db] Database replaced, restarting...");
