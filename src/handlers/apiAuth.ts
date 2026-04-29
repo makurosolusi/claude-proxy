@@ -48,14 +48,14 @@ async function exchangeAndSave(code: string, codeVerifier: string): Promise<{ ok
   try {
     const resp = await fetch(OAUTH_TOKEN_URL, {
       method:  "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": "claude-proxy/2.0" },
-      body:    JSON.stringify({
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "claude-proxy/2.0" },
+      body:    new URLSearchParams({
         grant_type:    "authorization_code",
         code,
         redirect_uri:  CALLBACK_URI,
         client_id:     OAUTH_CLIENT_ID,
         code_verifier: codeVerifier,
-      }),
+      }).toString(),
     });
     if (!resp.ok) {
       const body = await resp.text();

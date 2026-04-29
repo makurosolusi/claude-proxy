@@ -62,8 +62,8 @@ export async function refreshOauthToken(filePath: string, refreshToken: string):
     console.log("[upstream] Refreshing OAuth token...");
     const resp = await fetch(OAUTH_REFRESH_URL, {
       method:  "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": "claude-proxy/2.0" },
-      body:    JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: OAUTH_CLIENT_ID }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "claude-proxy/2.0" },
+      body:    new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: OAUTH_CLIENT_ID }).toString(),
     });
 
     if (!resp.ok) {
