@@ -9,7 +9,7 @@ import { handleApiLogs }   from "./handlers/apiLogs";
 import { handleApiStats }  from "./handlers/apiStats";
 import { handleApiMind }   from "./handlers/apiMind";
 import { handleApiTest }   from "./handlers/apiTest";
-import { handleAuthLogin, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
+import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleAdmin }     from "./handlers/admin";
 import { handleProxy }     from "./handlers/proxy";
 import { _broadcast }      from "./broadcast";
@@ -237,9 +237,13 @@ server = serve({
       if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthRemove(req);
     },
-    "/admin/auth/login": req => {
-      if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
-      return handleAuthLogin(req);
+    "/admin/auth/start": req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleAuthStart(req);
+    },
+    "/admin/auth/exchange": async req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleAuthExchange(req);
     },
     "/api/stats": req => {
       if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });

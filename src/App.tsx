@@ -913,12 +913,20 @@ function AdminTest() {
 
 // ── Admin Accounts section ────────────────────────────────────────────────────
 interface CredentialInfo { file: string; email: string; disabled: boolean; active: boolean; }
+type ConnectStep = "idle" | "authorizing" | "done";
 
 function AdminAccounts() {
-  const [creds, setCreds]     = useState<CredentialInfo[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [creds, setCreds]       = useState<CredentialInfo[] | null>(null);
+  const [loading, setLoading]   = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
-  const [err, setErr]         = useState<string | null>(null);
+  const [err, setErr]           = useState<string | null>(null);
+
+  // Connect flow state
+  const [step, setStep]           = useState<ConnectStep>("idle");
+  const [authUrl, setAuthUrl]     = useState("");
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const [exchanging, setExchanging]   = useState(false);
+  const [connectErr, setConnectErr]   = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -940,13 +948,44 @@ function AdminAccounts() {
         body: JSON.stringify({ file }),
       });
       const d = await r.json() as any;
-      if (d.ok) load();
-      else setErr(d.error || "Failed");
+      if (d.ok) load(); else setErr(d.error || "Failed");
     } catch (e: any) { setErr(e.message); }
     finally { setRemoving(null); }
   };
 
-  const connect = () => window.open("/admin/auth/login", "_blank", "noopener");
+  const startConnect = async () => {
+    setConnectErr(null); setCallbackUrl("");
+    try {
+      const r = await fetch("/admin/auth/start");
+      const d = await r.json() as any;
+      if (!d.authUrl) throw new Error("No authUrl returned");
+      setAuthUrl(d.authUrl);
+      setStep("authorizing");
+    } catch (e: any) { setConnectErr(e.message); }
+  };
+
+  const completeExchange = async () => {
+    if (!callbackUrl.trim()) return;
+    setExchanging(true); setConnectErr(null);
+    try {
+      const r = await fetch("/admin/auth/exchange", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callbackUrl: callbackUrl.trim() }),
+      });
+      const d = await r.json() as any;
+      if (d.ok) {
+        setStep("done");
+        load();
+      } else {
+        setConnectErr(d.error || "Exchange failed");
+      }
+    } catch (e: any) { setConnectErr(e.message); }
+    finally { setExchanging(false); }
+  };
+
+  const resetConnect = () => {
+    setStep("idle"); setAuthUrl(""); setCallbackUrl(""); setConnectErr(null);
+  };
 
   return (
     <Stack gap="lg" maw={640}>
@@ -954,13 +993,74 @@ function AdminAccounts() {
         <div>
           <Title order={3} fw={600}>OAuth Accounts</Title>
           <Text size="sm" c="dimmed" mt={4}>
-            Claude Max accounts used to forward API requests. Each credential file grants one account's token quota.
+            Claude Max accounts used to forward API requests.
           </Text>
         </div>
-        <Button leftSection={<IconLogin size={16} />} onClick={connect} size="sm">
-          Connect Account
-        </Button>
+        {step === "idle" && (
+          <Button leftSection={<IconLogin size={16} />} onClick={startConnect} size="sm">
+            Connect Account
+          </Button>
+        )}
       </Group>
+
+      {/* ── Connect flow ── */}
+      {step === "authorizing" && (
+        <Paper withBorder p="md">
+          <Stack gap="md">
+            <Text size="sm" fw={600}>Step 1 — Authorize on Claude.ai</Text>
+            <Group gap="xs">
+              <Button
+                size="xs"
+                leftSection={<IconExternalLink size={14} />}
+                onClick={() => window.open(authUrl, "_blank", "noopener")}
+              >
+                Open Claude.ai
+              </Button>
+              <Text size="xs" c="dimmed">Click to open, then authorize access.</Text>
+            </Group>
+
+            <Text size="sm" fw={600}>Step 2 — Paste the callback URL</Text>
+            <Text size="xs" c="dimmed">
+              After authorizing, your browser will try to load{" "}
+              <Code size="xs">localhost:54545/callback?code=…</Code> and show an error — that's expected.
+              Copy that URL from the address bar and paste it below.
+            </Text>
+            <TextInput
+              placeholder="http://localhost:54545/callback?code=...&state=..."
+              value={callbackUrl}
+              onChange={e => setCallbackUrl(e.currentTarget.value)}
+              ff="monospace"
+              size="sm"
+            />
+            {connectErr && <Text size="xs" c="red">{connectErr}</Text>}
+            <Group gap="xs">
+              <Button
+                size="sm"
+                loading={exchanging}
+                disabled={!callbackUrl.trim()}
+                onClick={completeExchange}
+              >
+                Complete
+              </Button>
+              <Button size="sm" variant="subtle" color="gray" onClick={resetConnect}>
+                Cancel
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
+      )}
+
+      {step === "done" && (
+        <Paper withBorder p="md" style={{ borderColor: "var(--mantine-color-teal-6)" }}>
+          <Group justify="space-between">
+            <Group gap="sm">
+              <IconCircleCheck size={18} color="var(--mantine-color-teal-5)" />
+              <Text size="sm" c="teal">Account connected successfully.</Text>
+            </Group>
+            <Button size="xs" variant="subtle" onClick={resetConnect}>Connect another</Button>
+          </Group>
+        </Paper>
+      )}
 
       {err && (
         <Paper withBorder p="sm" style={{ borderColor: "var(--mantine-color-red-6)" }}>
@@ -970,12 +1070,12 @@ function AdminAccounts() {
 
       {loading && <Center py="xl"><Loader size="sm" /></Center>}
 
-      {!loading && creds !== null && creds.length === 0 && (
+      {!loading && creds !== null && creds.length === 0 && step === "idle" && (
         <Paper withBorder p="xl">
           <Center>
             <Stack align="center" gap="xs">
               <IconKey size={32} color="var(--mantine-color-dimmed)" />
-              <Text c="dimmed" size="sm">No credentials found in <Code>{window.location.origin}</Code></Text>
+              <Text c="dimmed" size="sm">No credentials found.</Text>
               <Text c="dimmed" size="xs">Click "Connect Account" to authenticate a Claude Max account via OAuth.</Text>
             </Stack>
           </Center>
@@ -1017,24 +1117,6 @@ function AdminAccounts() {
           ))}
         </Stack>
       )}
-
-      <Paper withBorder p="md" style={{ background: "var(--mantine-color-dark-7)" }}>
-        <Stack gap={4}>
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" lts={1}>How it works</Text>
-          <Text size="xs" c="dimmed">
-            1. Click "Connect Account" — your browser opens claude.ai to authorize access.
-          </Text>
-          <Text size="xs" c="dimmed">
-            2. After approval, a temporary server on port 54545 captures the OAuth callback and saves the credential.
-          </Text>
-          <Text size="xs" c="dimmed">
-            3. The saved <Code size="xs">claude-*.json</Code> file is picked up automatically for all API requests.
-          </Text>
-          <Text size="xs" c="dimmed">
-            4. Tokens are refreshed automatically when they expire — no manual action needed.
-          </Text>
-        </Stack>
-      </Paper>
     </Stack>
   );
 }
