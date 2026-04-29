@@ -1123,46 +1123,74 @@ function AdminAccounts() {
 }
 
 // ── Admin Database section ────────────────────────────────────────────────────
+type DbPhase = "idle" | "selected" | "uploading" | "restarting" | "error";
+
 function AdminDb() {
   const [info, setInfo]         = useState<{ path: string; size: number; modified: string } | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadErr, setUploadErr] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
+  const [phase, setPhase]       = useState<DbPhase>("idle");
+  const [file, setFile]         = useState<File | null>(null);
+  const [errMsg, setErrMsg]     = useState("");
+  const [countdown, setCountdown] = useState(5);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [downloaded, setDownloaded]   = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/admin/db/info")
-      .then(r => r.json())
-      .then(d => setInfo(d as any))
-      .catch(() => {});
+      .then(r => r.json()).then(d => setInfo(d as any)).catch(() => {});
   }, []);
 
+  // Countdown during restart phase
+  useEffect(() => {
+    if (phase !== "restarting") return;
+    if (countdown <= 0) { window.location.reload(); return; }
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [phase, countdown]);
+
   const fmt = (bytes: number) => {
-    if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / 1024 / 1024).toFixed(2) + " MB";
   };
 
-  const upload = async () => {
-    const file = fileRef.current?.files?.[0];
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setFile(f);
+    setPhase(f ? "selected" : "idle");
+    setErrMsg("");
+  };
+
+  const doUpload = async () => {
     if (!file) return;
-    setUploading(true); setUploadErr(null);
+    setConfirmOpen(false);
+    setPhase("uploading");
+    setErrMsg("");
     try {
       const form = new FormData();
       form.append("file", file);
       const r = await fetch("/api/admin/db/upload", { method: "POST", body: form });
       const d = await r.json() as any;
       if (d.ok) {
-        // Server is restarting — show message and reload after delay
-        setTimeout(() => window.location.reload(), 3000);
+        setPhase("restarting");
+        setCountdown(5);
       } else {
-        setUploadErr(d.error || "Upload failed");
-        setUploading(false);
+        setErrMsg(d.error || "Upload failed");
+        setPhase("error");
       }
     } catch (e: any) {
-      setUploadErr(e.message);
-      setUploading(false);
+      setErrMsg(e.message);
+      setPhase("error");
     }
+  };
+
+  const reset = () => {
+    setPhase("idle"); setFile(null); setErrMsg("");
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const onDownload = () => {
+    setDownloaded(true);
+    setTimeout(() => setDownloaded(false), 3000);
   };
 
   return (
@@ -1179,108 +1207,180 @@ function AdminDb() {
           {info ? (
             <>
               <Group gap="xs">
-                <IconDatabase size={16} color="var(--mantine-color-dimmed)" />
-                <Text size="sm" ff="monospace">{info.path}</Text>
+                <IconDatabase size={15} color="var(--mantine-color-dimmed)" />
+                <Text size="sm" ff="monospace" c="dimmed">{info.path}</Text>
               </Group>
               <Group gap="xl">
-                <Text size="sm" c="dimmed">Size: <Text span fw={500} c="inherit">{fmt(info.size)}</Text></Text>
-                <Text size="sm" c="dimmed">Modified: <Text span fw={500} c="inherit">{new Date(info.modified).toLocaleString()}</Text></Text>
+                <Text size="sm">Size: <Text span fw={600}>{fmt(info.size)}</Text></Text>
+                <Text size="sm">Last modified: <Text span fw={600}>{new Date(info.modified).toLocaleString()}</Text></Text>
               </Group>
             </>
           ) : (
-            <Text size="sm" c="dimmed">Loading...</Text>
+            <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">Loading...</Text></Group>
           )}
         </Stack>
       </Paper>
 
-      {/* Download */}
+      {/* Download / Backup */}
       <Paper withBorder p="md">
         <Stack gap="sm">
-          <Text size="sm" fw={600}>Backup — Download</Text>
-          <Text size="xs" c="dimmed">Download a copy of the current database file.</Text>
-          <div>
+          <Group gap="xs">
+            <IconDownload size={16} />
+            <Text size="sm" fw={600}>Backup — Download</Text>
+          </Group>
+          <Text size="xs" c="dimmed">Download a copy of the active database file before making changes.</Text>
+          <Group gap="xs" align="center">
             <Button
               component="a"
               href="/api/admin/db/download"
               download
+              onClick={onDownload}
               leftSection={<IconDownload size={15} />}
               size="sm"
               variant="light"
             >
               Download Database
             </Button>
-          </div>
+            {downloaded && (
+              <Group gap={4}>
+                <IconCircleCheck size={15} color="var(--mantine-color-teal-5)" />
+                <Text size="xs" c="teal">Download started</Text>
+              </Group>
+            )}
+          </Group>
         </Stack>
       </Paper>
 
-      {/* Upload / Restore */}
-      <Paper withBorder p="md" style={{ borderColor: confirmed ? "var(--mantine-color-orange-6)" : undefined }}>
-        <Stack gap="sm">
-          <Text size="sm" fw={600}>Restore — Upload</Text>
-          <Paper p="xs" style={{ background: "var(--mantine-color-orange-light)", borderRadius: 6 }}>
-            <Group gap="xs" align="flex-start">
-              <IconAlertTriangle size={15} color="var(--mantine-color-orange-6)" style={{ marginTop: 2, flexShrink: 0 }} />
-              <Text size="xs" c="orange">
-                This will replace the current database and restart the server (~2s downtime).
-                Download a backup first if needed.
-              </Text>
-            </Group>
-          </Paper>
-
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".db"
-            style={{ display: "none" }}
-            onChange={() => setConfirmed(false)}
-          />
-
+      {/* Restore / Upload */}
+      <Paper withBorder p="md" style={{
+        borderColor: phase === "restarting" ? "var(--mantine-color-teal-6)"
+          : phase === "error" ? "var(--mantine-color-red-6)"
+          : phase === "uploading" ? "var(--mantine-color-blue-6)"
+          : phase === "selected" ? "var(--mantine-color-orange-6)" : undefined,
+      }}>
+        <Stack gap="md">
           <Group gap="xs">
-            <Button
-              size="sm"
-              variant="light"
-              color="gray"
-              leftSection={<IconUpload size={15} />}
-              onClick={() => fileRef.current?.click()}
-            >
-              {fileRef.current?.files?.[0]?.name ?? "Choose .db file"}
-            </Button>
+            <IconUpload size={16} />
+            <Text size="sm" fw={600}>Restore — Upload</Text>
           </Group>
 
-          {fileRef.current?.files?.[0] && !confirmed && (
-            <Group gap="xs" align="center">
-              <Text size="xs" c="dimmed">
-                Selected: <Text span ff="monospace">{fileRef.current.files[0].name}</Text> ({fmt(fileRef.current.files[0].size)})
-              </Text>
-              <Button size="xs" color="orange" onClick={() => setConfirmed(true)}>
-                Confirm Replace
-              </Button>
-            </Group>
+          {/* ── idle / selected ── */}
+          {(phase === "idle" || phase === "selected") && (
+            <Stack gap="sm">
+              <Paper p="xs" style={{ background: "var(--mantine-color-orange-light)", borderRadius: 6 }}>
+                <Group gap="xs" align="flex-start" wrap="nowrap">
+                  <IconAlertTriangle size={14} color="var(--mantine-color-orange-6)" style={{ marginTop: 2, flexShrink: 0 }} />
+                  <Text size="xs" c="orange">
+                    Replaces the active database and restarts the server. All in-flight requests will be dropped.
+                    Download a backup first.
+                  </Text>
+                </Group>
+              </Paper>
+
+              <input ref={fileRef} type="file" accept=".db" style={{ display: "none" }} onChange={onFileChange} />
+
+              {phase === "idle" && (
+                <div>
+                  <Button size="sm" variant="default" leftSection={<IconUpload size={15} />}
+                    onClick={() => fileRef.current?.click()}>
+                    Choose .db file
+                  </Button>
+                </div>
+              )}
+
+              {phase === "selected" && file && (
+                <Paper p="sm" withBorder style={{ borderStyle: "dashed" }}>
+                  <Group justify="space-between" wrap="nowrap">
+                    <Group gap="sm" wrap="nowrap">
+                      <IconDatabase size={20} color="var(--mantine-color-orange-5)" />
+                      <div>
+                        <Text size="sm" fw={500}>{file.name}</Text>
+                        <Text size="xs" c="dimmed">{fmt(file.size)}</Text>
+                      </div>
+                    </Group>
+                    <Button size="xs" variant="subtle" color="gray" onClick={reset}>Change</Button>
+                  </Group>
+                </Paper>
+              )}
+
+              {phase === "selected" && (
+                <Group gap="xs">
+                  <Button size="sm" color="orange" leftSection={<IconUpload size={15} />}
+                    onClick={() => setConfirmOpen(true)}>
+                    Upload & Restore
+                  </Button>
+                  <Button size="sm" variant="subtle" color="gray" onClick={reset}>Cancel</Button>
+                </Group>
+              )}
+            </Stack>
           )}
 
-          {confirmed && (
-            <Group gap="xs">
-              <Button
-                size="sm"
-                color="orange"
-                loading={uploading}
-                leftSection={<IconUpload size={15} />}
-                onClick={upload}
-              >
-                {uploading ? "Uploading & restarting…" : "Upload & Restart"}
-              </Button>
-              <Button size="sm" variant="subtle" color="gray" onClick={() => { setConfirmed(false); if (fileRef.current) fileRef.current.value = ""; }}>
-                Cancel
-              </Button>
-            </Group>
+          {/* ── uploading ── */}
+          {phase === "uploading" && (
+            <Stack gap="sm" align="center" py="md">
+              <Loader size="md" />
+              <Text size="sm" fw={500}>Uploading database...</Text>
+              <Text size="xs" c="dimmed">Please wait, do not close this page.</Text>
+            </Stack>
           )}
 
-          {uploadErr && <Text size="xs" c="red">{uploadErr}</Text>}
-          {uploading && (
-            <Text size="xs" c="dimmed">Server restarting, page will reload automatically...</Text>
+          {/* ── restarting ── */}
+          {phase === "restarting" && (
+            <Stack gap="sm">
+              <Group gap="sm">
+                <IconCircleCheck size={22} color="var(--mantine-color-teal-5)" />
+                <Text size="sm" fw={600} c="teal">Database replaced successfully!</Text>
+              </Group>
+              <Text size="xs" c="dimmed">Server is restarting. Page will reload automatically in <Text span fw={700}>{countdown}s</Text>.</Text>
+              <Progress value={(5 - countdown) / 5 * 100} color="teal" size="sm" animated />
+            </Stack>
+          )}
+
+          {/* ── error ── */}
+          {phase === "error" && (
+            <Stack gap="sm">
+              <Group gap="sm">
+                <IconCircleX size={20} color="var(--mantine-color-red-5)" />
+                <Text size="sm" fw={500} c="red">Upload failed</Text>
+              </Group>
+              <Paper p="xs" withBorder style={{ borderColor: "var(--mantine-color-red-4)" }}>
+                <Text size="xs" ff="monospace" c="red">{errMsg}</Text>
+              </Paper>
+              <div>
+                <Button size="sm" variant="light" onClick={reset}>Try again</Button>
+              </div>
+            </Stack>
           )}
         </Stack>
       </Paper>
+
+      {/* Confirm Modal */}
+      <Modal
+        opened={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title={<Group gap="xs"><IconAlertTriangle size={18} color="var(--mantine-color-orange-5)" /><Text fw={600}>Confirm Database Replace</Text></Group>}
+        centered
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            You are about to replace the current database with:
+          </Text>
+          <Paper p="xs" withBorder>
+            <Text size="sm" ff="monospace" fw={500}>{file?.name}</Text>
+            <Text size="xs" c="dimmed">{file ? fmt(file.size) : ""}</Text>
+          </Paper>
+          <Text size="sm" c="orange">
+            The server will restart (~2–5s downtime). All current sessions and in-flight requests will be dropped.
+          </Text>
+          <Group justify="flex-end" gap="xs">
+            <Button variant="default" size="sm" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+            <Button color="orange" size="sm" leftSection={<IconUpload size={15} />} onClick={doUpload}>
+              Yes, Replace & Restart
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
