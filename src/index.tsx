@@ -1,5 +1,6 @@
 import { serve, type ServerWebSocket } from "bun";
-import index from "./index.html";
+import fs from "node:fs";
+import path from "node:path";
 import { config }           from "./config";
 import { loadFromDb, onShutdown, tokens, upstream, dailyUsage, dbCreateSession, dbCheckSession, dbDeleteSession } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
@@ -21,6 +22,96 @@ initFromEnv();
 process.on("SIGTERM", () => onShutdown("SIGTERM"));
 process.on("SIGINT",  () => onShutdown("SIGINT"));
 startPoller();
+
+// ── Vite dev middleware ───────────────────────────────────────────────────────
+// Dev: Vite runs in middlewareMode (no own port) — all traffic enters via Bun.serve,
+// non-API requests are forwarded to Vite's Connect middleware stack.
+// Prod: serve from dist/ with SPA fallback.
+const isProduction = process.env.NODE_ENV === "production";
+
+import type { ViteDevServer } from "vite";
+let vite: ViteDevServer | null = null;
+
+if (!isProduction) {
+  const hotData = (import.meta as any).hot?.data ?? {};
+  if (hotData.vite) {
+    vite = hotData.vite as ViteDevServer;
+  } else {
+    const { createServer } = await import("vite");
+    vite = await createServer({});
+    if ((import.meta as any).hot) (import.meta as any).hot.data.vite = vite;
+  }
+  if ((import.meta as any).hot) {
+    (import.meta as any).hot.dispose(() => { /* keep vite alive via hot.data */ });
+  }
+}
+
+const MIME: Record<string, string> = {
+  ".js":    "application/javascript; charset=utf-8",
+  ".css":   "text/css; charset=utf-8",
+  ".html":  "text/html; charset=utf-8",
+  ".svg":   "image/svg+xml",
+  ".png":   "image/png",
+  ".ico":   "image/x-icon",
+  ".json":  "application/json",
+  ".woff":  "font/woff",
+  ".woff2": "font/woff2",
+};
+
+async function serveFrontend(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const pathname = url.pathname;
+
+  if (!isProduction && vite) {
+    // SPA route (no file extension, not Vite-internal) → transform index.html
+    if (!pathname.includes(".") && !pathname.startsWith("/@")) {
+      let html = fs.readFileSync(path.join(vite.config.root, "index.html"), "utf-8");
+      html = await vite.transformIndexHtml(pathname, html, request.url);
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
+
+    // Only try Vite transform for known transformable extensions or Vite-internal paths
+    const TRANSFORMABLE = /\.(tsx?|jsx?|css|less|scss|sass|styl)(\?|$)/;
+    if (TRANSFORMABLE.test(pathname) || pathname.startsWith("/@") || pathname.startsWith("/.vite/")) {
+      try {
+        const result = await vite!.transformRequest(pathname + url.search, { ssr: false });
+        if (result) {
+          return new Response(result.code, {
+            headers: { "Content-Type": "application/javascript; charset=utf-8" },
+          });
+        }
+      } catch (e: any) {
+        console.error("[vite transform]", pathname, e?.message ?? e);
+        return new Response(e?.message ?? String(e), { status: 500, headers: { "Content-Type": "text/plain" } });
+      }
+    }
+
+    // Static asset (image, font, etc.) → serve from Vite root
+    const assetPath = path.join(vite!.config.root, pathname);
+    if (fs.existsSync(assetPath)) {
+      const ext = path.extname(pathname);
+      const headers: Record<string, string> = {};
+      if (MIME[ext]) headers["Content-Type"] = MIME[ext];
+      return new Response(Bun.file(assetPath), { headers });
+    }
+
+    return new Response("Not Found", { status: 404 });
+  }
+
+  // Production: static files from dist/ + SPA fallback
+  const safePath = pathname.replace(/\.\./g, "");
+  const filePath = path.join("dist", safePath === "/" ? "index.html" : safePath);
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    const ext = path.extname(filePath);
+    const headers: Record<string, string> = {};
+    if (MIME[ext]) headers["Content-Type"] = MIME[ext];
+    if (safePath.startsWith("/assets/")) headers["Cache-Control"] = "public, max-age=31536000, immutable";
+    return new Response(Bun.file(filePath), { headers });
+  }
+  return new Response(Bun.file("dist/index.html"), {
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" },
+  });
+}
 
 // ── Chat store ────────────────────────────────────────────────────────────────
 interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
@@ -206,9 +297,20 @@ server = serve({
     return new Response(`<!doctype html><html><head><title>500</title><style>body{font-family:monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#1a1b1e;color:#c1c2c5}.box{text-align:center}.code{font-size:4rem;font-weight:700;color:#fa5252;margin:0}.msg{color:#868e96;margin-top:8px}</style></head><body><div class="box"><p class="code">500</p><p class="msg">Internal server error</p></div></body></html>`, { status: 500, headers: { "Content-Type": "text/html; charset=utf-8" } });
   },
 
+  fetch: (req) => serveFrontend(req),
+
   routes: {
-    // Frontend — React SPA handles all UI
-    "/*": index,
+    "/__open-in-editor": async req => {
+      if (isProduction) return new Response("Not found", { status: 404 });
+      if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      const { relativePath, lineNumber, columnNumber } = await req.json() as Record<string, string>;
+      const editor = process.env.REACT_EDITOR || "code";
+      const loc = `${process.cwd()}/${relativePath}:${lineNumber}:${columnNumber}`;
+      const noGoto = ["subl", "zed"];
+      const args = noGoto.includes(editor) ? [loc] : ["--goto", loc];
+      if (Bun.which(editor)) Bun.spawn([editor, ...args], { stdio: ["ignore", "ignore", "ignore"] });
+      return new Response("ok");
+    },
 
     // WebSocket — real-time status push
     "/ws": (req) => {
@@ -371,10 +473,6 @@ server = serve({
     "/v1/*":  () => Response.json({ error: { type: "not_found_error", message: "Unknown endpoint" } }, { status: 404 }),
   },
 
-  development: process.env.NODE_ENV !== "production" && {
-    hmr: true,
-    console: true,
-  },
 });
 
 console.log(`claude-proxy v2 :${server.port} ready`);

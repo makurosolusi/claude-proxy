@@ -1,6 +1,6 @@
 import "@mantine/core/styles.css";
 import "./custom.css";
-import { StrictMode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MantineProvider, createTheme } from "@mantine/core";
 import { BrowserRouter } from "react-router-dom";
@@ -12,11 +12,17 @@ const theme = createTheme({
   defaultRadius: "md",
 });
 
+const Inspector = import.meta.env.DEV
+  ? (await import("./DevInspector")).DevInspector
+  : ({ children }: { children: ReactNode }) => <>{children}</>;
+
 function Root() {
   return (
     <BrowserRouter>
       <MantineProvider theme={theme} defaultColorScheme="auto">
-        <App />
+        <Inspector>
+          <App />
+        </Inspector>
       </MantineProvider>
     </BrowserRouter>
   );

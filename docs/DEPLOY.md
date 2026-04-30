@@ -4,22 +4,20 @@
 
 | Script | Keterangan |
 |---|---|
-| `bun dev` | Dev server dengan HMR (`bun --hot src/index.tsx`) |
-| `bun run build` | Production build frontend bundle ke `dist/` |
-| `bun start` | Production server (`NODE_ENV=production`) |
+| `bun dev` | Dev server: `bun --hot src/serve.ts` → single port :8080 (Vite middleware embedded) |
+| `bun run build` | Production build: `vite build` → `dist/` |
+| `bun start` | Production server (`NODE_ENV=production bun src/index.tsx`) |
 
 ## Dev
 
 ```bash
-# Terminal 1 — CSS watcher (opsional, Bun bundler handles CSS automatically)
-# bun run watch:css
-
-# Terminal 2 — Bun dev server dengan HMR
 bun dev
 
-# Dev dengan env file + custom port
-dotenv -e .env.dev -- bun dev -p 8081
+# Dev dengan env file
+dotenv -e .env.dev -- bun dev
 ```
+
+Frontend dev (HMR) dan API berjalan di **satu port** (:8080). Vite dijalankan dalam middleware mode — tidak ada port terpisah. HMR WebSocket Vite internal di port 24678 (tidak perlu dibuka ke publik).
 
 ## Production (bare metal / host)
 

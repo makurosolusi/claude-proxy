@@ -4,12 +4,13 @@
 
 ```
 src/
-├── index.tsx         # Server entry: Bun.serve() routes API + WebSocket
+├── serve.ts          # Dev entry: PID takeover → dynamic import index.tsx (cegah EADDRINUSE)
+├── index.tsx         # Server entry: Bun.serve() routes API + WebSocket + Vite middleware
 ├── index.html        # HTML template + inline FOUC-prevention script
-├── frontend.tsx      # React client entry (createRoot + HMR)
+├── frontend.tsx      # React client entry (createRoot + Vite HMR)
 ├── App.tsx           # React SPA — semua UI components (Dashboard, AdminDashboard, MindPage)
-├── index.css         # Tailwind v4 source
-├── style.css         # Tailwind output (generated)
+├── DevInspector.tsx  # Click-to-source inspector (dev only, tree-shaken di prod)
+├── inspector-plugin.ts  # Vite plugin: inject data-inspector-* attrs ke JSX (enforce: pre)
 ├── broadcast.ts      # WS broadcast trigger
 ├── config.ts         # Env vars + resolvePort() (CLI flag > env > default)
 ├── types.ts          # Shared interfaces (TokenEntry, UpstreamState, etc.)
@@ -25,6 +26,7 @@ src/
     ├── apiAuth.ts    # OAuth PKCE login flow (connect Claude account via admin panel)
     ├── proxy.ts      # Forward POST /v1/messages (cliproxy or direct)
     └── admin.ts      # Admin CRUD — all mutations return JSON {ok:true}
+vite.config.ts        # Vite: middlewareMode=true, inspectorPlugin + react, hmr port 24678
 public/
 └── client.js         # Upstream section updater
 docs/
@@ -91,3 +93,4 @@ Admin mutations semua return `{ ok: true }` — tidak ada page reload.
 | `CLIPROXY_AUTH_DIR` | `/cliproxy-auth` | Dir berisi `claude-*.json` OAuth credentials |
 | `DB_FILE` | `./state/proxy.db` | Path SQLite database |
 | `PORT` | `8080` | HTTP port (dapat di-override via `--port` / `-p` CLI flag) |
+| `REACT_EDITOR` | `code` | Editor untuk click-to-source: `cursor`, `code`, `zed`, `subl` |
