@@ -4,7 +4,7 @@ import {
   Stack, Group, Text, Button, Select, Badge, Paper, Table, Tooltip,
   Modal, Grid, Code, Pagination, Divider, ThemeIcon, ActionIcon,
 } from "@mantine/core";
-import { IconSitemap, IconSearch, IconFilter, IconStack2 } from "@tabler/icons-react";
+import { IconSitemap, IconSearch, IconFilter, IconStack2, IconFlag } from "@tabler/icons-react";
 import { fmtRel, maskToken, usageCls, pctColor } from "../../utils";
 import type { LogEntry } from "../../contexts";
 
@@ -113,6 +113,9 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
             <Group gap="xs">
               <ActionIcon variant="subtle" color="gray" size="lg" component="a" href="/mind">
                 <IconSitemap size={18} />
+              </ActionIcon>
+              <ActionIcon variant="subtle" color="violet" size="lg" component="a" href="/race">
+                <IconFlag size={18} />
               </ActionIcon>
             </Group>
           </Group>

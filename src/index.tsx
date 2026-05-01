@@ -1,14 +1,20 @@
 import { serve, type ServerWebSocket } from "bun";
 import fs from "node:fs";
 import path from "node:path";
+
+const APP_VERSION: string = JSON.parse(
+  fs.readFileSync(path.join(import.meta.dir, "../package.json"), "utf8")
+).version;
 import { config }           from "./config";
-import { loadFromDb, onShutdown, tokens, upstream, dailyUsage, dbCreateSession, dbCheckSession, dbDeleteSession } from "./state";
+import { loadFromDb, onShutdown, tokens, upstream, dailyUsage, totalTokensAllTime, dbCreateSession, dbCheckSession, dbDeleteSession } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
 import { handleApiStatus } from "./handlers/apiStatus";
 import { handleApiLogs }   from "./handlers/apiLogs";
 import { handleApiStats }  from "./handlers/apiStats";
 import { handleApiMind }   from "./handlers/apiMind";
+import { handleApiRace }         from "./handlers/apiRace";
+import { handleApiUsageHourly }  from "./handlers/apiUsageHourly";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
@@ -155,10 +161,11 @@ function buildStatusPayload(isAdmin: boolean) {
     };
   }
   return {
-    ts:      new Date().toISOString(),
-    pollAge: upstream.lastPoll ? fmtCd(now - upstream.lastPoll) + " ago" : "pending",
+    ts:          new Date().toISOString(),
+    pollAge:     upstream.lastPoll ? fmtCd(now - upstream.lastPoll) + " ago" : "pending",
     isAdmin,
-    tokens:  tokenData,
+    totalAllTime: totalTokensAllTime,
+    tokens:      tokenData,
     upstream: {
       ok:     upstream.lastPollOk,
       stale:  !upstream.lastPollOk && !!upstream.fiveHour,
@@ -365,7 +372,10 @@ server = serve({
       try { return handleApiLogs(req, new URL(req.url), isAdm); }
       catch (e: any) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
     },
-    "/api/mind": () => handleApiMind(),
+    "/api/mind":          () => handleApiMind(),
+    "/api/race":          () => handleApiRace(),
+    "/api/version":       () => Response.json({ version: APP_VERSION }),
+    "/api/usage/hourly":  () => handleApiUsageHourly(),
     "/api/admin/test": req => {
       if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiTest();

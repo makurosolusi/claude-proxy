@@ -163,6 +163,7 @@ const stmts = {
 export const tokens: Record<string, TokenEntry> = {};
 export const dailyUsage: DailyUsage = {};
 export const recentLogs: RequestLogEntry[] = [];
+export let totalTokensAllTime = 0;
 
 export const upstream: UpstreamState = {
   fiveHour: null, sevenDay: null, sevenDaySonnet: null, sevenDayOpus: null,
@@ -250,6 +251,7 @@ export function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
     $dur: entry.duration_ms || 0, $turns: entry.turns || 0,
     $prompt: entry.prompt, $sys: entry.system_prompt || "",
   });
+  totalTokensAllTime += entry.input_tokens + entry.output_tokens + (entry.cache_read || 0) + (entry.cache_creation || 0);
   const full: RequestLogEntry = { id: Number(result.lastInsertRowid), ...entry };
   recentLogs.unshift(full);
   if (recentLogs.length > 200) recentLogs.pop();
@@ -346,6 +348,7 @@ export function loadFromDb() {
       windowStart: expired ? now : row.window_start,
       paused:      row.paused === 1,
       dynamic:     row.dynamic === 1,
+      mode:        (row.mode as "inherit" | "direct" | "cliproxy") || "inherit",
     };
     if (expired) stmts.resetOne.run({ $ws: now, $key: row.key });
   }
@@ -383,6 +386,11 @@ export function loadFromDb() {
   for (const row of logRows) {
     recentLogs.push(rowToLog(row));
   }
+
+  const totRow = db.query(
+    "SELECT SUM(input_tokens + output_tokens + cache_read + cache_creation) as total FROM request_logs"
+  ).get() as any;
+  totalTokensAllTime = totRow?.total ?? 0;
 
   console.log(`DB loaded: ${rows.length} token(s), ${logRows.length} log(s) from ${config.dbFile}`);
 }

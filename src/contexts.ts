@@ -14,6 +14,7 @@ export interface UpstreamData {
 export interface StatusResponse {
   ts: string; pollAge: string; isAdmin: boolean;
   tokens: Record<string, TokenStatus>; upstream: UpstreamData;
+  totalAllTime: number;
 }
 export interface LogEntry {
   id: number; ts: number; token_key: string; model: string;

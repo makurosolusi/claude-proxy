@@ -8,7 +8,7 @@ import {
 import {
   IconSun, IconMoon, IconLogout, IconLogin,
   IconRefresh, IconPlayerPause, IconPencil, IconPlus,
-  IconServer, IconUsers, IconActivity,
+  IconUsers, IconActivity, IconClock, IconDatabase,
 } from "@tabler/icons-react";
 import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg } from "./contexts";
@@ -19,7 +19,19 @@ import { DailyHistory } from "./components/tables/DailyHistory";
 import { RequestLog } from "./components/tables/RequestLog";
 import { AdminDashboard } from "./components/admin/Dashboard";
 import { MindPage } from "./components/MindPage";
+import { RacePage } from "./components/RacePage";
 import { FloatingChat } from "./components/FloatingChat";
+
+function fmtCountdown(ms: number): string {
+  if (ms <= 0) return "now";
+  const s   = Math.floor(ms / 1000);
+  const h   = Math.floor(s / 3600);
+  const m   = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+    : `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
 
 function AddTokenInline() {
   const [k, setK] = useState(""); const [l, setL] = useState("40000");
@@ -79,14 +91,26 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [t, isDark]);
 
-  const todayTotal = Object.values(tokens).reduce((sum, tk: any) => sum + (tk.today || 0), 0);
+  const todayTotal   = Object.values(tokens).reduce((sum, tk: any) => sum + (tk.today || 0), 0);
   const activeTokens = Object.values(tokens).filter(tk => tk.used > 0).length;
-  const totalTokens = Object.keys(tokens).length;
-  const nf = new Intl.NumberFormat();
-  const upstreamOk = upstream?.ok;
-  const systemStatus = upstreamOk === undefined ? "connecting" : upstreamOk ? "operational" : "degraded";
-  const statusColor = systemStatus === "operational" ? "teal" : systemStatus === "degraded" ? "orange" : "gray";
-  const upstreamDot = systemStatus === "operational" ? "teal.5" : systemStatus === "degraded" ? "orange.5" : "gray.5";
+  const totalTokens  = Object.keys(tokens).length;
+  const nf           = new Intl.NumberFormat();
+
+  // ── Countdown ticker ────────────────────────────────────────────────────────
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const resetsAtMs   = upstream?.fiveHour?.resets_at ? new Date(upstream.fiveHour.resets_at).getTime() : null;
+  const countdownMs  = resetsAtMs ? Math.max(0, resetsAtMs - Date.now()) : null;
+
+  // ── Hourly activity ─────────────────────────────────────────────────────────
+  interface HourlyEntry { h: number; tokens: number; requests: number; }
+  const [hourly, setHourly] = useState<HourlyEntry[]>([]);
+  useEffect(() => {
+    fetch("/api/usage/hourly").then(r => r.json()).then(d => setHourly(d.hours || [])).catch(() => {});
+  }, []);
 
   return (
     <Box style={{ minHeight: "100vh", background: pageBg, backgroundAttachment: "fixed", transition: "background 3s ease" }}>
@@ -113,7 +137,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                 {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
               </ActionIcon>
             </Tooltip>
-            {isAdmin
+{isAdmin
               ? <Button component="a" href="/admin/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
               : status.isAdmin
               ? <Button component="a" href="/admin" variant="light" size="xs" radius="md" leftSection={<IconLogin size={13} />}>Admin</Button>
@@ -124,7 +148,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       </Paper>
 
       {/* ── Quick Stats ──────────────────────────────────────── */}
-      <SimpleGrid cols={{ base: 1, xs: 3 }} mb="lg">
+      <SimpleGrid cols={{ base: 2, xs: 4 }} mb="lg">
         <Paper withBorder p="md" radius="md">
           <Group gap="sm" mb={6}>
             <ThemeIcon variant="light" color="blue" size="md" radius="md">
@@ -133,7 +157,18 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
             <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today</Text>
           </Group>
           <Text fz={24} fw={700} ff="monospace">{nf.format(todayTotal)}</Text>
-          <Text size="xs" c="dimmed" mt={2}>tokens used across all users</Text>
+          <Text size="xs" c="dimmed" mt={2}>tokens used today</Text>
+        </Paper>
+
+        <Paper withBorder p="md" radius="md">
+          <Group gap="sm" mb={6}>
+            <ThemeIcon variant="light" color="violet" size="md" radius="md">
+              <IconDatabase size={16} />
+            </ThemeIcon>
+            <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>All-Time</Text>
+          </Group>
+          <Text fz={24} fw={700} ff="monospace">{nf.format(status.totalAllTime ?? 0)}</Text>
+          <Text size="xs" c="dimmed" mt={2}>total tokens processed</Text>
         </Paper>
 
         <Paper withBorder p="md" radius="md">
@@ -149,17 +184,18 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
 
         <Paper withBorder p="md" radius="md">
           <Group gap="sm" mb={6}>
-            <ThemeIcon variant="light" color={statusColor} size="md" radius="md">
-              <IconServer size={16} />
+            <ThemeIcon variant="light" color="orange" size="md" radius="md">
+              <IconClock size={16} />
             </ThemeIcon>
-            <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>System</Text>
+            <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Resets In</Text>
           </Group>
-          <Group gap="xs">
-            <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${upstreamDot})`, flexShrink: 0 }} />
-            <Text fz={16} fw={600} ff="monospace" tt="capitalize">{systemStatus}</Text>
-          </Group>
+          <Text fz={24} fw={700} ff="monospace">
+            {countdownMs !== null ? fmtCountdown(countdownMs) : "—"}
+          </Text>
           <Text size="xs" c="dimmed" mt={2}>
-            {systemStatus === "operational" ? "All systems normal" : systemStatus === "degraded" ? "Upstream issues detected" : "Waiting for poll…"}
+            {resetsAtMs
+              ? `at ${new Date(resetsAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : "waiting for poll"}
           </Text>
         </Paper>
       </SimpleGrid>
@@ -188,7 +224,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                 return (
                   <Group key={key} gap="sm" wrap="nowrap">
                     <Text size="xs" ff="monospace" style={{ minWidth: isAdmin ? 140 : 90, maxWidth: isAdmin ? 180 : 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {isAdmin ? key : key.slice(0, 12) + "…"}
+                      {isAdmin ? key : (key.split("-").pop() ?? key)}
                     </Text>
                     <Progress value={pct} color={color} size="md" radius="sm" style={{ flex: 1 }} />
                     <Text size="xs" ff="monospace" c="dimmed" style={{ minWidth: 70, textAlign: "right" }}>
@@ -201,6 +237,52 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           )}
         </Paper>
       </Stack>
+
+      {/* ── Today's Activity ─────────────────────────────────── */}
+      {hourly.length === 24 && (() => {
+        const maxTok = Math.max(...hourly.map(h => h.tokens), 1);
+        const curH   = new Date().getHours();
+        const dayTotal = hourly.reduce((s, h) => s + h.tokens, 0);
+        return (
+          <Stack gap="xs" mb="lg">
+            <Group justify="space-between">
+              <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today's Activity</Text>
+              <Text size="xs" c="dimmed" ff="monospace">{nf.format(dayTotal)} tokens</Text>
+            </Group>
+            <Paper withBorder p="md" radius="md">
+              <Box style={{ display: "flex", alignItems: "flex-end", height: 64, gap: 2 }}>
+                {hourly.map(({ h, tokens: tok, requests: req }) => {
+                  const barH = Math.round((tok / maxTok) * 56);
+                  const bg = h === curH
+                    ? (isDark ? "#228be6" : "#1c7ed6")
+                    : h > curH
+                    ? (isDark ? "#2c2e33" : "#e9ecef")
+                    : (isDark ? "#0ca678" : "#12b886");
+                  return (
+                    <Tooltip key={h}
+                      label={`${String(h).padStart(2, "0")}:00 · ${nf.format(tok)} tok · ${req} req`}
+                      withArrow position="top" openDelay={80}>
+                      <Box style={{
+                        flex: 1, height: Math.max(barH, tok > 0 ? 2 : 0),
+                        borderRadius: "2px 2px 0 0", background: bg, cursor: "default",
+                        opacity: h > curH ? 0.35 : 1, transition: "height 0.3s ease",
+                      }} />
+                    </Tooltip>
+                  );
+                })}
+              </Box>
+              <Box style={{ display: "flex", gap: 2, marginTop: 4 }}>
+                {hourly.map(({ h }) => (
+                  <Text key={h} size="10px" ff="monospace" c="dimmed"
+                    style={{ flex: 1, textAlign: "center" }}>
+                    {h % 6 === 0 ? String(h).padStart(2, "0") : ""}
+                  </Text>
+                ))}
+              </Box>
+            </Paper>
+          </Stack>
+        );
+      })()}
 
       {/* ── Request Log (public shows compact preview) ───────── */}
       <RequestLog isAdmin={isAdmin} />
@@ -279,6 +361,7 @@ export function App() {
             </RequireAdmin>
           } />
           <Route path="/mind" element={<MindPage />} />
+          <Route path="/race" element={<RacePage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </StatusCtx.Provider>

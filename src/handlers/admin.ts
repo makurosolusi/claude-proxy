@@ -53,7 +53,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     const parsed = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
     const entry: TokenEntry = {
       limit: parsed, window: config.windowMs,
-      used: 0, windowStart: Date.now(), paused: false, dynamic: true,
+      used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit",
     };
     tokens[newKey] = entry;
     dbInsertToken(newKey, entry);

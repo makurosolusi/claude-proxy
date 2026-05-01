@@ -5,6 +5,7 @@ export interface TokenEntry {
   windowStart: number;   // epoch ms
   paused:      boolean;
   dynamic:     boolean;
+  mode:        "inherit" | "direct" | "cliproxy";
 }
 
 

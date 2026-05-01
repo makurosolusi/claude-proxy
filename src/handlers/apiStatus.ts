@@ -1,4 +1,4 @@
-import { tokens, upstream, dailyUsage } from "../state";
+import { tokens, upstream, dailyUsage, totalTokensAllTime } from "../state";
 import { maskToken, todayKey } from "../tokens";
 
 function fmtCd(ms: number) {
@@ -25,10 +25,11 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean): Respo
   }
 
   return Response.json({
-    ts:      new Date().toISOString(),
-    pollAge: upstream.lastPoll ? fmtCd(now - upstream.lastPoll) + " ago" : "pending",
+    ts:          new Date().toISOString(),
+    pollAge:     upstream.lastPoll ? fmtCd(now - upstream.lastPoll) + " ago" : "pending",
     isAdmin,
-    tokens:  tokenData,
+    totalAllTime: totalTokensAllTime,
+    tokens:      tokenData,
     upstream: {
       ok:     upstream.lastPollOk,
       stale:  !upstream.lastPollOk && !!upstream.fiveHour,
