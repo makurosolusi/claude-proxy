@@ -8,3 +8,6 @@ credentials/
 *.db-shm
 *.db-wal
 src/style.css
+.mcp.json
+FITURE/
+scripts/
