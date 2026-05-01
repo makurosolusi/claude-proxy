@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { Center, Stack, Text, Button, Paper, RingProgress, Box, Group, Badge } from "@mantine/core";
+import { Stack, Text, Button, Center, Paper, Box, Group, Badge, useMantineColorScheme } from "@mantine/core";
 import { Loader } from "@mantine/core";
-import { neonColor, pctColor, fmtResetAt } from "../utils";
+import ReactECharts from "echarts-for-react";
+import { fmtResetAt } from "../utils";
 import { useStatus } from "../contexts";
 import type { UpstreamPeriod, UpstreamData } from "../contexts";
 
@@ -48,49 +49,137 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function PeriodCard({ label, data, size = "sm" }: {
-  label: string; data: UpstreamPeriod; size?: "sm" | "lg";
-}) {
-  // If resets_at has already passed but poll hasn't refreshed yet,
-  // the stale % is meaningless — show 0 / dimmed to avoid misleading display.
-  const hasReset  = new Date(data.resets_at).getTime() <= Date.now();
-  const p         = hasReset ? 0 : data.utilization;
-  const ring      = size === "lg" ? 320 : 80;
-  const thick     = size === "lg" ? 20  : 7;
-  const fzPct     = size === "lg" ? 72  : 14;
-  const fzLabel   = size === "lg" ? "sm" : "xs";
-  const fzResets  = size === "lg" ? "lg" : "xs";
-  const fwLabel   = size === "lg" ? 800  : 700;
-  const nc        = neonColor(p);
-  const textGlow  = size === "lg" && !hasReset
-    ? `0 0 8px ${nc}99, 0 0 20px ${nc}66, 0 0 40px ${nc}44`
-    : undefined;
+function needleColor(pct: number): string {
+  if (pct < 40) return "#12b886";
+  if (pct < 65) return "#fab005";
+  if (pct < 82) return "#f76707";
+  return "#e03131";
+}
+
+function buildGaugeSeries(
+  entry: { label: string; data: UpstreamPeriod },
+  center: [string, string],
+  radius: string,
+  isMain: boolean,
+  dark: boolean,
+  arcColors: [number, string][],
+) {
+  const expired  = new Date(entry.data.resets_at).getTime() <= Date.now();
+  const val      = expired ? 0 : Math.round(entry.data.utilization);
+  const nc       = expired ? "#868e96" : needleColor(val);
+  const tickCol  = dark ? "#6c757d" : "#868e96";
+  const textCol  = dark ? "#c1c2c5" : "#343a40";
+  const lblCol   = dark ? "#adb5bd" : "#495057";
+  const dimCol   = dark ? "#5c5f66" : "#adb5bd";
+  const resetStr = fmtResetAt(entry.data.resets_at);
+
+  return {
+    type: "gauge", center, radius,
+    min: 0, max: 100,
+    startAngle: 215, endAngle: -35,
+    splitNumber: 5,
+    axisLine:  { lineStyle: { width: isMain ? 16 : 10, color: arcColors } },
+    progress:  { show: false },
+    pointer: {
+      show: true, length: "65%",
+      width: isMain ? 7 : 4,
+      itemStyle: { color: nc },
+    },
+    anchor: {
+      show: true, showAbove: true,
+      size: isMain ? 18 : 11,
+      itemStyle: {
+        color: dark ? "#25262b" : "#f8f9fa",
+        borderColor: dark ? "#5c5f66" : "#adb5bd",
+        borderWidth: isMain ? 4 : 2,
+      },
+    },
+    splitLine: {
+      distance: isMain ? -22 : -14,
+      length:   isMain ? 22  : 14,
+      lineStyle: { color: tickCol, width: isMain ? 2 : 1.5 },
+    },
+    axisTick: {
+      distance: isMain ? -14 : -9,
+      length:   isMain ? 12  : 7,
+      lineStyle: { color: tickCol, width: 1 },
+    },
+    axisLabel: {
+      distance:   isMain ? -40 : -26,
+      color:      textCol,
+      fontSize:   isMain ? 15  : 10,
+      fontFamily: "monospace",
+    },
+    title: {
+      offsetCenter: ["0%", "-25%"],
+      color:   lblCol,
+      fontSize: isMain ? 16 : 12,
+      fontFamily: "monospace",
+      fontWeight: "bold",
+    },
+    detail: {
+      valueAnimation: true,
+      offsetCenter: ["0%", "52%"],
+      borderWidth: 0,
+      rich: {
+        v: { fontSize: isMain ? 48 : 26, fontWeight: "bold", fontFamily: "monospace", color: nc, lineHeight: isMain ? 56 : 30 },
+        r: { fontSize: isMain ? 13 : 10, fontFamily: "monospace", color: dimCol, lineHeight: isMain ? 20 : 15 },
+      },
+      formatter: expired
+        ? () => `{v|—}\n{r|waiting for poll}`
+        : (v: number) => `{v|${v}%}\n{r|resets ${resetStr}}`,
+    },
+    data: [{ value: val, name: entry.label }],
+  };
+}
+
+function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
+  const { colorScheme } = useMantineColorScheme();
+  const dark = colorScheme === "dark";
+
+  const entries = [
+    upstream.fiveHour       && { label: "5-Hour",   data: upstream.fiveHour },
+    upstream.sevenDay       && { label: "7-Day",     data: upstream.sevenDay },
+    upstream.sevenDaySonnet && { label: "7d·Sonnet", data: upstream.sevenDaySonnet },
+  ].filter(Boolean) as { label: string; data: UpstreamPeriod }[];
+
+  if (entries.length === 0) return null;
+
+  const n = entries.length;
+  const arcColors: [number, string][] = [
+    [0.65, dark ? "#373a40" : "#ced4da"],
+    [0.82, "#e8590c"],
+    [1.0,  "#c92a2a"],
+  ];
+
+  // Layout: 5-hour is always the main large gauge on the left.
+  // 7-day and 7d-Sonnet stack on the right side (smaller).
+  type Pos = { center: [string, string]; radius: string; isMain: boolean };
+  const positions: Pos[] = n === 1
+    ? [{ center: ["50%", "52%"], radius: "76%",  isMain: true  }]
+    : n === 2
+    ? [
+        { center: ["30%", "52%"], radius: "58%",  isMain: true  },
+        { center: ["78%", "52%"], radius: "44%",  isMain: false },
+      ]
+    : [
+        { center: ["27%", "52%"], radius: "54%",  isMain: true  },
+        { center: ["78%", "22%"], radius: "25%",  isMain: false },
+        { center: ["78%", "74%"], radius: "25%",  isMain: false },
+      ];
+
+  const height = n === 3 ? 460 : 380;
+
+  const series = entries.map((e, i) =>
+    buildGaugeSeries(e, positions[i].center, positions[i].radius, positions[i].isMain, dark, arcColors)
+  );
 
   return (
-    <Paper withBorder p={size === "lg" ? "xl" : "sm"}
-      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: size === "lg" ? 14 : 8 }}>
-      <Text size={fzLabel} fw={fwLabel} tt="uppercase" c="dimmed" ta="center"
-        style={{ letterSpacing: ".08em" }}>{label}</Text>
-      <RingProgress
-        size={ring} thickness={thick}
-        sections={[{ value: p, color: hasReset ? "gray" : pctColor(p) }]}
-        label={
-          hasReset ? (
-            <Text ta="center" fz={size === "lg" ? 18 : 10} c="dimmed" lh={1.2}>
-              waiting{"\n"}for poll
-            </Text>
-          ) : (
-            <Text ta="center" fz={fzPct} fw={800} c={pctColor(p)} lh={1}
-              style={textGlow ? { textShadow: textGlow } : undefined}>
-              {data.utilization.toFixed(0)}%
-            </Text>
-          )
-        }
-      />
-      <Text size={fzResets} c="dimmed" ta="center" fw={size === "lg" ? 500 : 400}>
-        resets {fmtResetAt(data.resets_at)}
-      </Text>
-    </Paper>
+    <ReactECharts
+      option={{ backgroundColor: "transparent", series }}
+      style={{ height, width: "100%" }}
+      opts={{ renderer: "canvas" }}
+    />
   );
 }
 
@@ -106,11 +195,7 @@ export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData;
     </Stack>
   );
 
-  const dotColor   = upstream.ok ? (upstream.stale ? "yellow" : "teal") : "orange";
-  const secondary  = [
-    upstream.sevenDay     && { label: "7-day",        data: upstream.sevenDay },
-    upstream.sevenDaySonnet && { label: "7-day Sonnet", data: upstream.sevenDaySonnet },
-  ].filter(Boolean) as { label: string; data: UpstreamPeriod }[];
+  const dotColor = upstream.ok ? (upstream.stale ? "yellow" : "teal") : "orange";
 
   return (
     <Stack gap="md">
@@ -128,19 +213,7 @@ export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData;
         {upstream.stale && <Badge color="yellow" variant="light" size="xs">stale</Badge>}
       </Group>
 
-      {upstream.fiveHour && (
-        <Center>
-          <PeriodCard label="5-hour" data={upstream.fiveHour} size="lg" />
-        </Center>
-      )}
-
-      {secondary.length > 0 && (
-        <Group gap="sm" justify="center">
-          {secondary.map(({ label, data }) => (
-            <PeriodCard key={label} label={label} data={data} size="sm" />
-          ))}
-        </Group>
-      )}
+      <UpstreamGauge upstream={upstream} />
     </Stack>
   );
 }

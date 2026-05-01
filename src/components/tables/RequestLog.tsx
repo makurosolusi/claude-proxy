@@ -18,8 +18,13 @@ const STICKY_COL: React.CSSProperties = {
   position: "sticky",
   left: 0,
   zIndex: 2,
-  background: "var(--mantine-color-body)",
+  backgroundColor: "var(--mantine-color-body)",
   borderRight: "1px solid var(--mantine-color-default-border)",
+};
+const STICKY_TH: React.CSSProperties = {
+  ...STICKY_COL,
+  zIndex: 3,
+  backgroundColor: "var(--mantine-color-default-hover)",
 };
 
 // Group consecutive log entries with same user + prompt → returns grouped list with count
@@ -186,12 +191,12 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
 
         {/* ── Table ─────────────────────────────────────────── */}
         <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
-          <Table.ScrollContainer minWidth={400}>
+          <Table.ScrollContainer minWidth={860}>
             <Table highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
                   {visibleCols.map(c => (
-                    <Table.Th key={c.k} style={c.k === "user" ? { ...STICKY_COL, zIndex: 3 } : undefined}>
+                    <Table.Th key={c.k} style={c.k === "user" ? STICKY_TH : undefined}>
                       {c.l}
                     </Table.Th>
                   ))}
