@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "deploy-stg": {
+      "command": "bun",
+      "args": ["run", "scripts/mcp/deploy.ts"],
+      "description": "Deploy claude-proxy ke staging: stg branch → GHCR → Portainer (claude-proxy-stg)",
+      "env": {
+        "STACK_NAME": "claude-proxy",
+        "BASE_URL": "https://claude-proxy.wibudev.com",
+        "ENV": "stg"
+      }
+    }
+  }
+}
