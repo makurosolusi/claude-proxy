@@ -1,8 +1,11 @@
 import { config }          from "../config";
-import { upstream, dbLogRequest } from "../state";
-import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration } from "../tokens";
+import { upstream, dbLogRequest, dailyUsage } from "../state";
+import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken } from "../upstream";
+import { broadcastSystemMsg } from "../broadcast";
 import type { TokenEntry } from "../types";
+
+function pushAlert(msg: string) { broadcastSystemMsg(`⚡ ${msg}`); }
 
 // Strip Claude Code system-injected XML tags from user message content
 function stripInjections(text: string): string {
@@ -290,11 +293,19 @@ export async function handleProxy(
         } finally {
           await writer.close().catch(() => {});
           releaseInFlight(key, reservationId);
-          dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
+          dbLogRequest({ ts, token_key: key, name: t.name, model, input_tokens: inputTokens, output_tokens: outputTokens,
             cache_read: cacheRead, cache_creation: cacheCreation, stream: true, status: httpStatus,
             stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
             turns, prompt, system_prompt: systemPrompt,
             messages_json: messagesJson, response_text: responseText.slice(0, 3000) });
+          // Real-time threshold alerts
+          if (inputTokens > 80_000)
+            pushAlert(`${t.name}: ${(inputTokens/1000).toFixed(0)}k tokens input — context sangat besar, jalankan /compact`);
+          if (t.limit !== Infinity) {
+            const pct = Math.round((t.used / t.limit) * 100);
+            if (pct >= 95) pushAlert(`${t.name}: quota ${pct}% — hampir habis!`);
+            else if (pct === 80) pushAlert(`${t.name}: quota 80% — mendekati batas.`);
+          }
         }
       })();
       const outHeaders = new Headers(resp.headers);
@@ -316,11 +327,17 @@ export async function handleProxy(
       incrementUsage(key, inputTokens + outputTokens, reqGen);
       console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
     }
-    dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
+    dbLogRequest({ ts, token_key: key, name: t.name, model, input_tokens: inputTokens, output_tokens: outputTokens,
       cache_read: cacheRead, cache_creation: cacheCreation, stream: false, status: resp.status,
       stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
       turns, prompt, system_prompt: systemPrompt,
       messages_json: messagesJson, response_text: extractResponseText(body) });
+    if (inputTokens > 80_000)
+      pushAlert(`${t.name}: ${(inputTokens/1000).toFixed(0)}k tokens input — jalankan /compact`);
+    if (t.limit !== Infinity) {
+      const pct = Math.round((t.used / t.limit) * 100);
+      if (pct >= 95) pushAlert(`${t.name}: quota ${pct}% — hampir habis!`);
+    }
     return Response.json(body, { status: resp.status, headers: rateHeaders });
 
   } catch (err: any) {

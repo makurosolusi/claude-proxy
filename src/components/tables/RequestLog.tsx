@@ -3,9 +3,19 @@ import { useDisclosure } from "@mantine/hooks";
 import { Link } from "react-router-dom";
 import {
   Stack, Group, Text, Button, Select, Badge, Paper, Table, Tooltip,
-  Modal, Grid, Code, Pagination, Divider, ThemeIcon, ActionIcon, Anchor,
+  Modal, Grid, Code, Pagination, Divider, ThemeIcon, ActionIcon, Anchor, Alert,
 } from "@mantine/core";
-import { IconSitemap, IconSearch, IconFilter, IconStack2, IconFlag } from "@tabler/icons-react";
+import { IconSitemap, IconSearch, IconFilter, IconStack2, IconFlag, IconAlertTriangle, IconAlertHexagon, IconChartBar } from "@tabler/icons-react";
+
+const nf = new Intl.NumberFormat();
+
+function ctxSeverity(l: LogEntry): "critical" | "warning" | null {
+  if (l.input_tokens > 100_000) return "critical";
+  if (l.input_tokens > 50_000)  return "warning";
+  const ratio = l.input_tokens / Math.max(l.output_tokens, 1);
+  if (ratio > 80 && l.input_tokens > 20_000) return "warning";
+  return null;
+}
 import { fmtRel, maskToken, usageCls, pctColor } from "../../utils";
 import type { LogEntry } from "../../contexts";
 
@@ -44,12 +54,41 @@ function groupDuplicateLogs(logs: LogEntry[]): Array<{ log: LogEntry; count: num
 }
 
 function DetailContent({ log: l }: { log: LogEntry }) {
-  const tot = l.input_tokens + l.output_tokens;
+  const tot    = l.input_tokens + l.output_tokens;
+  const sev    = ctxSeverity(l);
+  const ratio  = Math.round(l.input_tokens / Math.max(l.output_tokens, 1));
+  const isCrit = sev === "critical";
+
   return (
     <Stack gap="md">
       <Text size="xs" c="dimmed" ff="monospace">{new Date(l.ts).toISOString()}</Text>
+
+      {/* Context anomaly inline alert */}
+      {sev && (
+        <Alert
+          color={isCrit ? "red" : "orange"}
+          icon={isCrit ? <IconAlertHexagon size={16} /> : <IconAlertTriangle size={16} />}
+          title={isCrit ? "Context sangat besar" : "Context mulai besar"}
+        >
+          <Stack gap={6}>
+            <Text size="sm">
+              Request ini menggunakan <b>{nf.format(l.input_tokens)} tokens input</b> (rasio {ratio}× terhadap output).
+              {isCrit
+                ? " Segera jalankan /clear atau /compact di Claude Code."
+                : " Pertimbangkan /compact untuk mencegah pemborosan kuota lebih lanjut."}
+            </Text>
+            <Group gap="xs">
+              <Code fz="xs">/compact</Code><Text size="xs" c="dimmed">— kompres context, history tetap ada</Text>
+            </Group>
+            <Group gap="xs">
+              <Code fz="xs">/clear</Code><Text size="xs" c="dimmed">— reset total, mulai sesi baru</Text>
+            </Group>
+          </Stack>
+        </Alert>
+      )}
+
       <Grid>
-        <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>User</Text><Text size="sm" ff="monospace">{l.token_key}</Text></Paper></Grid.Col>
+        <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>User</Text><Text size="sm" ff="monospace">{l.name || l.token_key}</Text></Paper></Grid.Col>
         <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Model</Text><Text size="sm" ff="monospace">{l.model.replace(/^claude-/, "")}</Text></Paper></Grid.Col>
         <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Tokens</Text><Text size="sm" ff="monospace"><b>{tot.toLocaleString()}</b> total · {l.input_tokens.toLocaleString()} in · {l.output_tokens.toLocaleString()} out{l.cache_read ? <Text span c="blue"> +{l.cache_read.toLocaleString()} cached</Text> : ""}</Text></Paper></Grid.Col>
         <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Status</Text><Group gap="xs"><Badge color={l.status >= 400 ? "red" : "teal"}>HTTP {l.status}</Badge>{l.stream && <Badge color="blue" size="xs">stream</Badge>}{l.stop_reason && <Badge color={l.stop_reason === "max_tokens" ? "yellow" : "teal"} size="xs">{l.stop_reason}</Badge>}</Group></Paper></Grid.Col>
@@ -117,12 +156,21 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
               </Text>
             </div>
             <Group gap="xs">
-              <ActionIcon variant="subtle" color="gray" size="lg" component="a" href="/mind">
-                <IconSitemap size={18} />
-              </ActionIcon>
-              <ActionIcon variant="subtle" color="violet" size="lg" component="a" href="/race">
-                <IconFlag size={18} />
-              </ActionIcon>
+              <Tooltip label="Mind Map" withArrow>
+                <ActionIcon variant="subtle" color="gray" size="lg" component="a" href="/mind">
+                  <IconSitemap size={18} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="Race Chart" withArrow>
+                <ActionIcon variant="subtle" color="violet" size="lg" component="a" href="/race">
+                  <IconFlag size={18} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="Analytics" withArrow>
+                <ActionIcon variant="subtle" color="blue" size="lg" component="a" href="/analytics">
+                  <IconChartBar size={18} />
+                </ActionIcon>
+              </Tooltip>
             </Group>
           </Group>
         </Paper>
@@ -137,7 +185,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                 </ThemeIcon>
                 <Select
                   size="xs" w={150}
-                  data={["All users", ...users.map(u => ({ value: u, label: u.replace(/^sk-user-/, "") }))]}
+                  data={["All users", ...users.map(u => ({ value: u, label: u }))]}
                   value={user || "All users"}
                   onChange={v => { const u = v === "All users" ? null : v; setUser(u); fetchLogs(1, u); }}
                   leftSection={<IconSearch size={12} />}
@@ -146,7 +194,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
               <Group gap="xs">
                 {isAdmin && user && (
                   <Button size="xs" variant="light" color="orange" onClick={() => clearLogs(false)}>
-                    Clear {user.replace(/^sk-user-/, "")} logs
+                    Clear {user} logs
                   </Button>
                 )}
                 {isAdmin && (
@@ -209,7 +257,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                 ) : displayEntries.map(({ log: l, count }) => {
                   const tot = l.input_tokens + l.output_tokens;
                   const model = l.model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
-                  const u = l.token_key.replace(/^sk-user-/, "");
+                  const u = l.name || l.token_key;   // name is always the display-safe value
                   const cells: Record<string, React.ReactNode> = {
                     time: (
                       <Table.Td key="time">
@@ -224,7 +272,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                       </Table.Td>
                     ),
                     user:  <Table.Td key="user" style={STICKY_COL}>
-                      <Anchor component={Link} to={`/sessions/${encodeURIComponent(l.token_key)}`}
+                      <Anchor component={Link} to={`/sessions/${encodeURIComponent(u)}`}
                         onClick={e => e.stopPropagation()}
                         style={{ textDecoration: "none" }}>
                         <Badge variant="light" color="blue" size="sm" ff="monospace" style={{ cursor: "pointer" }}>{u}</Badge>
@@ -241,13 +289,30 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                       </Table.Td>
                     ),
                   };
+                  const ctxSev = ctxSeverity(l);
+                  const rowBg  = l.status >= 400
+                    ? "light-dark(rgba(239,68,68,.05),rgba(239,68,68,.1))"
+                    : ctxSev === "critical"
+                    ? "light-dark(rgba(239,68,68,.07),rgba(239,68,68,.13))"
+                    : ctxSev === "warning"
+                    ? "light-dark(rgba(249,115,22,.05),rgba(249,115,22,.1))"
+                    : undefined;
                   return (
                     <Table.Tr
                       key={l.id}
-                      style={{ cursor: "pointer", background: l.status >= 400 ? "light-dark(rgba(239,68,68,.05),rgba(239,68,68,.1))" : undefined }}
+                      style={{ cursor: "pointer", background: rowBg }}
                       onClick={() => showDetail(l)}
                     >
                       {visibleCols.map(c => cells[c.k])}
+                      {ctxSev && (
+                        <Table.Td style={{ width: 28, padding: "0 4px" }}>
+                          <Tooltip label={ctxSev === "critical" ? `Context kritis: ${nf.format(l.input_tokens)} tokens input` : `Context besar: ${nf.format(l.input_tokens)} tokens input`} withArrow>
+                            {ctxSev === "critical"
+                              ? <IconAlertHexagon size={14} color="var(--mantine-color-red-5)" />
+                              : <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" />}
+                          </Tooltip>
+                        </Table.Td>
+                      )}
                     </Table.Tr>
                   );
                 })}

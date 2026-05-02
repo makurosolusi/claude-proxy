@@ -5,7 +5,7 @@ import {
 import {
   IconRefresh, IconPencil, IconPlayerPause, IconPlayerPlay, IconTrash,
 } from "@tabler/icons-react";
-import { usageCls, pctColor, maskToken, adminPost } from "../../utils";
+import { usageCls, pctColor, adminPost } from "../../utils";
 import type { TokenStatus } from "../../contexts";
 
 const USERS_PER_PAGE = 10;
@@ -32,7 +32,7 @@ export function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenSt
           const pct = tk.limit === null ? 0 : tk.pct;
           const cls = tk.paused ? "" : `u-${usageCls(pct)}`;
           const todayCls = tk.today > 20000 ? "pct-over" : tk.today > 10000 ? "pct-high" : tk.today > 5000 ? "pct-warn" : tk.today > 0 ? "pct-ok" : "";
-          const label = isAdmin ? k : maskToken(k);
+          const label = isAdmin ? k : (tk.name || k);
           const lim = tk.limit === null ? "unlimited" : String(tk.limit);
           return (
             <Table.Tr key={k} id={`row-${k}`} className={cls} style={tk.paused ? { opacity: 0.45 } : {}}>

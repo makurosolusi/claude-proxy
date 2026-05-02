@@ -1,4 +1,4 @@
-import { tokens, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs } from "../state";
+import { tokens, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, deriveNameFromKey } from "../state";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
@@ -51,9 +51,11 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!newKey)        return new Response("Key required\n",          { status: 400 });
     if (tokens[newKey]) return new Response("Token already exists\n", { status: 409 });
     const parsed = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
+    const customName = String(form?.get("name") || "").trim();
     const entry: TokenEntry = {
       limit: parsed, window: config.windowMs,
       used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit",
+      name: customName || deriveNameFromKey(newKey),
     };
     tokens[newKey] = entry;
     dbInsertToken(newKey, entry);
@@ -108,6 +110,17 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
     dbSoftDelete(target);
     delete tokens[target];
+    return redirect();
+  }
+
+  // Rename token display name
+  if (pathname === "/admin/token/rename" && req.method === "POST") {
+    const target  = String(form?.get("token") || "").trim();
+    const newName = String(form?.get("name")  || "").trim();
+    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
+    if (!newName)                   return new Response("Name required\n",   { status: 400 });
+    tokens[target].name = newName;
+    dbRenameToken(target, newName);
     return redirect();
   }
 

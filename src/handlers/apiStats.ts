@@ -1,4 +1,8 @@
-import { db } from "../state";
+import { db, tokens, deriveNameFromKey } from "../state";
+
+function keyToName(key: string): string {
+  return tokens[key]?.name ?? deriveNameFromKey(key);
+}
 
 export function handleApiStats(): Response {
   try {
@@ -12,9 +16,10 @@ export function handleApiStats(): Response {
     const dailyMap: Record<string, Record<string, number>> = {};
     const userSet = new Set<string>();
     for (const r of dailyRows) {
+      const name = keyToName(r.token_key);
       if (!dailyMap[r.date]) dailyMap[r.date] = {};
-      dailyMap[r.date][r.token_key] = (dailyMap[r.date][r.token_key] || 0) + r.used;
-      userSet.add(r.token_key);
+      dailyMap[r.date][name] = (dailyMap[r.date][name] || 0) + r.used;
+      userSet.add(name);
     }
     const daily = Object.entries(dailyMap)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -84,7 +89,7 @@ export function handleApiStats(): Response {
       })),
       stop_reasons: stopRows.map(r => ({ reason: r.stop_reason || "unknown", count: r.count })),
       per_user: userRows.map(r => ({
-        user: r.token_key,
+        user: keyToName(r.token_key),
         requests: r.requests,
         input_tokens: r.inp || 0,
         output_tokens: r.out || 0,

@@ -1,6 +1,8 @@
 import { db } from "../state";
 
 export function handleApiRace(): Response {
+  try { db.exec("ALTER TABLE request_logs ADD COLUMN name TEXT DEFAULT ''"); } catch {}
+
   const span = db.query(`SELECT MIN(ts) as minTs, MAX(ts) as maxTs FROM request_logs`).get() as any;
   const spanMs = (span?.maxTs ?? 0) - (span?.minTs ?? 0);
   const useDay = spanMs > 7 * 24 * 60 * 60 * 1000;
@@ -13,7 +15,7 @@ export function handleApiRace(): Response {
   const rows = db.query(`
     SELECT
       ${periodExpr} AS period,
-      token_key,
+      COALESCE(NULLIF(name, ''), token_key) AS token_key,
       SUM(input_tokens + output_tokens + cache_read + cache_creation) AS tokens,
       COUNT(*) AS requests
     FROM request_logs

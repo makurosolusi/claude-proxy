@@ -1,5 +1,5 @@
 import { config } from "./config";
-import { tokens, dailyUsage, dbInsertEnvToken, dbUpdateUsage, dbUpsertDailyUsage, dbResetToken } from "./state";
+import { tokens, dailyUsage, dbInsertEnvToken, dbUpdateUsage, dbUpsertDailyUsage, dbResetToken, deriveNameFromKey } from "./state";
 import type { TokenEntry } from "./types";
 
 export function initFromEnv() {
@@ -16,6 +16,7 @@ export function initFromEnv() {
       paused:      false,
       dynamic:     false,
       mode:        "inherit",
+      name:        deriveNameFromKey(key),
     };
     tokens[key] = entry;
     dbInsertEnvToken(key, entry);

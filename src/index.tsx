@@ -16,6 +16,7 @@ import { handleApiMind }   from "./handlers/apiMind";
 import { handleApiRace }         from "./handlers/apiRace";
 import { handleApiUsageHourly }  from "./handlers/apiUsageHourly";
 import { handleApiSessions }     from "./handlers/apiSessions";
+import { handleApiAnalytics }    from "./handlers/apiAnalytics";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
@@ -152,7 +153,7 @@ function buildStatusPayload(isAdmin: boolean) {
   const tokenData: Record<string, unknown> = {};
   for (const [k, tk] of Object.entries(tokens)) {
     tokenData[k] = {
-      label:     isAdmin ? k : maskToken(k),
+      label:     isAdmin ? k : tk.name,
       used:      tk.used,
       limit:     tk.limit === Infinity ? null : tk.limit,
       remaining: tk.limit === Infinity ? null : Math.max(0, tk.limit - tk.used),
@@ -373,6 +374,7 @@ server = serve({
       try { return handleApiLogs(req, new URL(req.url), isAdm); }
       catch (e: any) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
     },
+    "/api/analytics": req => handleApiAnalytics(checkAdmin(req)),
     "/api/sessions/*": req => {
       const user = new URL(req.url).pathname.slice("/api/sessions/".length);
       return handleApiSessions(decodeURIComponent(user));

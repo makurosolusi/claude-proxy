@@ -110,20 +110,23 @@ try { db.exec("ALTER TABLE request_logs ADD COLUMN duration_ms INTEGER NOT NULL 
 try { db.exec("ALTER TABLE request_logs ADD COLUMN turns INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE request_logs ADD COLUMN messages_json TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE request_logs ADD COLUMN response_text TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE request_logs ADD COLUMN name TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE tokens ADD COLUMN name TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN mode TEXT NOT NULL DEFAULT 'inherit'"); } catch {} // kept for DB compat
 
 // ── Prepared statements ───────────────────────────────────────────────────────
 const stmts = {
   insertIgnore: db.prepare(`
-    INSERT OR IGNORE INTO tokens (key, lim, win, used, window_start, paused, dynamic)
-    VALUES ($key, $lim, $win, $used, $window_start, $paused, $dynamic)
+    INSERT OR IGNORE INTO tokens (key, name, lim, win, used, window_start, paused, dynamic)
+    VALUES ($key, $name, $lim, $win, $used, $window_start, $paused, $dynamic)
   `),
   insertReplace: db.prepare(`
-    INSERT OR REPLACE INTO tokens (key, lim, win, used, window_start, paused, dynamic, deleted)
-    VALUES ($key, $lim, $win, $used, $window_start, $paused, $dynamic, 0)
+    INSERT OR REPLACE INTO tokens (key, name, lim, win, used, window_start, paused, dynamic, deleted)
+    VALUES ($key, $name, $lim, $win, $used, $window_start, $paused, $dynamic, 0)
   `),
   updateUsage: db.prepare(`UPDATE tokens SET used=$used WHERE key=$key`),
   updateToken: db.prepare(`UPDATE tokens SET lim=$lim, win=$win, paused=$paused WHERE key=$key`),
+  updateName:  db.prepare(`UPDATE tokens SET name=$name WHERE key=$key`),
   softDelete:  db.prepare(`UPDATE tokens SET deleted=1 WHERE key=$key`),
   resetOne:    db.prepare(`UPDATE tokens SET used=0, window_start=$ws WHERE key=$key`),
   resetAll:    db.prepare(`UPDATE tokens SET used=0, win=$win, window_start=$ws WHERE deleted=0`),
@@ -134,9 +137,9 @@ const stmts = {
   `),
   pruneDaily:  db.prepare(`DELETE FROM daily_usage WHERE date < $cutoff`),
   insertLog:   db.prepare(`
-    INSERT INTO request_logs (ts, token_key, model, input_tokens, output_tokens, cache_read, cache_creation,
+    INSERT INTO request_logs (ts, token_key, name, model, input_tokens, output_tokens, cache_read, cache_creation,
       stream, status, stop_reason, tool_use_count, duration_ms, turns, prompt, system_prompt, messages_json, response_text)
-    VALUES ($ts, $key, $model, $inp, $out, $cr, $cc, $stream, $status, $sr, $tuc, $dur, $turns, $prompt, $sys, $mj, $rt)
+    VALUES ($ts, $key, $name, $model, $inp, $out, $cr, $cc, $stream, $status, $sr, $tuc, $dur, $turns, $prompt, $sys, $mj, $rt)
   `),
   pruneLog:    db.prepare(`DELETE FROM request_logs WHERE ts < $cutoff`),
   insertSession: db.prepare(`INSERT OR REPLACE INTO admin_sessions (token, created_at, last_used) VALUES ($token, $now, $now)`),
@@ -166,6 +169,7 @@ export const tokens: Record<string, TokenEntry> = {};
 export const dailyUsage: DailyUsage = {};
 export const recentLogs: RequestLogEntry[] = [];
 export let totalTokensAllTime = 0;
+export const allTimePerUser: Record<string, number> = {};
 
 export const upstream: UpstreamState = {
   fiveHour: null, sevenDay: null, sevenDaySonnet: null, sevenDayOpus: null,
@@ -183,9 +187,15 @@ function fromLim(lim: number | null): number {
 }
 
 // ── DB write functions ────────────────────────────────────────────────────────
+export function deriveNameFromKey(key: string): string {
+  // "sk-user-amel" → "amel", "mytoken" → "mytoken"
+  const parts = key.split("-");
+  return parts[parts.length - 1] || key;
+}
+
 export function dbInsertEnvToken(key: string, entry: TokenEntry) {
   stmts.insertIgnore.run({
-    $key: key, $lim: toLim(entry.limit), $win: entry.window,
+    $key: key, $name: entry.name, $lim: toLim(entry.limit), $win: entry.window,
     $used: entry.used, $window_start: entry.windowStart,
     $paused: entry.paused ? 1 : 0, $dynamic: 0,
   });
@@ -193,10 +203,14 @@ export function dbInsertEnvToken(key: string, entry: TokenEntry) {
 
 export function dbInsertToken(key: string, entry: TokenEntry) {
   stmts.insertReplace.run({
-    $key: key, $lim: toLim(entry.limit), $win: entry.window,
+    $key: key, $name: entry.name, $lim: toLim(entry.limit), $win: entry.window,
     $used: entry.used, $window_start: entry.windowStart,
     $paused: entry.paused ? 1 : 0, $dynamic: entry.dynamic ? 1 : 0,
   });
+}
+
+export function dbRenameToken(key: string, newName: string) {
+  stmts.updateName.run({ $name: newName, $key: key });
 }
 
 export function dbUpdateUsage(key: string, used: number) {
@@ -245,7 +259,8 @@ export function dbSaveUpstream() {
 
 export function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
   const result = stmts.insertLog.run({
-    $ts: entry.ts, $key: entry.token_key, $model: entry.model,
+    $ts: entry.ts, $key: entry.token_key, $name: entry.name || "",
+    $model: entry.model,
     $inp: entry.input_tokens, $out: entry.output_tokens,
     $cr: entry.cache_read || 0, $cc: entry.cache_creation || 0,
     $stream: entry.stream ? 1 : 0, $status: entry.status,
@@ -255,6 +270,7 @@ export function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
     $mj: entry.messages_json || "", $rt: entry.response_text || "",
   });
   totalTokensAllTime += entry.input_tokens + entry.output_tokens + (entry.cache_read || 0) + (entry.cache_creation || 0);
+  allTimePerUser[entry.token_key] = (allTimePerUser[entry.token_key] || 0) + entry.input_tokens + entry.output_tokens;
   const full: RequestLogEntry = { id: Number(result.lastInsertRowid), ...entry };
   recentLogs.unshift(full);
   if (recentLogs.length > 200) recentLogs.pop();
@@ -280,8 +296,12 @@ export function dbDeleteSession(token: string) {
 }
 
 function rowToLog(r: any): RequestLogEntry {
+  const key = r.token_key || "";
+  // Fallback for old rows: derive name from key if not stored
+  const name = r.name || deriveNameFromKey(key);
   return {
-    id: r.id || 0, ts: r.ts || 0, token_key: r.token_key || "", model: r.model || "",
+    id: r.id || 0, ts: r.ts || 0, token_key: key, name,
+    model: r.model || "",
     input_tokens: r.input_tokens || 0, output_tokens: r.output_tokens || 0,
     cache_read: r.cache_read || 0, cache_creation: r.cache_creation || 0,
     stream: r.stream === 1, status: r.status || 200,
@@ -338,6 +358,16 @@ export function dbGetTokenKeys(): string[] {
   } catch { return []; }
 }
 
+export function dbGetTokenNames(): string[] {
+  // Return unique display names from logs (falling back to last segment of key for old rows)
+  try {
+    const rows = db.query(
+      "SELECT DISTINCT COALESCE(NULLIF(name, ''), token_key) AS n FROM request_logs ORDER BY n"
+    ).all() as any[];
+    return rows.map(r => r.n).filter(Boolean);
+  } catch { return []; }
+}
+
 // ── Load from DB ──────────────────────────────────────────────────────────────
 export function loadFromDb() {
   const now = Date.now();
@@ -353,7 +383,10 @@ export function loadFromDb() {
       paused:      row.paused === 1,
       dynamic:     row.dynamic === 1,
       mode:        (row.mode as "inherit" | "direct" | "cliproxy") || "inherit",
+      name:        row.name || deriveNameFromKey(row.key),
     };
+    // Persist derived name if not yet set in DB
+    if (!row.name) stmts.updateName.run({ $name: tokens[row.key]!.name, $key: row.key });
     if (expired) stmts.resetOne.run({ $ws: now, $key: row.key });
   }
 
@@ -384,6 +417,14 @@ export function loadFromDb() {
   // Prune + load recent request logs
   const logCutoff = now - 30 * 86400000;
   stmts.pruneLog.run({ $cutoff: logCutoff });
+  // Backfill name in request_logs for old rows — include deleted tokens
+  const allTokenRows = db.query("SELECT key, name FROM tokens").all() as { key: string; name: string }[];
+  for (const r of allTokenRows) {
+    const n = r.name || deriveNameFromKey(r.key);
+    db.query("UPDATE request_logs SET name = ? WHERE token_key = ? AND (name IS NULL OR name = '')")
+      .run(n, r.key);
+  }
+
   const logRows = db.query(
     "SELECT * FROM request_logs ORDER BY ts DESC LIMIT 200"
   ).all() as any[];
@@ -395,6 +436,11 @@ export function loadFromDb() {
     "SELECT SUM(input_tokens + output_tokens + cache_read + cache_creation) as total FROM request_logs"
   ).get() as any;
   totalTokensAllTime = totRow?.total ?? 0;
+
+  const perUserRows = db.query(
+    "SELECT token_key, SUM(input_tokens + output_tokens) as total FROM request_logs GROUP BY token_key"
+  ).all() as { token_key: string; total: number }[];
+  for (const r of perUserRows) allTimePerUser[r.token_key] = r.total ?? 0;
 
   console.log(`DB loaded: ${rows.length} token(s), ${logRows.length} log(s) from ${config.dbFile}`);
 }

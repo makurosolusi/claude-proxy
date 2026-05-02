@@ -6,6 +6,7 @@ export interface TokenEntry {
   paused:      boolean;
   dynamic:     boolean;
   mode:        "inherit" | "direct" | "cliproxy";
+  name:        string;   // display name, independent of key format
 }
 
 
@@ -36,6 +37,7 @@ export interface RequestLogEntry {
   id:             number;
   ts:             number;
   token_key:      string;
+  name:           string;   // snapshot of token display name at request time
   model:          string;
   input_tokens:   number;
   output_tokens:  number;

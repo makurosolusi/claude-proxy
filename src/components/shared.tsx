@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Stack, Text, Button, Center, Paper, Box, Group, Badge, useMantineColorScheme } from "@mantine/core";
+import { Stack, Text, Button, Center, Paper, Box, Group, Badge, SimpleGrid, useMantineColorScheme } from "@mantine/core";
 import { Loader } from "@mantine/core";
 import ReactECharts from "echarts-for-react";
 import { fmtResetAt } from "../utils";
@@ -56,81 +56,93 @@ function needleColor(pct: number): string {
   return "#e03131";
 }
 
-function buildGaugeSeries(
-  entry: { label: string; data: UpstreamPeriod },
-  center: [string, string],
-  radius: string,
-  isMain: boolean,
-  dark: boolean,
-  arcColors: [number, string][],
-) {
-  const expired  = new Date(entry.data.resets_at).getTime() <= Date.now();
-  const val      = expired ? 0 : Math.round(entry.data.utilization);
+const DESCRIPTIONS: Record<string, string> = {
+  "5-Hour":    "Rolling 5-hour window · resets every 5 hours",
+  "7-Day":     "Rolling 7-day total across all models",
+  "7d·Sonnet": "Rolling 7-day Sonnet model usage only",
+};
+
+function SingleGauge({
+  label, data, dark, arcColors,
+}: {
+  label: string; data: UpstreamPeriod; dark: boolean; arcColors: [number, string][];
+}) {
+  const expired  = new Date(data.resets_at).getTime() <= Date.now();
+  const val      = expired ? 0 : Math.round(data.utilization);
   const nc       = expired ? "#868e96" : needleColor(val);
   const tickCol  = dark ? "#6c757d" : "#868e96";
   const textCol  = dark ? "#c1c2c5" : "#343a40";
-  const lblCol   = dark ? "#adb5bd" : "#495057";
   const dimCol   = dark ? "#5c5f66" : "#adb5bd";
-  const resetStr = fmtResetAt(entry.data.resets_at);
+  const resetStr = fmtResetAt(data.resets_at);
 
-  return {
-    type: "gauge", center, radius,
-    min: 0, max: 100,
-    startAngle: 215, endAngle: -35,
-    splitNumber: 5,
-    axisLine:  { lineStyle: { width: isMain ? 16 : 10, color: arcColors } },
-    progress:  { show: false },
-    pointer: {
-      show: true, length: "65%",
-      width: isMain ? 7 : 4,
-      itemStyle: { color: nc },
-    },
-    anchor: {
-      show: true, showAbove: true,
-      size: isMain ? 18 : 11,
-      itemStyle: {
-        color: dark ? "#25262b" : "#f8f9fa",
-        borderColor: dark ? "#5c5f66" : "#adb5bd",
-        borderWidth: isMain ? 4 : 2,
+  const option = {
+    backgroundColor: "transparent",
+    series: [{
+      type: "gauge",
+      center: ["50%", "60%"],   // lower center → more arc visible at top
+      radius: "82%",
+      min: 0, max: 100,
+      startAngle: 215, endAngle: -35,
+      splitNumber: 5,
+      axisLine:  { lineStyle: { width: 16, color: arcColors } },
+      progress:  { show: false },
+      pointer: {
+        show: true, length: "65%", width: 6,
+        itemStyle: { color: nc },
       },
-    },
-    splitLine: {
-      distance: isMain ? -22 : -14,
-      length:   isMain ? 22  : 14,
-      lineStyle: { color: tickCol, width: isMain ? 2 : 1.5 },
-    },
-    axisTick: {
-      distance: isMain ? -14 : -9,
-      length:   isMain ? 12  : 7,
-      lineStyle: { color: tickCol, width: 1 },
-    },
-    axisLabel: {
-      distance:   isMain ? -40 : -26,
-      color:      textCol,
-      fontSize:   isMain ? 15  : 10,
-      fontFamily: "monospace",
-    },
-    title: {
-      offsetCenter: ["0%", "-25%"],
-      color:   lblCol,
-      fontSize: isMain ? 16 : 12,
-      fontFamily: "monospace",
-      fontWeight: "bold",
-    },
-    detail: {
-      valueAnimation: true,
-      offsetCenter: ["0%", "52%"],
-      borderWidth: 0,
-      rich: {
-        v: { fontSize: isMain ? 48 : 26, fontWeight: "bold", fontFamily: "monospace", color: nc, lineHeight: isMain ? 56 : 30 },
-        r: { fontSize: isMain ? 13 : 10, fontFamily: "monospace", color: dimCol, lineHeight: isMain ? 20 : 15 },
+      anchor: {
+        show: true, showAbove: true, size: 16,
+        itemStyle: {
+          color: dark ? "#25262b" : "#f8f9fa",
+          borderColor: dark ? "#5c5f66" : "#adb5bd",
+          borderWidth: 3,
+        },
       },
-      formatter: expired
-        ? () => `{v|—}\n{r|waiting for poll}`
-        : (v: number) => `{v|${v}%}\n{r|resets ${resetStr}}`,
-    },
-    data: [{ value: val, name: entry.label }],
+      splitLine: {
+        distance: -22, length: 22,
+        lineStyle: { color: tickCol, width: 2 },
+      },
+      axisTick: {
+        distance: -14, length: 12,
+        lineStyle: { color: tickCol, width: 1 },
+      },
+      axisLabel: {
+        distance: -42, color: textCol, fontSize: 14, fontFamily: "monospace",
+        // hide 0 & 100 — they sit at bottom corners and overlap reset text
+        formatter: (v: number) => (v === 0 || v === 100) ? "" : String(v),
+      },
+      title: { show: false },
+      detail: {
+        valueAnimation: true,
+        offsetCenter: ["0%", "38%"],
+        borderWidth: 0,
+        rich: {
+          v: { fontSize: 40, fontWeight: "bold", fontFamily: "monospace", color: nc, lineHeight: 46 },
+          r: { fontSize: 13, fontFamily: "monospace", color: dimCol, lineHeight: 20 },
+        },
+        formatter: expired
+          ? () => `{v|—}\n{r|waiting for poll}`
+          : (v: number) => `{v|${v}%}\n{r|resets ${resetStr}}`,
+      },
+      data: [{ value: val }],
+    }],
   };
+
+  return (
+    <Box style={{ textAlign: "center" }}>
+      <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".1em" }}>
+        {label}
+      </Text>
+      <ReactECharts
+        option={option}
+        style={{ height: 260, width: "100%" }}
+        opts={{ renderer: "canvas" }}
+      />
+      <Text size="xs" c="dimmed" mt={-8} mb={4}>
+        {DESCRIPTIONS[label] ?? ""}
+      </Text>
+    </Box>
+  );
 }
 
 function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
@@ -138,48 +150,25 @@ function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
   const dark = colorScheme === "dark";
 
   const entries = [
-    upstream.fiveHour       && { label: "5-Hour",   data: upstream.fiveHour },
-    upstream.sevenDay       && { label: "7-Day",     data: upstream.sevenDay },
-    upstream.sevenDaySonnet && { label: "7d·Sonnet", data: upstream.sevenDaySonnet },
+    upstream.fiveHour       && { label: "5-Hour",    data: upstream.fiveHour },
+    upstream.sevenDay       && { label: "7-Day",      data: upstream.sevenDay },
+    upstream.sevenDaySonnet && { label: "7d·Sonnet",  data: upstream.sevenDaySonnet },
   ].filter(Boolean) as { label: string; data: UpstreamPeriod }[];
 
   if (entries.length === 0) return null;
 
-  const n = entries.length;
   const arcColors: [number, string][] = [
     [0.65, dark ? "#373a40" : "#ced4da"],
     [0.82, "#e8590c"],
     [1.0,  "#c92a2a"],
   ];
 
-  // Layout: 5-hour is always the main large gauge on the left.
-  // 7-day and 7d-Sonnet stack on the right side (smaller).
-  type Pos = { center: [string, string]; radius: string; isMain: boolean };
-  const positions: Pos[] = n === 1
-    ? [{ center: ["50%", "52%"], radius: "76%",  isMain: true  }]
-    : n === 2
-    ? [
-        { center: ["30%", "52%"], radius: "58%",  isMain: true  },
-        { center: ["78%", "52%"], radius: "44%",  isMain: false },
-      ]
-    : [
-        { center: ["27%", "52%"], radius: "54%",  isMain: true  },
-        { center: ["78%", "22%"], radius: "25%",  isMain: false },
-        { center: ["78%", "74%"], radius: "25%",  isMain: false },
-      ];
-
-  const height = n === 3 ? 460 : 380;
-
-  const series = entries.map((e, i) =>
-    buildGaugeSeries(e, positions[i].center, positions[i].radius, positions[i].isMain, dark, arcColors)
-  );
-
   return (
-    <ReactECharts
-      option={{ backgroundColor: "transparent", series }}
-      style={{ height, width: "100%" }}
-      opts={{ renderer: "canvas" }}
-    />
+    <SimpleGrid cols={{ base: 1, xs: entries.length === 1 ? 1 : entries.length === 2 ? 2 : 3 }} spacing="xs">
+      {entries.map(e => (
+        <SingleGauge key={e.label} label={e.label} data={e.data} dark={dark} arcColors={arcColors} />
+      ))}
+    </SimpleGrid>
   );
 }
 

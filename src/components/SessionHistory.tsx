@@ -2,18 +2,29 @@ import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   Stack, Text, Box, Group, Badge, Paper, Accordion,
-  ThemeIcon, Loader, Center, Button, Divider, ScrollArea,
-  useMantineColorScheme,
+  ThemeIcon, Loader, Center, Button, ScrollArea,
+  useMantineColorScheme, Tooltip,
 } from "@mantine/core";
-import { IconArrowLeft, IconUser, IconRobot, IconClock, IconMessage } from "@tabler/icons-react";
-import { fmtRel } from "../utils";
+import {
+  IconArrowLeft, IconUser, IconRobot, IconClock, IconMessage, IconCoins,
+} from "@tabler/icons-react";
 
-interface ConvTurn { role: "user" | "assistant"; text: string; }
+interface Exchange {
+  ts:           number;
+  user:         string;
+  assistant:    string;
+  input_tokens: number;
+  output_tokens:number;
+  cache_read:   number;
+  total_tokens: number;
+}
 interface Session {
   id: string; start_ts: number; end_ts: number;
   request_count: number; total_tokens: number;
-  model: string; turns: ConvTurn[];
+  model: string; exchanges: Exchange[];
 }
+
+const nf = new Intl.NumberFormat();
 
 function fmtDuration(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -23,54 +34,92 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-function TurnBubble({ turn, dark }: { turn: ConvTurn; dark: boolean }) {
-  const isUser = turn.role === "user";
+function TokenBadge({ ex }: { ex: Exchange }) {
+  const lines = [
+    `${nf.format(ex.input_tokens)} in  +  ${nf.format(ex.output_tokens)} out  =  ${nf.format(ex.total_tokens)} tok`,
+    ex.cache_read ? `${nf.format(ex.cache_read)} cache read (not counted in quota)` : "",
+  ].filter(Boolean).join("\n");
   return (
-    <Box
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: isUser ? "flex-end" : "flex-start",
-        gap: 4,
-      }}
-    >
-      <Group gap={6} justify={isUser ? "flex-end" : "flex-start"}>
-        <ThemeIcon
-          size="xs" variant="light"
-          color={isUser ? "blue" : "teal"}
-          radius="xl"
-        >
-          {isUser ? <IconUser size={10} /> : <IconRobot size={10} />}
-        </ThemeIcon>
-        <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>
-          {isUser ? "User" : "Claude"}
-        </Text>
-      </Group>
-      <Box
-        style={{
-          maxWidth: "88%",
-          padding: "8px 12px",
-          borderRadius: isUser ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-          background: isUser
-            ? (dark ? "#1864ab" : "#228be6")
-            : (dark ? "#2c2e33" : "#f1f3f5"),
-          color: isUser ? "#fff" : (dark ? "#c1c2c5" : "#212529"),
-          fontSize: 13,
-          lineHeight: 1.6,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}
+    <Tooltip label={lines} withArrow position="top" openDelay={100} multiline>
+      <Badge
+        size="xs" variant="light" color="gray" leftSection={<IconCoins size={10} />}
+        style={{ cursor: "default", fontVariantNumeric: "tabular-nums" }}
+        ff="monospace"
       >
-        {turn.text}
-      </Box>
+        {nf.format(ex.total_tokens)}
+      </Badge>
+    </Tooltip>
+  );
+}
+
+function ExchangeBlock({ ex, dark }: { ex: Exchange; dark: boolean }) {
+  const hasUser = ex.user.trim().length > 0;
+  const hasAI   = ex.assistant.trim().length > 0;
+
+  if (!hasUser && !hasAI) return null;
+
+  return (
+    <Box style={{ borderBottom: `1px solid var(--mantine-color-default-border)`, paddingBottom: 16 }}>
+      {/* timestamp + tokens */}
+      <Group justify="space-between" mb={8}>
+        <Text size="10px" c="dimmed" ff="monospace">
+          {new Date(ex.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+        </Text>
+        <TokenBadge ex={ex} />
+      </Group>
+
+      <Stack gap={8}>
+        {/* User bubble */}
+        {hasUser && (
+          <Box style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+            <Group gap={5} justify="flex-end">
+              <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>User</Text>
+              <ThemeIcon size="xs" variant="light" color="blue" radius="xl"><IconUser size={9} /></ThemeIcon>
+            </Group>
+            <Box style={{
+              maxWidth: "88%", padding: "8px 12px",
+              borderRadius: "12px 12px 2px 12px",
+              background: dark ? "#1864ab" : "#228be6",
+              color: "#fff", fontSize: 13, lineHeight: 1.6,
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>
+              {ex.user}
+            </Box>
+          </Box>
+        )}
+
+        {/* AI bubble */}
+        {hasAI && (
+          <Box style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3 }}>
+            <Group gap={5}>
+              <ThemeIcon size="xs" variant="light" color="teal" radius="xl"><IconRobot size={9} /></ThemeIcon>
+              <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Claude</Text>
+            </Group>
+            <Box style={{
+              maxWidth: "88%", padding: "8px 12px",
+              borderRadius: "12px 12px 12px 2px",
+              background: dark ? "#2c2e33" : "#f1f3f5",
+              color: dark ? "#c1c2c5" : "#212529",
+              fontSize: 13, lineHeight: 1.6,
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>
+              {ex.assistant}
+            </Box>
+          </Box>
+        )}
+
+        {!hasUser && !hasAI && (
+          <Text size="xs" c="dimmed" ta="center">No transcript captured for this request.</Text>
+        )}
+      </Stack>
     </Box>
   );
 }
 
 function SessionCard({ session, dark }: { session: Session; dark: boolean }) {
-  const model = session.model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+  const model    = session.model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
   const duration = fmtDuration(session.end_ts - session.start_ts);
-  const hasTurns = session.turns.length > 0;
+  const hasData  = session.exchanges.some(e => e.user || e.assistant);
 
   return (
     <Accordion.Item value={session.id}>
@@ -84,7 +133,7 @@ function SessionCard({ session, dark }: { session: Session; dark: boolean }) {
               <Text size="sm" fw={600}>{new Date(session.start_ts).toLocaleString()}</Text>
               <Group gap={6} mt={2}>
                 <Badge size="xs" variant="light" color="gray" ff="monospace">{model}</Badge>
-                <Text size="xs" c="dimmed">{session.request_count} req · {session.total_tokens.toLocaleString()} tok</Text>
+                <Text size="xs" c="dimmed">{session.request_count} req</Text>
                 {session.end_ts > session.start_ts && (
                   <Group gap={4}>
                     <IconClock size={10} style={{ color: "var(--mantine-color-dimmed)" }} />
@@ -94,21 +143,30 @@ function SessionCard({ session, dark }: { session: Session; dark: boolean }) {
               </Group>
             </Box>
           </Group>
-          <Badge size="sm" variant="outline" color={hasTurns ? "teal" : "gray"}>
-            {session.turns.length} turns
-          </Badge>
+          {/* Total tokens for session */}
+          <Group gap={6}>
+            <Tooltip label={`${nf.format(session.total_tokens)} total tokens in this session`} withArrow>
+              <Badge size="sm" variant="light" color="violet" leftSection={<IconCoins size={11} />}
+                ff="monospace" style={{ cursor: "default" }}>
+                {nf.format(session.total_tokens)}
+              </Badge>
+            </Tooltip>
+            <Badge size="sm" variant="outline" color={hasData ? "teal" : "gray"}>
+              {session.exchanges.length} turns
+            </Badge>
+          </Group>
         </Group>
       </Accordion.Control>
       <Accordion.Panel>
-        {!hasTurns ? (
+        {!hasData ? (
           <Text size="sm" c="dimmed" ta="center" py="md">
-            No conversation captured — older requests don't have transcript data.
+            No conversation captured — request predates session history feature.
           </Text>
         ) : (
-          <ScrollArea.Autosize mah={600} offsetScrollbars>
-            <Stack gap="md" p="xs">
-              {session.turns.map((turn, i) => (
-                <TurnBubble key={i} turn={turn} dark={dark} />
+          <ScrollArea.Autosize mah={640} offsetScrollbars>
+            <Stack gap={16} p="xs">
+              {session.exchanges.map((ex, i) => (
+                <ExchangeBlock key={i} ex={ex} dark={dark} />
               ))}
             </Stack>
           </ScrollArea.Autosize>
@@ -134,7 +192,8 @@ export function SessionHistory() {
       .finally(() => setLoading(false));
   }, [user]);
 
-  const displayUser = (user ?? "").replace(/^sk-user-/, "");
+  const displayUser = user ?? "";
+  const grandTotal    = sessions.reduce((s, se) => s + se.total_tokens, 0);
 
   return (
     <Stack gap="xl" p="md" maw={860} mx="auto">
@@ -142,19 +201,25 @@ export function SessionHistory() {
         <Group justify="space-between" wrap="wrap">
           <Box>
             <Group gap="xs" mb={4}>
-              <Button
-                component={Link} to="/logs" variant="subtle" size="xs"
-                leftSection={<IconArrowLeft size={13} />} px={6}
-              >
-                Logs
+              <Button component={Link} to="/" variant="subtle" size="xs"
+                leftSection={<IconArrowLeft size={13} />} px={6}>
+                Home
               </Button>
               <Text size="xs" c="dimmed">/</Text>
               <Text size="xs" c="dimmed" ff="monospace">{displayUser}</Text>
             </Group>
             <Text size="xl" fw={800} ff="monospace">{displayUser}</Text>
-            <Text size="sm" c="dimmed" mt={2}>
-              {loading ? "Loading…" : `${sessions.length} session${sessions.length !== 1 ? "s" : ""}`}
-            </Text>
+            <Group gap="md" mt={4}>
+              <Text size="sm" c="dimmed">
+                {loading ? "Loading…" : `${sessions.length} session${sessions.length !== 1 ? "s" : ""}`}
+              </Text>
+              {!loading && grandTotal > 0 && (
+                <Badge variant="light" color="violet" leftSection={<IconCoins size={12} />}
+                  ff="monospace" size="sm">
+                  {nf.format(grandTotal)} total tokens
+                </Badge>
+              )}
+            </Group>
           </Box>
           <ThemeIcon variant="light" color="blue" size="xl" radius="md">
             <IconUser size={20} />

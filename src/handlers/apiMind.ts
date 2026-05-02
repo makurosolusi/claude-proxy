@@ -1,8 +1,13 @@
 import { db } from "../state";
 
 export function handleApiMind(): Response {
+  // Ensure name column exists (safe to call repeatedly)
+  try { db.exec("ALTER TABLE request_logs ADD COLUMN name TEXT DEFAULT ''"); } catch {}
+
   const logs = db.query(`
-    SELECT id, ts, token_key, model,
+    SELECT id, ts,
+           COALESCE(NULLIF(name, ''), token_key) AS token_key,
+           model,
            input_tokens + output_tokens + cache_read + cache_creation AS tokens,
            tool_use_count, stream, duration_ms, status, prompt
     FROM request_logs
@@ -98,7 +103,7 @@ export function handleApiMind(): Response {
   for (const [user, us] of userStats.entries()) {
     nodes.push({
       id: user,
-      name: user.replace(/^sk-user-/, ""),
+      name: user,  // already the display name from SQL CASE expression
       category: 0,
       requests: us.requests,
       tokens: us.tokens,

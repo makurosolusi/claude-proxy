@@ -53,7 +53,7 @@ function fmtTime(t: string, granularity: "hour" | "day"): string {
 }
 
 function labelUser(key: string): string {
-  return key.replace(/^sk-user-/, "");
+  return key;  // already display name from API
 }
 
 export function RacePage() {

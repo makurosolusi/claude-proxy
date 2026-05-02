@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { Stack, Table, Text, Badge, Group, Pagination } from "@mantine/core";
-import { maskToken } from "../../utils";
 
 const DAILY_PER_PAGE = 7;
 
@@ -37,7 +36,7 @@ export function DailyHistory({ isAdmin }: { isAdmin: boolean }) {
               <Table.Th style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Date</Table.Th>
               {users.map(k => (
                 <Table.Th key={k} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>
-                  {isAdmin ? k.replace(/^sk-user-/, "") : maskToken(k)}
+                  {k}
                 </Table.Th>
               ))}
               <Table.Th style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Total</Table.Th>
