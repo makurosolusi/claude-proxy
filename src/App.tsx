@@ -20,6 +20,7 @@ import { RequestLog } from "./components/tables/RequestLog";
 import { AdminDashboard } from "./components/admin/Dashboard";
 import { MindPage } from "./components/MindPage";
 import { RacePage } from "./components/RacePage";
+import { SessionHistory } from "./components/SessionHistory";
 import { FloatingChat } from "./components/FloatingChat";
 
 function fmtCountdown(ms: number): string {
@@ -362,6 +363,7 @@ export function App() {
           } />
           <Route path="/mind" element={<MindPage />} />
           <Route path="/race" element={<RacePage />} />
+          <Route path="/sessions/:user" element={<SessionHistory />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </StatusCtx.Provider>

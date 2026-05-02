@@ -40,6 +40,26 @@ function extractPrompt(messages: any[]): string {
   return "";
 }
 
+function extractTranscript(messages: any[]): string {
+  if (!Array.isArray(messages)) return "";
+  const turns = messages
+    .map(m => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      text: getRawContent(m).slice(0, 1500),
+    }))
+    .filter(t => t.text.trim());
+  return JSON.stringify(turns).slice(0, 8000);
+}
+
+function extractResponseText(body: any): string {
+  if (!body?.content || !Array.isArray(body.content)) return "";
+  return body.content
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text || "")
+    .join("")
+    .slice(0, 3000);
+}
+
 function extractSystem(body: any): string {
   const s = body?.system;
   if (!s) return "";
@@ -137,7 +157,7 @@ export async function handleProxy(
   const ts = Date.now();
   let bodyText = "";
   let bodyJson: any = null;
-  let model = "", prompt = "", systemPrompt = "";
+  let model = "", prompt = "", systemPrompt = "", messagesJson = "";
   let maxOutputTokens = 4096;
   let turns = 0;
   try {
@@ -146,6 +166,7 @@ export async function handleProxy(
     model          = bodyJson.model || "";
     prompt         = extractPrompt(bodyJson.messages);
     systemPrompt   = extractSystem(bodyJson);
+    messagesJson   = extractTranscript(bodyJson.messages);
     turns          = Array.isArray(bodyJson.messages) ? Math.ceil(bodyJson.messages.length / 2) : 0;
     maxOutputTokens = parseInt(bodyJson.max_tokens) || 4096;
   } catch {}
@@ -235,7 +256,7 @@ export async function handleProxy(
         const reader = resp.body!.getReader();
         let buffer = "";
         let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
-        let stopReason = "", toolUseCount = 0;
+        let stopReason = "", toolUseCount = 0, responseText = "";
         try {
           while (true) {
             const { done, value } = await reader.read();
@@ -261,6 +282,8 @@ export async function handleProxy(
                   console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
                 }
                 if (data.type === "content_block_start" && data.content_block?.type === "tool_use") toolUseCount++;
+                if (data.type === "content_block_delta" && data.delta?.type === "text_delta" && responseText.length < 3000)
+                  responseText += data.delta.text || "";
               } catch {}
             }
           }
@@ -270,7 +293,8 @@ export async function handleProxy(
           dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
             cache_read: cacheRead, cache_creation: cacheCreation, stream: true, status: httpStatus,
             stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
-            turns, prompt, system_prompt: systemPrompt });
+            turns, prompt, system_prompt: systemPrompt,
+            messages_json: messagesJson, response_text: responseText.slice(0, 3000) });
         }
       })();
       const outHeaders = new Headers(resp.headers);
@@ -295,7 +319,8 @@ export async function handleProxy(
     dbLogRequest({ ts, token_key: key, model, input_tokens: inputTokens, output_tokens: outputTokens,
       cache_read: cacheRead, cache_creation: cacheCreation, stream: false, status: resp.status,
       stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
-      turns, prompt, system_prompt: systemPrompt });
+      turns, prompt, system_prompt: systemPrompt,
+      messages_json: messagesJson, response_text: extractResponseText(body) });
     return Response.json(body, { status: resp.status, headers: rateHeaders });
 
   } catch (err: any) {

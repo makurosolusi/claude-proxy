@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useDisclosure } from "@mantine/hooks";
+import { Link } from "react-router-dom";
 import {
   Stack, Group, Text, Button, Select, Badge, Paper, Table, Tooltip,
-  Modal, Grid, Code, Pagination, Divider, ThemeIcon, ActionIcon,
+  Modal, Grid, Code, Pagination, Divider, ThemeIcon, ActionIcon, Anchor,
 } from "@mantine/core";
 import { IconSitemap, IconSearch, IconFilter, IconStack2, IconFlag } from "@tabler/icons-react";
 import { fmtRel, maskToken, usageCls, pctColor } from "../../utils";
@@ -222,7 +223,13 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                         </Group>
                       </Table.Td>
                     ),
-                    user:  <Table.Td key="user" style={STICKY_COL}><Badge variant="light" color="gray" size="sm" ff="monospace">{u}</Badge></Table.Td>,
+                    user:  <Table.Td key="user" style={STICKY_COL}>
+                      <Anchor component={Link} to={`/sessions/${encodeURIComponent(l.token_key)}`}
+                        onClick={e => e.stopPropagation()}
+                        style={{ textDecoration: "none" }}>
+                        <Badge variant="light" color="blue" size="sm" ff="monospace" style={{ cursor: "pointer" }}>{u}</Badge>
+                      </Anchor>
+                    </Table.Td>,
                     model: <Table.Td key="model"><Text size="xs" ff="monospace" c="dimmed">{model}</Text></Table.Td>,
                     in:    <Table.Td key="in"><Text size="xs" ff="monospace" c="dimmed">{l.input_tokens.toLocaleString()}</Text></Table.Td>,
                     out:   <Table.Td key="out"><Text size="xs" ff="monospace" c="dimmed">{l.output_tokens.toLocaleString()}</Text></Table.Td>,

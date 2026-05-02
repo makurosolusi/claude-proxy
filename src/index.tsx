@@ -15,6 +15,7 @@ import { handleApiStats }  from "./handlers/apiStats";
 import { handleApiMind }   from "./handlers/apiMind";
 import { handleApiRace }         from "./handlers/apiRace";
 import { handleApiUsageHourly }  from "./handlers/apiUsageHourly";
+import { handleApiSessions }     from "./handlers/apiSessions";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
@@ -371,6 +372,10 @@ server = serve({
       const isAdm = checkAdmin(req);
       try { return handleApiLogs(req, new URL(req.url), isAdm); }
       catch (e: any) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
+    },
+    "/api/sessions/*": req => {
+      const user = new URL(req.url).pathname.slice("/api/sessions/".length);
+      return handleApiSessions(decodeURIComponent(user));
     },
     "/api/mind":          () => handleApiMind(),
     "/api/race":          () => handleApiRace(),

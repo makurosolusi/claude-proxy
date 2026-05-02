@@ -22,6 +22,7 @@ export interface LogEntry {
   cache_creation: number; stream: boolean; status: number;
   stop_reason: string; tool_use_count: number; duration_ms: number;
   turns: number; prompt: string; system_prompt: string;
+  messages_json: string; response_text: string;
 }
 export interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
 export interface ChatCtxType { messages: ChatMsg[]; send: (nick: string, text: string) => void; }

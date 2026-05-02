@@ -108,6 +108,8 @@ try { db.exec("ALTER TABLE request_logs ADD COLUMN stop_reason TEXT DEFAULT ''")
 try { db.exec("ALTER TABLE request_logs ADD COLUMN tool_use_count INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE request_logs ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE request_logs ADD COLUMN turns INTEGER NOT NULL DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE request_logs ADD COLUMN messages_json TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE request_logs ADD COLUMN response_text TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN mode TEXT NOT NULL DEFAULT 'inherit'"); } catch {} // kept for DB compat
 
 // ── Prepared statements ───────────────────────────────────────────────────────
@@ -133,8 +135,8 @@ const stmts = {
   pruneDaily:  db.prepare(`DELETE FROM daily_usage WHERE date < $cutoff`),
   insertLog:   db.prepare(`
     INSERT INTO request_logs (ts, token_key, model, input_tokens, output_tokens, cache_read, cache_creation,
-      stream, status, stop_reason, tool_use_count, duration_ms, turns, prompt, system_prompt)
-    VALUES ($ts, $key, $model, $inp, $out, $cr, $cc, $stream, $status, $sr, $tuc, $dur, $turns, $prompt, $sys)
+      stream, status, stop_reason, tool_use_count, duration_ms, turns, prompt, system_prompt, messages_json, response_text)
+    VALUES ($ts, $key, $model, $inp, $out, $cr, $cc, $stream, $status, $sr, $tuc, $dur, $turns, $prompt, $sys, $mj, $rt)
   `),
   pruneLog:    db.prepare(`DELETE FROM request_logs WHERE ts < $cutoff`),
   insertSession: db.prepare(`INSERT OR REPLACE INTO admin_sessions (token, created_at, last_used) VALUES ($token, $now, $now)`),
@@ -250,6 +252,7 @@ export function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
     $sr: entry.stop_reason || "", $tuc: entry.tool_use_count || 0,
     $dur: entry.duration_ms || 0, $turns: entry.turns || 0,
     $prompt: entry.prompt, $sys: entry.system_prompt || "",
+    $mj: entry.messages_json || "", $rt: entry.response_text || "",
   });
   totalTokensAllTime += entry.input_tokens + entry.output_tokens + (entry.cache_read || 0) + (entry.cache_creation || 0);
   const full: RequestLogEntry = { id: Number(result.lastInsertRowid), ...entry };
@@ -285,6 +288,7 @@ function rowToLog(r: any): RequestLogEntry {
     stop_reason: r.stop_reason || "", tool_use_count: r.tool_use_count || 0,
     duration_ms: r.duration_ms || 0, turns: r.turns || 0,
     prompt: r.prompt || "", system_prompt: r.system_prompt || "",
+    messages_json: r.messages_json || "", response_text: r.response_text || "",
   };
 }
 

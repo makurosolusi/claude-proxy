@@ -49,4 +49,6 @@ export interface RequestLogEntry {
   turns:          number;
   prompt:         string;
   system_prompt:  string;
+  messages_json:  string; // JSON: [{role,text},...] full conversation context
+  response_text:  string; // AI response text (truncated)
 }
