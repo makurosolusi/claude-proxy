@@ -92,6 +92,7 @@ function getDiff(): string {
   try {
     return run(
       `git diff origin/${BRANCH}..HEAD -- . ":(exclude)*.lock" ":(exclude)package-lock.json" ` +
+      `":(exclude)FITURE/*" ` +
       `| grep '^+' | grep -v '^+++'`
     );
   } catch { return ""; }
