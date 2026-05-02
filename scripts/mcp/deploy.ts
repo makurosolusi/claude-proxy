@@ -229,11 +229,16 @@ async function toolDeploy(args: { bump?: "patch" | "minor" | "major"; skip_commi
     writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + "\n");
     steps.push({ step: "bump_version", status: "ok", detail: `${oldVer} → ${version}` });
 
-    // 4 — commit & push
+    // 4 — commit & push (gunakan GH_TOKEN untuk auth)
     run("git add package.json");
     run(`git commit -m "chore: bump ${version}"`);
     steps.push({ step: "commit", status: "ok" });
-    run(`git push origin ${BRANCH}`);
+    const pushToken = process.env.GH_TOKEN || "";
+    if (pushToken) {
+      run(`git push https://oauth2:${pushToken}@github.com/${REPO}.git ${BRANCH}`);
+    } else {
+      run(`git push origin ${BRANCH}`);
+    }
     steps.push({ step: "push", status: "ok" });
   } else {
     steps.push({ step: "bump_version", status: "skipped", detail: `skip_commit=true, deploy versi ${version}` });

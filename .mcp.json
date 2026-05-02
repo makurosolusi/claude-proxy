@@ -7,7 +7,9 @@
       "env": {
         "STACK_NAME": "claude-proxy",
         "BASE_URL": "https://claude-proxy.wibudev.com",
-        "ENV": "stg"
+        "ENV": "stg",
+        "GH_TOKEN": "${GH_TOKEN}",
+        "GH_REPO": "bipprojectbali/claude-proxy"
       }
     }
   }
