@@ -6,7 +6,7 @@ const APP_VERSION: string = JSON.parse(
   fs.readFileSync(path.join(import.meta.dir, "../package.json"), "utf8")
 ).version;
 import { config }           from "./config";
-import { loadFromDb, onShutdown, tokens, upstream, dailyUsage, totalTokensAllTime, dbCreateSession, dbCheckSession, dbDeleteSession } from "./state";
+import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbCreateSession, dbCheckSession, dbDeleteSession, modelRoutes } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
 import { handleApiStatus } from "./handlers/apiStatus";
@@ -21,12 +21,15 @@ import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
 import { handleAdmin }     from "./handlers/admin";
+import { handleApiUsers }  from "./handlers/apiUsers";
+import { handleApiModelRoutes } from "./handlers/apiModelRoutes";
 import { handleProxy }     from "./handlers/proxy";
 import { _broadcast, _broadcastSystemMsg } from "./broadcast";
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 loadFromDb();
 initFromEnv();
+backfillUsers();
 process.on("SIGTERM", () => onShutdown("SIGTERM"));
 process.on("SIGINT",  () => onShutdown("SIGINT"));
 startPoller();
@@ -152,14 +155,18 @@ function buildStatusPayload(isAdmin: boolean) {
   };
   const tokenData: Record<string, unknown> = {};
   for (const [k, tk] of Object.entries(tokens)) {
+    const uid = tk.user_id || k;
     tokenData[k] = {
       label:     isAdmin ? k : tk.name,
+      name:      tk.name,
+      user_id:   tk.user_id,
       used:      tk.used,
       limit:     tk.limit === Infinity ? null : tk.limit,
       remaining: tk.limit === Infinity ? null : Math.max(0, tk.limit - tk.used),
       pct:       tk.limit === Infinity ? 0 : Math.round((tk.used / tk.limit) * 100),
       paused:    tk.paused,
       today:     (dailyUsage[today] || {})[k] || 0,
+      alltime:   allTimePerUser[uid] || 0,
     };
   }
   return {
@@ -180,6 +187,7 @@ function buildStatusPayload(isAdmin: boolean) {
       sevenDaySonnet: upstream.sevenDaySonnet,
       sevenDayOpus:   upstream.sevenDayOpus,
     },
+    modelRoutes:      Object.values(modelRoutes),
   };
 }
 
@@ -450,6 +458,22 @@ server = serve({
       return handleDbUpload(req);
     },
 
+    // Users API (admin only)
+    "/api/admin/users": async req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiUsers(req, new URL(req.url), users, tokens, dailyUsage, allTimePerUser);
+    },
+    "/api/admin/users/*": async req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiUsers(req, new URL(req.url), users, tokens, dailyUsage, allTimePerUser);
+    },
+
+    // Model routing (admin only)
+    "/api/admin/model-routes": async req => {
+      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiModelRoutes(req, new URL(req.url));
+    },
+
     // Admin actions
     "/admin/reset":              req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/logs/clear":         req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
@@ -458,6 +482,9 @@ server = serve({
     "/admin/token/edit-all":     req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/pause":        req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/delete":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/rotate":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/rename":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/user/edit":          req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
 
     // Proxy endpoints
     "/v1/models": async req => {

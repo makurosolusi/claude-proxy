@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import fs from "fs";
 import path from "path";
 import { config } from "./config";
-import type { TokenEntry, UpstreamState, DailyUsage, RequestLogEntry } from "./types";
+import type { TokenEntry, UserEntry, UpstreamState, DailyUsage, RequestLogEntry, ModelRoute } from "./types";
 
 // ── DB Init ──────────────────────────────────────────────────────────────────
 const dir = path.dirname(config.dbFile);
@@ -98,6 +98,18 @@ db.exec(`
     created_at INTEGER NOT NULL,
     last_used  INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS users (
+    id          TEXT    PRIMARY KEY,
+    name        TEXT    NOT NULL,
+    description TEXT    NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS model_routes (
+    model_id    TEXT    PRIMARY KEY,
+    threshold   REAL    NOT NULL DEFAULT 0.90,
+    action      TEXT    NOT NULL DEFAULT 'block',
+    fallback_to TEXT
+  );
 `);
 
 // Migration: add columns to existing DBs
@@ -113,16 +125,19 @@ try { db.exec("ALTER TABLE request_logs ADD COLUMN response_text TEXT DEFAULT ''
 try { db.exec("ALTER TABLE request_logs ADD COLUMN name TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN name TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN mode TEXT NOT NULL DEFAULT 'inherit'"); } catch {} // kept for DB compat
+try { db.exec("ALTER TABLE tokens ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE request_logs ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE daily_usage ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
 
 // ── Prepared statements ───────────────────────────────────────────────────────
 const stmts = {
   insertIgnore: db.prepare(`
-    INSERT OR IGNORE INTO tokens (key, name, lim, win, used, window_start, paused, dynamic)
-    VALUES ($key, $name, $lim, $win, $used, $window_start, $paused, $dynamic)
+    INSERT OR IGNORE INTO tokens (key, name, user_id, lim, win, used, window_start, paused, dynamic)
+    VALUES ($key, $name, $user_id, $lim, $win, $used, $window_start, $paused, $dynamic)
   `),
   insertReplace: db.prepare(`
-    INSERT OR REPLACE INTO tokens (key, name, lim, win, used, window_start, paused, dynamic, deleted)
-    VALUES ($key, $name, $lim, $win, $used, $window_start, $paused, $dynamic, 0)
+    INSERT OR REPLACE INTO tokens (key, name, user_id, lim, win, used, window_start, paused, dynamic, deleted)
+    VALUES ($key, $name, $user_id, $lim, $win, $used, $window_start, $paused, $dynamic, 0)
   `),
   updateUsage: db.prepare(`UPDATE tokens SET used=$used WHERE key=$key`),
   updateToken: db.prepare(`UPDATE tokens SET lim=$lim, win=$win, paused=$paused WHERE key=$key`),
@@ -147,6 +162,10 @@ const stmts = {
   checkSession:  db.prepare(`SELECT 1 FROM admin_sessions WHERE token=$token`),
   deleteSession: db.prepare(`DELETE FROM admin_sessions WHERE token=$token`),
   pruneSessions: db.prepare(`DELETE FROM admin_sessions WHERE last_used < $cutoff`),
+  upsertUser:    db.prepare(`INSERT OR REPLACE INTO users (id, name, description, created_at) VALUES ($id, $name, $desc, $ts)`),
+  updateUser:    db.prepare(`UPDATE users SET name=$name, description=$desc WHERE id=$id`),
+  deleteUser:    db.prepare(`DELETE FROM users WHERE id=$id`),
+  linkToken:     db.prepare(`UPDATE tokens SET user_id=$uid WHERE key=$key AND (user_id IS NULL OR user_id='')`),
   upsertUp:    db.prepare(`
     INSERT OR REPLACE INTO upstream_state (
       id, last_known_resets_at, detected_window_ms, last_poll,
@@ -162,14 +181,22 @@ const stmts = {
       $opu, $opra
     )
   `),
+  upsertRoute:  db.prepare(`
+    INSERT OR REPLACE INTO model_routes (model_id, threshold, action, fallback_to)
+    VALUES ($mid, $thr, $act, $fb)
+  `),
+  deleteRoute:  db.prepare(`DELETE FROM model_routes WHERE model_id=$mid`),
 };
 
 // ── Runtime state ─────────────────────────────────────────────────────────────
 export const tokens: Record<string, TokenEntry> = {};
+export const users:  Record<string, UserEntry>  = {};
 export const dailyUsage: DailyUsage = {};
 export const recentLogs: RequestLogEntry[] = [];
 export let totalTokensAllTime = 0;
 export const allTimePerUser: Record<string, number> = {};
+
+export const modelRoutes: Record<string, ModelRoute> = {};
 
 export const upstream: UpstreamState = {
   fiveHour: null, sevenDay: null, sevenDaySonnet: null, sevenDayOpus: null,
@@ -186,6 +213,18 @@ function fromLim(lim: number | null): number {
   return lim === null ? Infinity : lim;
 }
 
+export function slugify(name: string): string {
+  const s = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return s || "user";
+}
+
+export function ensureUniqueSlug(base: string, existing: Record<string, unknown>): string {
+  if (!existing[base]) return base;
+  let i = 2;
+  while (existing[`${base}-${i}`]) i++;
+  return `${base}-${i}`;
+}
+
 // ── DB write functions ────────────────────────────────────────────────────────
 export function deriveNameFromKey(key: string): string {
   // "sk-user-amel" → "amel", "mytoken" → "mytoken"
@@ -195,7 +234,7 @@ export function deriveNameFromKey(key: string): string {
 
 export function dbInsertEnvToken(key: string, entry: TokenEntry) {
   stmts.insertIgnore.run({
-    $key: key, $name: entry.name, $lim: toLim(entry.limit), $win: entry.window,
+    $key: key, $name: entry.name, $user_id: entry.user_id || "", $lim: toLim(entry.limit), $win: entry.window,
     $used: entry.used, $window_start: entry.windowStart,
     $paused: entry.paused ? 1 : 0, $dynamic: 0,
   });
@@ -203,10 +242,27 @@ export function dbInsertEnvToken(key: string, entry: TokenEntry) {
 
 export function dbInsertToken(key: string, entry: TokenEntry) {
   stmts.insertReplace.run({
-    $key: key, $name: entry.name, $lim: toLim(entry.limit), $win: entry.window,
+    $key: key, $name: entry.name, $user_id: entry.user_id || "", $lim: toLim(entry.limit), $win: entry.window,
     $used: entry.used, $window_start: entry.windowStart,
     $paused: entry.paused ? 1 : 0, $dynamic: entry.dynamic ? 1 : 0,
   });
+}
+
+export function dbUpsertUser(entry: UserEntry) {
+  stmts.upsertUser.run({ $id: entry.id, $name: entry.name, $desc: entry.description, $ts: entry.created_at });
+}
+
+export function dbUpdateUser(id: string, name: string, description: string) {
+  stmts.updateUser.run({ $name: name, $desc: description, $id: id });
+}
+
+export function dbDeleteUser(id: string) {
+  stmts.deleteUser.run({ $id: id });
+}
+
+export function dbLinkTokenToUser(key: string, userId: string) {
+  stmts.linkToken.run({ $uid: userId, $key: key });
+  db.query("UPDATE tokens SET user_id=? WHERE key=?").run(userId, key);
 }
 
 export function dbRenameToken(key: string, newName: string) {
@@ -257,7 +313,31 @@ export function dbSaveUpstream() {
   });
 }
 
+export function dbSaveRoutes(routes: ModelRoute[]) {
+  db.query("DELETE FROM model_routes").run();
+  for (const r of routes) {
+    stmts.upsertRoute.run({ $mid: r.model_id, $thr: r.threshold, $act: r.action, $fb: r.fallback_to });
+  }
+  // Sync in-memory
+  for (const k of Object.keys(modelRoutes)) delete modelRoutes[k];
+  for (const r of routes) modelRoutes[r.model_id] = r;
+}
+
+function dbLoadRoutes() {
+  const rows = db.query("SELECT * FROM model_routes").all() as any[];
+  for (const row of rows) {
+    modelRoutes[row.model_id] = {
+      model_id: row.model_id,
+      threshold: row.threshold,
+      action: row.action as "redirect" | "block",
+      fallback_to: row.fallback_to || null,
+    };
+  }
+  if (rows.length) console.log(`Model routes loaded: ${rows.length} rule(s)`);
+}
+
 export function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
+  const uid = tokens[entry.token_key]?.user_id || entry.user_id || entry.token_key;
   const result = stmts.insertLog.run({
     $ts: entry.ts, $key: entry.token_key, $name: entry.name || "",
     $model: entry.model,
@@ -269,9 +349,13 @@ export function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
     $prompt: entry.prompt, $sys: entry.system_prompt || "",
     $mj: entry.messages_json || "", $rt: entry.response_text || "",
   });
+  // Update user_id in the just-inserted log row
+  if (uid) {
+    db.query("UPDATE request_logs SET user_id=? WHERE id=?").run(uid, Number(result.lastInsertRowid));
+  }
   totalTokensAllTime += entry.input_tokens + entry.output_tokens + (entry.cache_read || 0) + (entry.cache_creation || 0);
-  allTimePerUser[entry.token_key] = (allTimePerUser[entry.token_key] || 0) + entry.input_tokens + entry.output_tokens;
-  const full: RequestLogEntry = { id: Number(result.lastInsertRowid), ...entry };
+  allTimePerUser[uid] = (allTimePerUser[uid] || 0) + entry.input_tokens + entry.output_tokens;
+  const full: RequestLogEntry = { id: Number(result.lastInsertRowid), ...entry, user_id: uid };
   recentLogs.unshift(full);
   if (recentLogs.length > 200) recentLogs.pop();
 }
@@ -297,10 +381,11 @@ export function dbDeleteSession(token: string) {
 
 function rowToLog(r: any): RequestLogEntry {
   const key = r.token_key || "";
-  // Fallback for old rows: derive name from key if not stored
   const name = r.name || deriveNameFromKey(key);
   return {
-    id: r.id || 0, ts: r.ts || 0, token_key: key, name,
+    id: r.id || 0, ts: r.ts || 0, token_key: key,
+    user_id: r.user_id || tokens[key]?.user_id || "",
+    name,
     model: r.model || "",
     input_tokens: r.input_tokens || 0, output_tokens: r.output_tokens || 0,
     cache_read: r.cache_read || 0, cache_creation: r.cache_creation || 0,
@@ -372,6 +457,12 @@ export function dbGetTokenNames(): string[] {
 export function loadFromDb() {
   const now = Date.now();
 
+  // Load users
+  const userRows = db.query("SELECT * FROM users ORDER BY name ASC").all() as any[];
+  for (const row of userRows) {
+    users[row.id] = { id: row.id, name: row.name, description: row.description || "", created_at: row.created_at };
+  }
+
   const rows = db.query("SELECT * FROM tokens WHERE deleted=0").all() as any[];
   for (const row of rows) {
     const expired = now - row.window_start >= row.win;
@@ -384,6 +475,7 @@ export function loadFromDb() {
       dynamic:     row.dynamic === 1,
       mode:        (row.mode as "inherit" | "direct" | "cliproxy") || "inherit",
       name:        row.name || deriveNameFromKey(row.key),
+      user_id:     row.user_id || "",
     };
     // Persist derived name if not yet set in DB
     if (!row.name) stmts.updateName.run({ $name: tokens[row.key]!.name, $key: row.key });
@@ -403,6 +495,8 @@ export function loadFromDb() {
       for (const tk of Object.values(tokens)) tk.window = up.detected_window_ms;
     }
   }
+
+  dbLoadRoutes();
 
   const cutoff = new Date(now - 30 * 86400000).toISOString().slice(0, 10);
   stmts.pruneDaily.run({ $cutoff: cutoff });
@@ -437,12 +531,58 @@ export function loadFromDb() {
   ).get() as any;
   totalTokensAllTime = totRow?.total ?? 0;
 
-  const perUserRows = db.query(
-    "SELECT token_key, SUM(input_tokens + output_tokens) as total FROM request_logs GROUP BY token_key"
-  ).all() as { token_key: string; total: number }[];
-  for (const r of perUserRows) allTimePerUser[r.token_key] = r.total ?? 0;
+  // Group alltime usage by user_id (with fallback to token_key for old rows)
+  const perUserRows = db.query(`
+    SELECT COALESCE(NULLIF(user_id,''), token_key) AS uid,
+           SUM(input_tokens + output_tokens) as total
+    FROM request_logs GROUP BY uid
+  `).all() as { uid: string; total: number }[];
+  for (const r of perUserRows) allTimePerUser[r.uid] = r.total ?? 0;
 
   console.log(`DB loaded: ${rows.length} token(s), ${logRows.length} log(s) from ${config.dbFile}`);
+}
+
+// ── Backfill users (run after loadFromDb + initFromEnv) ──────────────────────
+// Idempotent: creates missing user entries for every token in memory and links
+// request_logs + daily_usage rows. Safe to run on every startup.
+export function backfillUsers() {
+  const now = Date.now();
+
+  // Active tokens (in-memory map, already loaded)
+  for (const [key, tk] of Object.entries(tokens)) {
+    const uid = tk.user_id || ensureUniqueSlug(slugify(tk.name), users);
+    if (!users[uid]) {
+      const entry: UserEntry = { id: uid, name: tk.name, description: "", created_at: now };
+      users[uid] = entry;
+      stmts.upsertUser.run({ $id: uid, $name: tk.name, $desc: "", $ts: now });
+    }
+    if (!tk.user_id) {
+      tk.user_id = uid;
+      db.query("UPDATE tokens SET user_id=? WHERE key=?").run(uid, key);
+    }
+    // Backfill logs + daily_usage for this active token
+    db.query("UPDATE request_logs SET user_id=? WHERE token_key=? AND (user_id IS NULL OR user_id='')").run(uid, key);
+    db.query("UPDATE daily_usage   SET user_id=? WHERE token_key=? AND (user_id IS NULL OR user_id='')").run(uid, key);
+  }
+
+  // Deleted tokens — backfill logs without creating new user entries
+  const deletedRows = db.query("SELECT key, name, user_id FROM tokens WHERE deleted=1").all() as any[];
+  for (const r of deletedRows) {
+    const uid = r.user_id || slugify(r.name || deriveNameFromKey(r.key));
+    if (!uid) continue;
+    db.query("UPDATE request_logs SET user_id=? WHERE token_key=? AND (user_id IS NULL OR user_id='')").run(uid, r.key);
+    db.query("UPDATE daily_usage   SET user_id=? WHERE token_key=? AND (user_id IS NULL OR user_id='')").run(uid, r.key);
+  }
+
+  // Reload allTimePerUser after backfill (user_id is now set in request_logs)
+  const perUserRows = db.query(`
+    SELECT COALESCE(NULLIF(user_id,''), token_key) AS uid,
+           SUM(input_tokens + output_tokens) as total
+    FROM request_logs GROUP BY uid
+  `).all() as { uid: string; total: number }[];
+  for (const r of perUserRows) allTimePerUser[r.uid] = r.total ?? 0;
+
+  console.log(`Users backfill done: ${Object.keys(users).length} user(s)`);
 }
 
 export function onShutdown(sig: string) {

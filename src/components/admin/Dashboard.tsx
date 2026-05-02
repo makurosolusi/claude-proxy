@@ -9,6 +9,7 @@ import {
   IconSitemap, IconExternalLink, IconSun, IconMoon,
   IconChevronsLeft, IconChevronsRight,
   IconPlugConnected, IconKey, IconDatabase, IconLogout,
+  IconRoute,
 } from "@tabler/icons-react";
 import { pctColor } from "../../utils";
 import { useStatus } from "../../contexts";
@@ -20,7 +21,8 @@ import { AdminUsers } from "./Users";
 import { AdminTest } from "./Test";
 import { AdminAccounts } from "./Accounts";
 import { AdminDb } from "./Db";
-type AdminSection = "overview" | "users" | "logs" | "stats" | "test" | "accounts" | "database";
+import { AdminModelRouting } from "./ModelRouting";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "routing" | "test" | "accounts" | "database";
 
 function AdminStats() {
   return (
@@ -65,6 +67,7 @@ export function AdminDashboard() {
     { id: "users",    label: "Users",          icon: <IconUsers           size={SZ} />, desc: "Token management"       },
     { id: "logs",     label: "Request Logs",   icon: <IconList            size={SZ} />, desc: "Activity & history"     },
     { id: "stats",    label: "Stats",          icon: <IconChartBar        size={SZ} />, desc: "Daily usage history"    },
+    { id: "routing",  label: "Routing",        icon: <IconRoute           size={SZ} />, desc: "Model fallback rules"      },
     { id: "test",     label: "Test Connection",icon: <IconPlugConnected   size={SZ} />, desc: "Verify API connectivity" },
     { id: "accounts", label: "Accounts",       icon: <IconKey             size={SZ} />, desc: "OAuth Claude accounts"   },
     { id: "database", label: "Database",       icon: <IconDatabase        size={SZ} />, desc: "Backup & restore DB"     },
@@ -76,7 +79,7 @@ export function AdminDashboard() {
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
   const sectionTitles: Record<AdminSection, string> = {
-    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", test: "Test Connection", accounts: "Accounts", database: "Database",
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", routing: "Routing", test: "Test Connection", accounts: "Accounts", database: "Database",
   };
   const statusColor = upstream.ok ? "teal" : "red";
   const SIDEBAR_W   = collapsed ? 56 : 220;
@@ -226,6 +229,7 @@ export function AdminDashboard() {
           {section === "users"     && <AdminUsers tokens={tokens} />}
           {section === "logs"      && <RequestLog isAdmin={true} />}
           {section === "stats"     && <AdminStats />}
+          {section === "routing"   && <AdminModelRouting />}
           {section === "test"      && <AdminTest />}
           {section === "accounts"  && <AdminAccounts />}
           {section === "database"  && <AdminDb />}

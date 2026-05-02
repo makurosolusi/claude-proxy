@@ -17,6 +17,7 @@ export function initFromEnv() {
       dynamic:     false,
       mode:        "inherit",
       name:        deriveNameFromKey(key),
+      user_id:     "",  // will be set by backfillUsers()
     };
     tokens[key] = entry;
     dbInsertEnvToken(key, entry);

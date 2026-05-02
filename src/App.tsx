@@ -449,7 +449,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                   <Box key={key}>
                     <Group gap="sm" wrap="nowrap" mb={4}>
                       <Group gap={4} style={{ minWidth: isAdmin ? 140 : 90, maxWidth: isAdmin ? 180 : 110 }}>
-                        <Text size="xs" ff="monospace" truncate>{isAdmin ? key : tk.name}</Text>
+                        <Text size="xs" ff="monospace" truncate>{tk.label}</Text>
                         {ins && <Badge size="xs" variant="light" color={profColor[prof]}>{profLabel[prof]}</Badge>}
                       </Group>
                       <Progress value={pct} color={color} size="md" radius="sm" style={{ flex: 1 }} />
@@ -538,7 +538,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       {/* ── Today per-user ───────────────────────────────────── */}
       {(() => {
         const entries = Object.entries(tokens)
-          .map(([k, tk]) => ({ key: k, val: tk.today || 0, label: isAdmin ? k : tk.name }))
+          .map(([k, tk]) => ({ key: k, val: tk.today || 0, label: tk.label }))
           .filter(e => e.val > 0)
           .sort((a, b) => b.val - a.val);
         if (!entries.length) return null;
@@ -569,7 +569,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       {/* ── All-time per-user ─────────────────────────────────── */}
       {(() => {
         const entries = Object.entries(tokens)
-          .map(([k, tk]) => ({ key: k, val: (tk as any).alltime || 0, label: isAdmin ? k : tk.name }))
+          .map(([k, tk]) => ({ key: k, val: tk.alltime || 0, label: tk.label }))
           .filter(e => e.val > 0)
           .sort((a, b) => b.val - a.val);
         if (!entries.length) return null;

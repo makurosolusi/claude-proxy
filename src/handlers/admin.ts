@@ -1,4 +1,4 @@
-import { tokens, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, deriveNameFromKey } from "../state";
+import { tokens, users, db, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
@@ -46,16 +46,31 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
 
   // Add token
   if (pathname === "/admin/token/add" && req.method === "POST") {
-    const newKey   = String(form?.get("token") || "").trim();
-    const newLimit = String(form?.get("limit")  || "40000").trim();
+    const newKey    = String(form?.get("token")   || "").trim();
+    const newLimit  = String(form?.get("limit")   || "40000").trim();
+    const userId    = String(form?.get("user_id") || "").trim(); // optional existing user
     if (!newKey)        return new Response("Key required\n",          { status: 400 });
     if (tokens[newKey]) return new Response("Token already exists\n", { status: 409 });
-    const parsed = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
+    const parsed     = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
     const customName = String(form?.get("name") || "").trim();
+    const displayName = customName || deriveNameFromKey(newKey);
+
+    // Resolve or create user
+    let uid = userId && users[userId] ? userId : "";
+    if (!uid) {
+      uid = ensureUniqueSlug(slugify(displayName), users);
+      if (!users[uid]) {
+        const userEntry = { id: uid, name: displayName, description: "", created_at: Date.now() };
+        users[uid] = userEntry;
+        dbUpsertUser(userEntry);
+      }
+    }
+
     const entry: TokenEntry = {
       limit: parsed, window: config.windowMs,
       used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit",
-      name: customName || deriveNameFromKey(newKey),
+      name: users[uid]?.name ?? displayName,
+      user_id: uid,
     };
     tokens[newKey] = entry;
     dbInsertToken(newKey, entry);
@@ -121,6 +136,47 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!newName)                   return new Response("Name required\n",   { status: 400 });
     tokens[target].name = newName;
     dbRenameToken(target, newName);
+    return redirect();
+  }
+
+  // Rotate token — create new key, soft-delete old
+  if (pathname === "/admin/token/rotate" && req.method === "POST") {
+    const target     = String(form?.get("token")   || "").trim();
+    const newKeyRaw  = String(form?.get("new_key") || "").trim();
+    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
+    const old = tokens[target];
+    // Auto-generate if new_key not provided
+    const newKey = newKeyRaw || `${target}-${Math.random().toString(16).slice(2, 6)}`;
+    if (tokens[newKey]) return new Response("New key already exists\n", { status: 409 });
+    const entry: TokenEntry = {
+      ...old,
+      used:        0,
+      windowStart: Date.now(),
+      user_id:     old.user_id,
+    };
+    tokens[newKey] = entry;
+    dbInsertToken(newKey, entry);
+    dbSoftDelete(target);
+    bumpGeneration(target);
+    clearInFlight(target);
+    delete tokens[target];
+    return Response.json({ ok: true, newKey });
+  }
+
+  // Edit user name / description (via admin panel without going through /api/admin/users)
+  if (pathname === "/admin/user/edit" && req.method === "POST") {
+    const uid     = String(form?.get("user_id")     || "").trim();
+    const newName = String(form?.get("name")        || "").trim();
+    const newDesc = String(form?.get("description") || "");
+    if (!uid || !users[uid]) return new Response("User not found\n", { status: 404 });
+    if (!newName)             return new Response("Name required\n",  { status: 400 });
+    users[uid].name = newName;
+    users[uid].description = newDesc;
+    dbUpdateUser(uid, newName, newDesc);
+    // Update active tokens' display names
+    for (const [key, tk] of Object.entries(tokens)) {
+      if (tk.user_id === uid) { tk.name = newName; db.query("UPDATE tokens SET name=? WHERE key=?").run(newName, key); }
+    }
     return redirect();
   }
 

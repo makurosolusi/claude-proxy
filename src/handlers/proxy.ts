@@ -1,5 +1,5 @@
 import { config }          from "../config";
-import { upstream, dbLogRequest, dailyUsage } from "../state";
+import { upstream, dbLogRequest, dailyUsage, modelRoutes } from "../state";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
@@ -69,6 +69,48 @@ function extractSystem(body: any): string {
   if (typeof s === "string") return s.slice(0, 500);
   if (Array.isArray(s)) return s.filter((b: any) => b.type === "text").map((b: any) => b.text || "").join("\n").slice(0, 500);
   return "";
+}
+
+// ── Model routing ─────────────────────────────────────────────────────────────
+// Maps model_id to the upstream utilization metric used for threshold checks.
+function getModelUtil(modelId: string): number | null {
+  if (modelId === "*")                    return upstream.fiveHour?.utilization ?? null;
+  if (modelId === "claude-sonnet-4-6")    return upstream.sevenDaySonnet?.utilization ?? null;
+  if (modelId === "claude-opus-4-7")      return upstream.sevenDayOpus?.utilization ?? null;
+  if (modelId === "claude-haiku-4-5-20251001") return upstream.sevenDay?.utilization ?? null;
+  return upstream.sevenDay?.utilization ?? null;
+}
+
+// Traverse fallback chain. Returns the final model to use, or null if blocked.
+// max 5 hops, cycle detection via visited set.
+function resolveModelRoute(model: string): { rewritten: string | null; blocked: boolean; reason?: string } {
+  if (Object.keys(modelRoutes).length === 0) return { rewritten: null, blocked: false };
+
+  let current = model;
+  const visited = new Set<string>();
+  let hops = 0;
+
+  while (hops < 5) {
+    if (visited.has(current)) return { rewritten: null, blocked: true, reason: "Circular routing configuration detected." };
+    visited.add(current);
+    hops++;
+
+    const rule = modelRoutes[current];
+    if (!rule) return { rewritten: current !== model ? current : null, blocked: false };
+
+    const util = getModelUtil(current);
+    if (util === null) return { rewritten: current !== model ? current : null, blocked: false };
+
+    if (util < rule.threshold) return { rewritten: current !== model ? current : null, blocked: false };
+
+    if (rule.action === "block" || !rule.fallback_to) {
+      return { rewritten: null, blocked: true, reason: `Model ${current} at ${(util * 100).toFixed(0)}% (threshold ${(rule.threshold * 100).toFixed(0)}%).` };
+    }
+
+    current = rule.fallback_to;
+  }
+
+  return { rewritten: null, blocked: true, reason: "Too many routing hops (max 5)." };
 }
 
 export async function handleProxy(
@@ -180,6 +222,25 @@ export async function handleProxy(
     bodyText = JSON.stringify(bodyJson);
   }
 
+  // Model routing — check thresholds and follow fallback chain
+  let fallbackModel: string | null = null;
+  const originalModel = model;
+  if (model && upstream.lastPollOk && Object.keys(modelRoutes).length > 0) {
+    const routing = resolveModelRoute(model);
+    if (routing.blocked) {
+      return Response.json({
+        error: { type: "rate_limit_error", message: routing.reason || "All models at capacity." }
+      }, { status: 429, headers: { "retry-after": "60" } });
+    }
+    if (routing.rewritten) {
+      fallbackModel = routing.rewritten;
+      model = routing.rewritten;
+      bodyJson.model = routing.rewritten;
+      bodyText = JSON.stringify(bodyJson);
+      console.log(`[proxy] Model fallback: ${originalModel} → ${routing.rewritten} [${key.slice(-6)}]`);
+    }
+  }
+
   // Estimate TOTAL tokens (input + output) for reservation.
   // max_tokens is only the OUTPUT limit. Input can be huge (100k+ for Claude Code).
   // Count actual message chars and convert to approximate tokens (1 token ≈ 3.5 chars).
@@ -240,12 +301,26 @@ export async function handleProxy(
       }
     }
 
+    // 429 from Anthropic → try fallback model once (handles stale poll data)
+    if (resp.status === 429 && model && !fallbackModel && Object.keys(modelRoutes).length > 0) {
+      const rule = modelRoutes[model];
+      if (rule?.action === "redirect" && rule.fallback_to && rule.fallback_to !== model) {
+        fallbackModel = rule.fallback_to;
+        model = rule.fallback_to;
+        bodyJson.model = rule.fallback_to;
+        bodyText = JSON.stringify(bodyJson);
+        console.log(`[proxy] 429 auto-fallback: ${originalModel || "?"} → ${rule.fallback_to} [${key.slice(-6)}]`);
+        resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
+      }
+    }
+
     const remaining   = Math.max(0, t.limit === Infinity ? 999_999_999 : t.limit - t.used);
-    const rateHeaders = {
+    const rateHeaders: Record<string, string> = {
       "x-ratelimit-limit-tokens":     t.limit === Infinity ? "unlimited" : String(t.limit),
       "x-ratelimit-remaining-tokens": String(remaining),
       "x-ratelimit-reset-tokens":     new Date(t.windowStart + t.window).toISOString(),
     };
+    if (fallbackModel) rateHeaders["x-model-fallback"] = fallbackModel;
 
     const isStream = resp.headers.get("content-type")?.includes("text/event-stream");
 
@@ -293,7 +368,7 @@ export async function handleProxy(
         } finally {
           await writer.close().catch(() => {});
           releaseInFlight(key, reservationId);
-          dbLogRequest({ ts, token_key: key, name: t.name, model, input_tokens: inputTokens, output_tokens: outputTokens,
+          dbLogRequest({ ts, token_key: key, user_id: t.user_id || "", name: t.name, model, input_tokens: inputTokens, output_tokens: outputTokens,
             cache_read: cacheRead, cache_creation: cacheCreation, stream: true, status: httpStatus,
             stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
             turns, prompt, system_prompt: systemPrompt,
@@ -327,7 +402,7 @@ export async function handleProxy(
       incrementUsage(key, inputTokens + outputTokens, reqGen);
       console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
     }
-    dbLogRequest({ ts, token_key: key, name: t.name, model, input_tokens: inputTokens, output_tokens: outputTokens,
+    dbLogRequest({ ts, token_key: key, user_id: t.user_id || "", name: t.name, model, input_tokens: inputTokens, output_tokens: outputTokens,
       cache_read: cacheRead, cache_creation: cacheCreation, stream: false, status: resp.status,
       stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
       turns, prompt, system_prompt: systemPrompt,

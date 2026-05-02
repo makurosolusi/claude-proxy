@@ -1,3 +1,17 @@
+export interface ModelRoute {
+  model_id:    string;   // canonical Anthropic model ID: "claude-sonnet-4-6", "claude-opus-4-7", or "*" for 5h global
+  threshold:   number;   // 0–1 (0.90 = 90%)
+  action:      "redirect" | "block";
+  fallback_to: string | null;  // model_id tujuan redirect
+}
+
+export interface UserEntry {
+  id:          string;   // stable slug, never changes
+  name:        string;   // display name (editable)
+  description: string;
+  created_at:  number;   // epoch ms
+}
+
 export interface TokenEntry {
   limit:       number;   // Infinity = unlimited
   window:      number;   // ms
@@ -6,7 +20,8 @@ export interface TokenEntry {
   paused:      boolean;
   dynamic:     boolean;
   mode:        "inherit" | "direct" | "cliproxy";
-  name:        string;   // display name, independent of key format
+  name:        string;   // display name, mirrors user.name for active tokens
+  user_id:     string;   // references users.id
 }
 
 
@@ -37,6 +52,7 @@ export interface RequestLogEntry {
   id:             number;
   ts:             number;
   token_key:      string;
+  user_id:        string;   // references users.id (backfilled for old rows)
   name:           string;   // snapshot of token display name at request time
   model:          string;
   input_tokens:   number;
