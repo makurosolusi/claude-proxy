@@ -459,7 +459,7 @@ Nilai credential yang terdeteksi di-redact — hanya 20 karakter pertama + `***`
 
 ```
 ✅ Benar: { type: "anthropic_key", sample: "sk-ant-api03-abc***", count: 1 }
-❌ Salah: { type: "anthropic_key", sample: "sk-ant-api03-abcdefghijklmnopqrst" }
+❌ Salah: { type: "anthropic_key", sample: "sk-ant-api03-<full-key-leaked>" }
 ```
 
 ---
@@ -527,7 +527,7 @@ untuk berbagai target:
 
 ```bash
 # Auth: set GH_TOKEN di environment, gh CLI otomatis membacanya
-export GH_TOKEN="ghp_xxx..."
+export GH_TOKEN=<your-github-pat>
 
 # Git push pakai token (tanpa perlu gh auth login)
 git push https://oauth2:${GH_TOKEN}@github.com/<owner>/<repo>.git <branch>
