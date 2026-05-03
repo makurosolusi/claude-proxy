@@ -5,7 +5,7 @@ import {
   Stack, Group, Text, Button, Select, Badge, Paper, Table, Tooltip,
   Modal, Grid, Code, Pagination, Divider, ThemeIcon, ActionIcon, Anchor, Alert,
 } from "@mantine/core";
-import { IconSitemap, IconSearch, IconFilter, IconStack2, IconFlag, IconAlertTriangle, IconAlertHexagon, IconChartBar } from "@tabler/icons-react";
+import { IconSitemap, IconSearch, IconFilter, IconStack2, IconFlag, IconAlertTriangle, IconAlertHexagon, IconRepeat, IconUsers, IconList } from "@tabler/icons-react";
 
 const nf = new Intl.NumberFormat();
 
@@ -145,15 +145,25 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
       <Stack gap="xl">
         {/* ── Page Header ───────────────────────────────────── */}
         <Paper withBorder p="lg" radius="md">
-          <Group justify="space-between" wrap="wrap">
+          <Group justify="space-between" wrap="wrap" align="flex-start">
             <div>
               <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }} mb={4}>Request Logs</Text>
               <Text size="xl" fw={800} ff="monospace">Activity Feed</Text>
-              <Text size="sm" c="dimmed" mt={2}>
-                {total > 0
-                  ? `${total.toLocaleString()} requests · ${users.length} users · page ${page}/${pages}`
-                  : "Loading request history…"}
-              </Text>
+              {total > 0 ? (
+                <Group gap={6} mt={8}>
+                  <Badge size="sm" variant="light" color="blue" leftSection={<IconList size={11} />} ff="monospace">
+                    {total.toLocaleString()} requests
+                  </Badge>
+                  <Badge size="sm" variant="light" color="teal" leftSection={<IconUsers size={11} />} ff="monospace">
+                    {users.length} {users.length === 1 ? "user" : "users"}
+                  </Badge>
+                  <Badge size="sm" variant="light" color="gray" ff="monospace">
+                    page {page}/{pages}
+                  </Badge>
+                </Group>
+              ) : (
+                <Text size="sm" c="dimmed" mt={6}>Loading request history…</Text>
+              )}
             </div>
             <Group gap="xs">
               <Tooltip label="Mind Map" withArrow>
@@ -164,11 +174,6 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
               <Tooltip label="Race Chart" withArrow>
                 <ActionIcon variant="subtle" color="violet" size="lg" component="a" href="/race">
                   <IconFlag size={18} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="Analytics" withArrow>
-                <ActionIcon variant="subtle" color="blue" size="lg" component="a" href="/analytics">
-                  <IconChartBar size={18} />
                 </ActionIcon>
               </Tooltip>
             </Group>
@@ -222,16 +227,20 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                 </Badge>
               ))}
               <Divider orientation="vertical" mx={2} />
-              <Tooltip label={groupDups ? "Showing grouped duplicates — click to show all" : "Click to group consecutive duplicates"} withArrow position="top">
+              <Tooltip
+                label={groupDups
+                  ? `${dupCount} consecutive duplicate requests are grouped — click to show every entry`
+                  : "Click to collapse consecutive duplicate requests"}
+                withArrow position="top" multiline w={260}>
                 <Badge
                   variant={groupDups ? "filled" : "outline"}
                   color={groupDups ? "orange" : "gray"}
                   size="sm"
                   style={{ cursor: "pointer" }}
                   onClick={() => setGroupDups(v => !v)}
-                  leftSection={groupDups && dupCount > 0 ? <Text size="10px" fw={700}>{dupCount}</Text> : undefined}
+                  leftSection={<IconRepeat size={11} />}
                 >
-                  Dupes
+                  {groupDups && dupCount > 0 ? `Dupes · ${dupCount}` : "Dupes"}
                 </Badge>
               </Tooltip>
             </Group>

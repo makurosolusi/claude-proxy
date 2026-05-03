@@ -35,10 +35,10 @@ jumlah server maupun jumlah tool per server.
 
 ### Dua jenis transport
 
-| Jenis   | Key          | Cara kerja                                              | Cocok untuk                           |
-| ------- | ------------ | ------------------------------------------------------- | ------------------------------------- |
-| **stdio** | `command` + `args` | Claude Code spawn process, komunikasi via stdin/stdout JSON-RPC | Tool lokal (git, file system, CLI)    |
-| **HTTP**  | `type: "http"` + `url` | Claude Code HTTP POST ke endpoint, Bearer auth opsional | Tool remote (API staging, DB production) |
+| Jenis     | Key                    | Cara kerja                                                      | Cocok untuk                              |
+| --------- | ---------------------- | --------------------------------------------------------------- | ---------------------------------------- |
+| **stdio** | `command` + `args`     | Claude Code spawn process, komunikasi via stdin/stdout JSON-RPC | Tool lokal (git, file system, CLI)       |
+| **HTTP**  | `type: "http"` + `url` | Claude Code HTTP POST ke endpoint, Bearer auth opsional         | Tool remote (API staging, DB production) |
 
 ```json
 // Contoh: stdio server (process lokal)
@@ -107,25 +107,25 @@ hanya dengan beda konfigurasi di `.mcp.json`.
 
 ```typescript
 // ❌ Hardcode — tidak bisa dikonfigurasi ulang
-const STACK_NAME  = "claude-proxy";
-const STACK_ENV   = "stg";
+const STACK_NAME = "claude-proxy";
+const STACK_ENV = "stg";
 const STAGING_URL = "https://claude-proxy.wibudev.com";
 
 // ✅ Env-driven dengan fallback
-const STACK_NAME  = process.env.STACK_NAME ?? "claude-proxy";
-const STACK_ENV   = process.env.ENV        ?? "stg";
-const STAGING_URL = process.env.BASE_URL   ?? "https://claude-proxy.wibudev.com";
+const STACK_NAME = process.env.STACK_NAME ?? "claude-proxy";
+const STACK_ENV = process.env.ENV ?? "stg";
+const STAGING_URL = process.env.BASE_URL ?? "https://claude-proxy.wibudev.com";
 ```
 
 Lima var standar untuk deploy server:
 
-| Env Var      | Keterangan                                         | Contoh                             |
-| ------------ | -------------------------------------------------- | ---------------------------------- |
-| `STACK_NAME` | Nama stack di Portainer / nama service / app name  | `claude-proxy`                     |
-| `BASE_URL`   | URL target untuk verifikasi versi live             | `https://claude-proxy.wibudev.com` |
-| `ENV`        | Environment label (`stg`, `prod`, `preview`)       | `stg`                              |
-| `GH_TOKEN`   | GitHub PAT / token untuk `gh` CLI dan `git push`   | `ghp_xxx...` atau `github_pat_xxx...` |
-| `GH_REPO`    | `owner/repo` GitHub untuk trigger workflow         | `bipprojectbali/claude-proxy`      |
+| Env Var      | Keterangan                                        | Contoh                                |
+| ------------ | ------------------------------------------------- | ------------------------------------- |
+| `STACK_NAME` | Nama stack di Portainer / nama service / app name | `claude-proxy`                        |
+| `BASE_URL`   | URL target untuk verifikasi versi live            | `https://claude-proxy.wibudev.com`    |
+| `ENV`        | Environment label (`stg`, `prod`, `preview`)      | `stg`                                 |
+| `GH_TOKEN`   | GitHub PAT / token untuk `gh` CLI dan `git push`  | `ghp_xxx...` atau `github_pat_xxx...` |
+| `GH_REPO`    | `owner/repo` GitHub untuk trigger workflow        | `bipprojectbali/claude-proxy`         |
 
 `GH_TOKEN` wajib untuk operasi tulis GitHub (`git push`, `gh workflow run`).
 Tanpa token, server hanya bisa melakukan operasi baca (scan, check version).
@@ -137,14 +137,18 @@ dari `git remote get-url origin`. Berguna saat nama repo di `.mcp.json`
 berbeda dari remote aktual (mis. fork, rename):
 
 ```typescript
-const REPO = process.env.GH_REPO ?? (() => {
-  try {
-    const url = execSync("git remote get-url origin", { encoding: "utf8" }).trim();
-    const m = url.match(/github\.com[/:](.+?\/.+?)(?:\.git)?$/);
-    if (m) return m[1];
-  } catch {}
-  return "owner/repo"; // fallback hardcode
-})();
+const REPO =
+  process.env.GH_REPO ??
+  (() => {
+    try {
+      const url = execSync("git remote get-url origin", {
+        encoding: "utf8",
+      }).trim();
+      const m = url.match(/github\.com[/:](.+?\/.+?)(?:\.git)?$/);
+      if (m) return m[1];
+    } catch {}
+    return "owner/repo"; // fallback hardcode
+  })();
 ```
 
 Fallback values di script memastikan server tetap berjalan meski `env`
@@ -201,13 +205,13 @@ file `.mcp.json`.
 
 ### Mengapa MCP server terpisah, bukan skill?
 
-| Aspek              | MCP Server (stdio)                | Skill (Markdown prompt)         |
-| ------------------- | --------------------------------- | ------------------------------- |
-| Eksekusi            | Kode nyata — akses file system, network, CLI | Hanya instruksi teks ke Claude  |
-| Kecepatan           | Deterministik, instant            | Bergantung pada Claude membaca + mengeksekusi |
-| Kompleksitas        | Bisa kompleks (loop, retry, parse) | Terbatas pada yang Claude bisa lakukan |
-| Output              | JSON terstruktur                  | Teks bebas                      |
-| Reusabilitas        | Framework-agnostic, bisa dipanggil dari mana saja | Hanya di sesi Claude            |
+| Aspek        | MCP Server (stdio)                                | Skill (Markdown prompt)                       |
+| ------------ | ------------------------------------------------- | --------------------------------------------- |
+| Eksekusi     | Kode nyata — akses file system, network, CLI      | Hanya instruksi teks ke Claude                |
+| Kecepatan    | Deterministik, instant                            | Bergantung pada Claude membaca + mengeksekusi |
+| Kompleksitas | Bisa kompleks (loop, retry, parse)                | Terbatas pada yang Claude bisa lakukan        |
+| Output       | JSON terstruktur                                  | Teks bebas                                    |
+| Reusabilitas | Framework-agnostic, bisa dipanggil dari mana saja | Hanya di sesi Claude                          |
 
 **Rule of thumb**: jika pipeline melibatkan polling, retry, timeout,
 parsing output CLI, atau akses sistem yang presisi → **MCP server**.
@@ -353,7 +357,12 @@ Pipeline end-to-end. Menerima parameter bump type dan opsional skip.
 // Output
 {
   "workflows": [
-    { "id": 123, "name": "deploy", "status": "completed", "conclusion": "success" }
+    {
+      "id": 123,
+      "name": "deploy",
+      "status": "completed",
+      "conclusion": "success"
+    }
   ]
 }
 ```
@@ -379,31 +388,31 @@ temuan — tidak ada commit yang dibuat.
 
 ### Pattern regex (diimplementasikan di `scripts/mcp/deploy.ts`)
 
-| Nama pattern           | Regex (ringkas)                                   | Kategori                     |
-| ---------------------- | ------------------------------------------------- | ---------------------------- |
-| `anthropic_key`        | `sk-ant-[a-zA-Z0-9\-_]{20,}`                     | Anthropic API key            |
-| `openai_key`           | `sk-[a-zA-Z0-9]{48}`                             | OpenAI API key               |
-| `stripe_key`           | `sk_(live\|test)_[a-zA-Z0-9]{24,}`               | Stripe secret key            |
-| `github_pat`           | `ghp_[a-zA-Z0-9]{36,}`                           | GitHub PAT (classic)         |
-| `github_oauth`         | `gho_[a-zA-Z0-9]{36,}`                           | GitHub OAuth token           |
-| `github_fine_grained`  | `github_pat_[a-zA-Z0-9_]{22,}`                   | GitHub fine-grained PAT      |
-| `slack_token`          | `xox[baprs]-[a-zA-Z0-9\-]{20,}`                 | Slack token                  |
-| `google_api_key`       | `AIza[a-zA-Z0-9\-_]{35}`                         | Google API key               |
-| `google_oauth_token`   | `ya29\.[a-zA-Z0-9\-_]{20,}`                     | Google OAuth access token    |
-| `private_key_pem`      | `-----BEGIN [A-Z ]+ PRIVATE KEY-----`            | PEM private key              |
-| `bearer_hardcoded`     | `Bearer\s+[a-zA-Z0-9\-_\.]{20,}`                | Bearer token di kode         |
-| `db_url_with_creds`    | `(postgres\|mysql\|mongodb\|redis)://user:pass@` | Database URL with credentials|
-| `hardcoded_secret`     | `(password\|secret\|token)\s*[:=]\s*["'][^"']{8,}["']` | Credential hardcode   |
+| Nama pattern          | Regex (ringkas)                                        | Kategori                      |
+| --------------------- | ------------------------------------------------------ | ----------------------------- |
+| `anthropic_key`       | `sk-ant-[a-zA-Z0-9\-_]{20,}`                           | Anthropic API key             |
+| `openai_key`          | `sk-[a-zA-Z0-9]{48}`                                   | OpenAI API key                |
+| `stripe_key`          | `sk_(live\|test)_[a-zA-Z0-9]{24,}`                     | Stripe secret key             |
+| `github_pat`          | `ghp_[a-zA-Z0-9]{36,}`                                 | GitHub PAT (classic)          |
+| `github_oauth`        | `gho_[a-zA-Z0-9]{36,}`                                 | GitHub OAuth token            |
+| `github_fine_grained` | `github_pat_[a-zA-Z0-9_]{22,}`                         | GitHub fine-grained PAT       |
+| `slack_token`         | `xox[baprs]-[a-zA-Z0-9\-]{20,}`                        | Slack token                   |
+| `google_api_key`      | `AIza[a-zA-Z0-9\-_]{35}`                               | Google API key                |
+| `google_oauth_token`  | `ya29\.[a-zA-Z0-9\-_]{20,}`                            | Google OAuth access token     |
+| `private_key_pem`     | `-----BEGIN [A-Z ]+ PRIVATE KEY-----`                  | PEM private key               |
+| `bearer_hardcoded`    | `Bearer\s+[a-zA-Z0-9\-_\.]{20,}`                       | Bearer token di kode          |
+| `db_url_with_creds`   | `(postgres\|mysql\|mongodb\|redis)://user:pass@`       | Database URL with credentials |
+| `hardcoded_secret`    | `(password\|secret\|token)\s*[:=]\s*["'][^"']{8,}["']` | Credential hardcode           |
 
 ### File sensitif (diblok jika masuk diff)
 
-| Pattern                             | Alasan                                |
-| ----------------------------------- | ------------------------------------- |
-| `.env`, `.env.*`                    | Environment variable                  |
-| `*.pem`, `*.key`, `*.p12`, `*.pfx` | Private key / certificate             |
-| `credentials.json`, `*.yaml`        | Credential file                       |
-| `service-account.json`              | GCP / AWS service account             |
-| `id_rsa`, `id_ed25519`              | SSH private key                       |
+| Pattern                            | Alasan                    |
+| ---------------------------------- | ------------------------- |
+| `.env`, `.env.*`                   | Environment variable      |
+| `*.pem`, `*.key`, `*.p12`, `*.pfx` | Private key / certificate |
+| `credentials.json`, `*.yaml`       | Credential file           |
+| `service-account.json`             | GCP / AWS service account |
+| `id_rsa`, `id_ed25519`             | SSH private key           |
 
 ### Cara scan
 
@@ -483,15 +492,15 @@ pola generik yang bisa diadaptasi.
 
 ### Adaptasi per ORM
 
-| ORM/Tool    | Schema file              | Migration dir            | Drift check CLI              |
-| ----------- | ------------------------ | ------------------------ | ---------------------------- |
-| Prisma      | `prisma/schema.prisma`   | `prisma/migrations/`     | `prisma migrate diff`        |
-| Drizzle     | `drizzle/schema.ts`      | `drizzle/migrations/`    | `drizzle-kit check`          |
-| Knex        | `knexfile.ts` + migration files | `migrations/`    | Manual (bandingkan hash)     |
-| TypeORM     | `src/entities/*.ts`      | `src/migrations/`        | `typeorm migration:generate` |
-| Alembic     | `models/*.py`            | `alembic/versions/`      | `alembic check`              |
-| Goose       | N/A (SQL-first)          | `migrations/`            | N/A (SQL-first, no schema file) |
-| Atlas       | `schema.sql` + `atlas.hcl`| `migrations/`           | `atlas migrate diff`         |
+| ORM/Tool | Schema file                     | Migration dir         | Drift check CLI                 |
+| -------- | ------------------------------- | --------------------- | ------------------------------- |
+| Prisma   | `prisma/schema.prisma`          | `prisma/migrations/`  | `prisma migrate diff`           |
+| Drizzle  | `drizzle/schema.ts`             | `drizzle/migrations/` | `drizzle-kit check`             |
+| Knex     | `knexfile.ts` + migration files | `migrations/`         | Manual (bandingkan hash)        |
+| TypeORM  | `src/entities/*.ts`             | `src/migrations/`     | `typeorm migration:generate`    |
+| Alembic  | `models/*.py`                   | `alembic/versions/`   | `alembic check`                 |
+| Goose    | N/A (SQL-first)                 | `migrations/`         | N/A (SQL-first, no schema file) |
+| Atlas    | `schema.sql` + `atlas.hcl`      | `migrations/`         | `atlas migrate diff`            |
 
 ### SQL-first vs Code-first
 
@@ -583,17 +592,23 @@ serverless deploy
 ### Pola verifikasi umum
 
 ```typescript
-async function verifyVersion(expected: string, url: string, timeoutMs = 120_000) {
-  const start = Date.now()
+async function verifyVersion(
+  expected: string,
+  url: string,
+  timeoutMs = 120_000,
+) {
+  const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`${url}/api/version`)
-      const { version } = await res.json()
-      if (version === expected) return true
-    } catch { /* retry */ }
-    await sleep(5_000)
+      const res = await fetch(`${url}/api/version`);
+      const { version } = await res.json();
+      if (version === expected) return true;
+    } catch {
+      /* retry */
+    }
+    await sleep(5_000);
   }
-  return false
+  return false;
 }
 ```
 
@@ -601,12 +616,12 @@ async function verifyVersion(expected: string, url: string, timeoutMs = 120_000)
 
 ## Timeout & Retry
 
-| Tahap           | Timeout rekomendasi | Interval | Alasan                              |
-| --------------- | ------------------- | -------- | ----------------------------------- |
-| Build image     | 300-600s            | 5-10s    | Docker build bisa 3-10 menit        |
-| Deploy/restart  | 120-300s            | 5s       | Pull + container start              |
-| Verify version  | 120-180s            | 5s       | Tunggu app sehat + health check OK  |
-| Health check    | 60s                 | 2s       | Jika ada endpoint `/health`        |
+| Tahap          | Timeout rekomendasi | Interval | Alasan                             |
+| -------------- | ------------------- | -------- | ---------------------------------- |
+| Build image    | 300-600s            | 5-10s    | Docker build bisa 3-10 menit       |
+| Deploy/restart | 120-300s            | 5s       | Pull + container start             |
+| Verify version | 120-180s            | 5s       | Tunggu app sehat + health check OK |
+| Health check   | 60s                 | 2s       | Jika ada endpoint `/health`        |
 
 Sesuaikan timeout dengan karakteristik stack kamu. Build Go/Rust
 jauh lebih cepat dari Docker multi-stage Node.js.

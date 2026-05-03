@@ -32,6 +32,12 @@ export function neonColor(pct: number): string {
 export function maskToken(k: string) {
   return k.startsWith("sk-user-") ? k.slice("sk-user-".length) : k;
 }
+export function avatarColor(name: string) {
+  const palette = ["blue", "teal", "grape", "orange", "cyan", "pink", "lime", "indigo", "violet"];
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length] || "blue";
+}
 export async function adminPost(path: string, fields: Record<string, string> = {}) {
   await fetch(path, {
     method: "POST",

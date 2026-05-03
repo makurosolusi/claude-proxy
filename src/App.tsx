@@ -1,20 +1,24 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Routes, Route } from "react-router-dom";
+import ReactECharts from "echarts-for-react";
 import {
   Container, Group, Stack, Title, Text, Box, Button, Paper,
   ActionIcon, Tooltip, TextInput, useMantineColorScheme,
-  SimpleGrid, Progress, ThemeIcon, Divider, Alert, Badge, Code, Collapse,
+  SimpleGrid, Progress, ThemeIcon, Divider, Alert, Badge, Code, Collapse, Loader, Transition,
+  Table,
 } from "@mantine/core";
 import {
   IconSun, IconMoon, IconLogout, IconLogin,
   IconRefresh, IconPlayerPause, IconPencil, IconPlus,
   IconUsers, IconActivity, IconClock, IconDatabase,
   IconAlertTriangle, IconAlertHexagon, IconChevronDown, IconChevronUp,
-  IconBulb, IconX, IconChartBar,
+  IconBulb, IconX, IconChartBar, IconArrowUp, IconHeartbeat, IconKey,
+  IconChartHistogram, IconList, IconFlame, IconChartPie, IconBolt,
+  IconTrophy, IconBrain,
 } from "@tabler/icons-react";
 import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
-import { pctColor, adminPost } from "./utils";
+import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
 import { useStatus } from "./contexts";
 import { LoadingScreen, NotFoundPage, RequireAdmin, UpstreamSection } from "./components/shared";
 import { DailyHistory } from "./components/tables/DailyHistory";
@@ -23,7 +27,6 @@ import { AdminDashboard } from "./components/admin/Dashboard";
 import { MindPage } from "./components/MindPage";
 import { RacePage } from "./components/RacePage";
 import { SessionHistory } from "./components/SessionHistory";
-import { Analytics } from "./components/Analytics";
 import { FloatingChat } from "./components/FloatingChat";
 
 function fmtCountdown(ms: number): string {
@@ -211,24 +214,144 @@ function ClockPanel({ isDark }: { isDark: boolean }) {
   const date= `${now.getDate()} ${MON_ID[now.getMonth()]} ${now.getFullYear()}`;
   const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  const sepColor = isDark ? "#373a40" : "#dee2e6";
-  const dimColor = isDark ? "#5c5f66" : "#adb5bd";
-
   return (
-    <Paper withBorder radius="md" mb="lg" py="xl" px="md"
-      style={{ textAlign: "center", background: isDark ? "rgba(255,255,255,.02)" : "rgba(0,0,0,.01)" }}>
-      <Text size="sm" c="dimmed" ff="monospace" mb={6}>
-        {day}, {date}
-      </Text>
-      <Group justify="center" gap={0} align="baseline">
-        <Text fz={72} fw={700} ff="monospace" lh={1} style={{ letterSpacing: "-.02em" }}>{hh}</Text>
-        <Text fz={52} fw={300} ff="monospace" lh={1} mx={6} c={sepColor}>:</Text>
-        <Text fz={72} fw={700} ff="monospace" lh={1} style={{ letterSpacing: "-.02em" }}>{mm}</Text>
-        <Text fz={52} fw={300} ff="monospace" lh={1} mx={6} c={sepColor}>:</Text>
-        <Text fz={52} fw={400} ff="monospace" lh={1} c="dimmed" style={{ letterSpacing: "-.01em" }}>{ss}</Text>
+    <Paper withBorder radius="md" mb="lg" px="md" py={10}
+      style={{ background: isDark ? "rgba(255,255,255,.02)" : "rgba(0,0,0,.01)" }}>
+      <Group justify="space-between" wrap="nowrap" gap="md">
+        <Group gap="xs" wrap="nowrap">
+          <IconClock size={14} color="var(--mantine-color-dimmed)" />
+          <Text size="sm" c="dimmed">{day}, {date}</Text>
+        </Group>
+        <Group gap={6} align="baseline" wrap="nowrap">
+          <Text fz={22} fw={700} ff="monospace" lh={1} style={{ letterSpacing: "-.02em" }}>{hh}:{mm}</Text>
+          <Text fz={14} fw={400} ff="monospace" lh={1} c="dimmed">:{ss}</Text>
+          <Text size="xs" c="dimmed" ml={6}>{tz}</Text>
+        </Group>
       </Group>
-      <Text size="xs" c="dimmed" ff="monospace" mt={8} style={{ color: dimColor }}>{tz}</Text>
     </Paper>
+  );
+}
+
+interface AnalyticsData {
+  modelDist:      { model: string; requests: number; tokens: number; pct: number }[];
+  cacheHitRate:   { label: string; hitRate: number; totalInput: number; totalCached: number; requests: number }[];
+  peakHours:      { h: number; requests: number; tokens: number }[];
+  peakHour:       number;
+  leaderboard:    { label: string; today: number; alltime: number; peakHour: number | null; paused: boolean }[];
+  anomalyScores:  { id: number; ts: number; label: string; input_tokens: number; output_tokens: number; turns: number; tool_use: number; duration_ms: number; score: number }[];
+  stopReasonDist: { stop_reason: string; n: number }[];
+}
+
+function fmtHour(h: number) { return `${String(h).padStart(2, "0")}:00`; }
+function anomalyScoreColor(s: number) {
+  if (s >= 70) return "#e03131";
+  if (s >= 40) return "#f76707";
+  if (s >= 20) return "#fab005";
+  return "#12b886";
+}
+
+function BackToTop() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShow(window.scrollY > 600);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  return (
+    <Transition mounted={show} transition="slide-up" duration={200}>
+      {styles => (
+        <ActionIcon
+          variant="filled" color="blue" size="lg" radius="xl"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          aria-label="Back to top"
+          style={{ ...styles, position: "fixed", right: 16, bottom: 88, zIndex: 50, boxShadow: "0 4px 12px rgba(0,0,0,.25)" }}
+        >
+          <IconArrowUp size={18} />
+        </ActionIcon>
+      )}
+    </Transition>
+  );
+}
+
+const NAV_SECTIONS = [
+  { id: "stats",     label: "Overview",  Icon: IconActivity },
+  { id: "health",    label: "Upstream",  Icon: IconHeartbeat },
+  { id: "tokens",    label: "Tokens",    Icon: IconKey },
+  { id: "activity",  label: "Activity",  Icon: IconChartHistogram },
+  { id: "users",     label: "Leaderboard", Icon: IconTrophy },
+  { id: "analytics", label: "Analytics", Icon: IconBrain },
+  { id: "logs",      label: "Logs",      Icon: IconList },
+];
+
+function DashboardNav() {
+  const [active, setActive] = useState<string>("stats");
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        const visible = entries
+          .filter(e => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible) setActive(visible.target.id);
+      },
+      { rootMargin: "-30% 0px -55% 0px", threshold: [0, 0.25, 0.5, 0.75, 1] }
+    );
+    NAV_SECTIONS.forEach(s => {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <Box visibleFrom="lg"
+      style={{ position: "fixed", right: 16, top: "50%", transform: "translateY(-50%)", zIndex: 40 }}>
+      <Paper withBorder radius="xl" p={6} style={{ backdropFilter: "blur(8px)", background: "var(--mantine-color-body)" }}>
+        <Stack gap={2}>
+          {NAV_SECTIONS.map(({ id, label, Icon }) => {
+            const isActive = active === id;
+            return (
+              <Tooltip key={id} label={label} position="left" withArrow openDelay={200}>
+                <ActionIcon
+                  variant={isActive ? "filled" : "subtle"}
+                  color={isActive ? "blue" : "gray"}
+                  size="lg" radius="xl"
+                  onClick={() => {
+                    const el = document.getElementById(id);
+                    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  aria-label={`Jump to ${label}`}
+                >
+                  <Icon size={16} />
+                </ActionIcon>
+              </Tooltip>
+            );
+          })}
+        </Stack>
+      </Paper>
+    </Box>
+  );
+}
+
+function SonnetCriticalAlert({ pct }: { pct: number }) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed || pct < 95) return null;
+  const isFull = pct >= 100;
+  return (
+    <Alert
+      color="red" variant="filled"
+      icon={<IconFlame size={18} />}
+      withCloseButton
+      onClose={() => setDismissed(true)}
+      mb="lg"
+      title={isFull ? "Sonnet quota exhausted" : "Sonnet quota nearly exhausted"}
+    >
+      <Text size="sm">
+        Rolling 7-day Sonnet usage is at <b>{pct}%</b>.
+        {isFull
+          ? " New Sonnet requests will be rejected until the window resets."
+          : " Consider routing new Sonnet requests to a smaller model or wait for the window to reset."}
+      </Text>
+    </Alert>
   );
 }
 
@@ -295,6 +418,43 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
     fetch("/api/usage/hourly").then(r => r.json()).then(d => setHourly(d.hours || [])).catch(() => {});
   }, []);
 
+  // ── Analytics (model dist, leaderboard, anomalies, …) ──────────────────────
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  useEffect(() => {
+    fetch("/api/analytics").then(r => r.json()).then(setAnalytics).catch(() => {});
+  }, []);
+
+  // Persist scroll across navigations. Async content (hourly, ws status) keeps
+  // resizing the page after mount, so we keep nudging scrollTo until the page
+  // is tall enough or 2s have passed.
+  useEffect(() => {
+    const KEY = "scroll:dashboard";
+    const saved = parseInt(sessionStorage.getItem(KEY) || "", 10);
+    let raf = 0;
+    if (Number.isFinite(saved) && saved > 0) {
+      const start = performance.now();
+      const restore = () => {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        window.scrollTo(0, Math.min(max, saved));
+        if (max < saved && performance.now() - start < 2000) {
+          raf = requestAnimationFrame(restore);
+        }
+      };
+      raf = requestAnimationFrame(restore);
+    }
+    let timer = 0 as unknown as ReturnType<typeof setTimeout>;
+    const onScroll = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => sessionStorage.setItem(KEY, String(window.scrollY)), 150);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
   return (
     <Box style={{ minHeight: "100vh", background: pageBg, backgroundAttachment: "fixed", transition: "background 3s ease" }}>
     <Container size="md" py="xl">
@@ -333,8 +493,13 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       {/* ── Clock ────────────────────────────────────────────── */}
       <ClockPanel isDark={isDark} />
 
+      {/* ── Critical Sonnet Alert ────────────────────────────── */}
+      {upstream?.sevenDaySonnet && (
+        <SonnetCriticalAlert pct={Math.round(upstream.sevenDaySonnet.utilization)} />
+      )}
+
       {/* ── Quick Stats ──────────────────────────────────────── */}
-      <SimpleGrid cols={{ base: 2, xs: 4 }} mb="lg">
+      <SimpleGrid cols={{ base: 2, xs: 4 }} mb="lg" id="stats" style={{ scrollMarginTop: 16 }}>
         <Paper withBorder p="md" radius="md">
           <Group gap="sm" mb={6}>
             <ThemeIcon variant="light" color="blue" size="md" radius="md">
@@ -342,8 +507,12 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
             </ThemeIcon>
             <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today</Text>
           </Group>
-          <Text fz={24} fw={700} ff="monospace">{nf.format(todayTotal)}</Text>
-          <Text size="xs" c="dimmed" mt={2}>tokens used today</Text>
+          <Text fz={24} fw={700} ff="monospace" c={todayTotal === 0 ? "dimmed" : undefined}>
+            {nf.format(todayTotal)}
+          </Text>
+          <Text size="xs" c="dimmed" mt={2}>
+            {todayTotal === 0 ? "Quiet day — no requests yet" : "tokens used today"}
+          </Text>
         </Paper>
 
         <Paper withBorder p="md" radius="md">
@@ -365,7 +534,9 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
             <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Active</Text>
           </Group>
           <Text fz={24} fw={700} ff="monospace">{activeTokens}<Text span fz="md" fw={400} c="dimmed"> / {totalTokens}</Text></Text>
-          <Text size="xs" c="dimmed" mt={2}>tokens with usage this window</Text>
+          <Text size="xs" c="dimmed" mt={2}>
+            {totalTokens === 0 ? "no tokens configured" : activeTokens === 0 ? "no token has usage this window" : "tokens with usage this window"}
+          </Text>
         </Paper>
 
         <Paper withBorder p="md" radius="md">
@@ -375,14 +546,22 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
             </ThemeIcon>
             <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Resets In</Text>
           </Group>
-          <Text fz={24} fw={700} ff="monospace">
-            {countdownMs !== null ? fmtCountdown(countdownMs) : "—"}
-          </Text>
-          <Text size="xs" c="dimmed" mt={2}>
-            {resetsAtMs
-              ? `at ${new Date(resetsAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-              : "waiting for poll"}
-          </Text>
+          {countdownMs !== null ? (
+            <>
+              <Text fz={24} fw={700} ff="monospace">{fmtCountdown(countdownMs)}</Text>
+              <Text size="xs" c="dimmed" mt={2}>
+                at {new Date(resetsAtMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Group gap="xs" align="center" mih={32}>
+                <Loader size="xs" color="orange" />
+                <Text fz="md" fw={500} c="dimmed">polling…</Text>
+              </Group>
+              <Text size="xs" c="dimmed" mt={2}>upstream not yet responded</Text>
+            </>
+          )}
         </Paper>
       </SimpleGrid>
 
@@ -417,7 +596,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       )}
 
       {/* ── Upstream Health ──────────────────────────────────── */}
-      <Stack gap="xs" mb="lg">
+      <Stack gap="xs" mb="lg" id="health" style={{ scrollMarginTop: 16 }}>
         <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Upstream Health</Text>
         <Paper withBorder p="md" radius="md">
           <UpstreamSection upstream={upstream} isAdmin={isAdmin} />
@@ -425,13 +604,22 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       </Stack>
 
       {/* ── Token Usage Overview ─────────────────────────────── */}
-      <Stack gap="xs" mb="lg">
-        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>
-          Token Usage
-        </Text>
+      <Stack gap="xs" mb="lg" id="tokens" style={{ scrollMarginTop: 16 }}>
+        <Group justify="space-between">
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>
+            Token Usage
+          </Text>
+          {totalTokens > 0 && activeTokens === 0 && (
+            <Badge size="xs" variant="light" color="teal">all quotas fresh</Badge>
+          )}
+        </Group>
         <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
           {totalTokens === 0 ? (
-            <Text size="sm" c="dimmed" ta="center" py="md">No tokens configured</Text>
+            <Stack gap="xs" align="center" py="md">
+              <ThemeIcon variant="light" color="gray" size="lg" radius="xl"><IconKey size={18} /></ThemeIcon>
+              <Text size="sm" c="dimmed">No tokens configured yet</Text>
+              {isAdmin && <Text size="xs" c="dimmed">Add a token below to start routing requests</Text>}
+            </Stack>
           ) : (
             <Stack gap="md">
               {Object.entries(tokens).slice(0, isAdmin ? 20 : 6).map(([key, tk]) => {
@@ -445,11 +633,16 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                 const profColor: Record<string, string> = { agentic: "violet", conversational: "blue", heavy_reader: "orange", efficient: "teal", mixed: "gray" };
                 const profLabel: Record<string, string> = { agentic: "Agentic", conversational: "Chat", heavy_reader: "Reader", efficient: "Efisien", mixed: "Mixed" };
                 const maxSpark = Math.max(...spark, 1);
+                const display  = maskToken(tk.label);
+                const dotColor = avatarColor(display);
                 return (
                   <Box key={key}>
                     <Group gap="sm" wrap="nowrap" mb={4}>
-                      <Group gap={4} style={{ minWidth: isAdmin ? 140 : 90, maxWidth: isAdmin ? 180 : 110 }}>
-                        <Text size="xs" ff="monospace" truncate>{tk.label}</Text>
+                      <Group gap={6} style={{ minWidth: isAdmin ? 140 : 90, maxWidth: isAdmin ? 180 : 110 }} wrap="nowrap">
+                        <Box w={6} h={6} style={{ borderRadius: "50%", background: `var(--mantine-color-${dotColor}-5)`, flexShrink: 0 }} />
+                        <Tooltip label={tk.label} withArrow openDelay={400} disabled={display === tk.label}>
+                          <Text size="xs" ff="monospace" truncate>{display}</Text>
+                        </Tooltip>
                         {ins && <Badge size="xs" variant="light" color={profColor[prof]}>{profLabel[prof]}</Badge>}
                       </Group>
                       <Progress value={pct} color={color} size="md" radius="sm" style={{ flex: 1 }} />
@@ -495,110 +688,297 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
         const curH   = new Date().getHours();
         const dayTotal = hourly.reduce((s, h) => s + h.tokens, 0);
         return (
-          <Stack gap="xs" mb="lg">
+          <Stack gap="xs" mb="lg" id="activity" style={{ scrollMarginTop: 16 }}>
             <Group justify="space-between">
               <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today's Activity</Text>
               <Text size="xs" c="dimmed" ff="monospace">{nf.format(dayTotal)} tokens</Text>
             </Group>
             <Paper withBorder p="md" radius="md">
-              <Box style={{ display: "flex", alignItems: "flex-end", height: 64, gap: 2 }}>
-                {hourly.map(({ h, tokens: tok, requests: req }) => {
-                  const barH = Math.round((tok / maxTok) * 56);
-                  const bg = h === curH
-                    ? (isDark ? "#228be6" : "#1c7ed6")
-                    : h > curH
-                    ? (isDark ? "#2c2e33" : "#e9ecef")
-                    : (isDark ? "#0ca678" : "#12b886");
-                  return (
-                    <Tooltip key={h}
-                      label={`${String(h).padStart(2, "0")}:00 · ${nf.format(tok)} tok · ${req} req`}
-                      withArrow position="top" openDelay={80}>
-                      <Box style={{
-                        flex: 1, height: Math.max(barH, tok > 0 ? 2 : 0),
-                        borderRadius: "2px 2px 0 0", background: bg, cursor: "default",
-                        opacity: h > curH ? 0.35 : 1, transition: "height 0.3s ease",
-                      }} />
-                    </Tooltip>
-                  );
-                })}
-              </Box>
-              <Box style={{ display: "flex", gap: 2, marginTop: 4 }}>
-                {hourly.map(({ h }) => (
-                  <Text key={h} size="10px" ff="monospace" c="dimmed"
-                    style={{ flex: 1, textAlign: "center" }}>
-                    {h % 6 === 0 ? String(h).padStart(2, "0") : ""}
-                  </Text>
-                ))}
-              </Box>
+              {dayTotal === 0 ? (
+                <Stack gap={4} align="center" py="md">
+                  <ThemeIcon variant="light" color="gray" size="lg" radius="xl"><IconChartHistogram size={18} /></ThemeIcon>
+                  <Text size="sm" c="dimmed">No activity yet today</Text>
+                  <Text size="xs" c="dimmed">Hourly bars will appear as requests arrive</Text>
+                </Stack>
+              ) : (
+                <>
+                  <Box style={{ display: "flex", alignItems: "flex-end", height: 64, gap: 2 }}>
+                    {hourly.map(({ h, tokens: tok, requests: req }) => {
+                      const barH = Math.round((tok / maxTok) * 56);
+                      const bg = h === curH
+                        ? (isDark ? "#228be6" : "#1c7ed6")
+                        : h > curH
+                        ? (isDark ? "#2c2e33" : "#e9ecef")
+                        : (isDark ? "#0ca678" : "#12b886");
+                      return (
+                        <Tooltip key={h}
+                          label={`${String(h).padStart(2, "0")}:00 · ${nf.format(tok)} tok · ${req} req`}
+                          withArrow position="top" openDelay={80}>
+                          <Box style={{
+                            flex: 1, height: Math.max(barH, tok > 0 ? 2 : 0),
+                            borderRadius: "2px 2px 0 0", background: bg, cursor: "default",
+                            opacity: h > curH ? 0.35 : 1, transition: "height 0.3s ease",
+                          }} />
+                        </Tooltip>
+                      );
+                    })}
+                  </Box>
+                  <Box style={{ display: "flex", gap: 2, marginTop: 4 }}>
+                    {hourly.map(({ h }) => (
+                      <Text key={h} size="10px" ff="monospace" c="dimmed"
+                        style={{ flex: 1, textAlign: "center" }}>
+                        {h % 6 === 0 ? String(h).padStart(2, "0") : ""}
+                      </Text>
+                    ))}
+                  </Box>
+                </>
+              )}
             </Paper>
           </Stack>
         );
       })()}
 
-      {/* ── Today per-user ───────────────────────────────────── */}
-      {(() => {
-        const entries = Object.entries(tokens)
-          .map(([k, tk]) => ({ key: k, val: tk.today || 0, label: tk.label }))
-          .filter(e => e.val > 0)
-          .sort((a, b) => b.val - a.val);
-        if (!entries.length) return null;
-        const max = entries[0]!.val;
-        const total = entries.reduce((s, e) => s + e.val, 0);
-        return (
-          <Paper withBorder radius="md" mb="lg" style={{ overflow: "hidden" }}>
-            <Group justify="space-between" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
-              <Group gap="xs">
-                <ThemeIcon variant="light" color="blue" size="sm" radius="sm"><IconActivity size={13} /></ThemeIcon>
-                <Text size="sm" fw={700}>Today per User</Text>
-              </Group>
-              <Text size="xs" c="dimmed" ff="monospace">{nf.format(total)} tokens</Text>
-            </Group>
-            <Stack gap="sm" p="md">
-              {entries.map(({ key, val, label }) => (
-                <Group key={key} gap="sm" wrap="nowrap">
-                  <Text size="xs" ff="monospace" truncate style={{ minWidth: isAdmin ? 140 : 90, maxWidth: isAdmin ? 180 : 110 }}>{label}</Text>
-                  <Progress value={Math.round((val / max) * 100)} color="blue" size="md" radius="sm" style={{ flex: 1 }} />
-                  <Text size="xs" ff="monospace" c="dimmed" ta="right" style={{ minWidth: 80 }}>{nf.format(val)}</Text>
-                </Group>
-              ))}
-            </Stack>
-          </Paper>
-        );
-      })()}
+      {/* ── Leaderboard ──────────────────────────────────────── */}
+      <Box id="users" style={{ scrollMarginTop: 16 }}>
+      {analytics && analytics.leaderboard.length > 0 && (
+        <Paper withBorder radius="md" mb="lg" style={{ overflow: "hidden" }}>
+          <Group gap="xs" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+            <ThemeIcon variant="light" color="yellow" size="sm" radius="sm"><IconTrophy size={13} /></ThemeIcon>
+            <Text size="sm" fw={700}>Leaderboard</Text>
+            <Text size="xs" c="dimmed">— ranked by all-time token usage</Text>
+          </Group>
+          <Table.ScrollContainer minWidth={500}>
+            <Table highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th style={{ width: 40 }}>#</Table.Th>
+                  <Table.Th>User</Table.Th>
+                  <Table.Th ta="right">Today</Table.Th>
+                  <Table.Th ta="right">All-Time</Table.Th>
+                  <Table.Th ta="center">Peak Hour</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {analytics.leaderboard.slice(0, 10).map((u, i) => {
+                  const display = maskToken(u.label);
+                  const dot = avatarColor(display);
+                  return (
+                    <Table.Tr key={u.label}>
+                      <Table.Td>
+                        <Text size="sm" fw={700} c={i === 0 ? "yellow" : i === 1 ? "gray" : i === 2 ? "orange" : "dimmed"} ff="monospace">{i + 1}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap={6} wrap="nowrap">
+                          <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${dot}-5)`, flexShrink: 0 }} />
+                          <Tooltip label={u.label} withArrow openDelay={400} disabled={display === u.label}>
+                            <Badge variant="light" color={u.paused ? "gray" : "blue"} size="sm" ff="monospace">{display}</Badge>
+                          </Tooltip>
+                          {u.paused && <Badge size="xs" color="gray">paused</Badge>}
+                        </Group>
+                      </Table.Td>
+                      <Table.Td ta="right"><Text size="sm" ff="monospace">{u.today > 0 ? nf.format(u.today) : "—"}</Text></Table.Td>
+                      <Table.Td ta="right"><Text size="sm" ff="monospace" fw={600}>{nf.format(u.alltime)}</Text></Table.Td>
+                      <Table.Td ta="center">
+                        {u.peakHour != null
+                          ? <Badge size="xs" variant="outline" color="gray">{fmtHour(u.peakHour)}</Badge>
+                          : <Text size="xs" c="dimmed">—</Text>}
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        </Paper>
+      )}
+      </Box>
 
-      {/* ── All-time per-user ─────────────────────────────────── */}
-      {(() => {
-        const entries = Object.entries(tokens)
-          .map(([k, tk]) => ({ key: k, val: tk.alltime || 0, label: tk.label }))
-          .filter(e => e.val > 0)
-          .sort((a, b) => b.val - a.val);
-        if (!entries.length) return null;
-        const max = entries[0]!.val;
-        const total = entries.reduce((s, e) => s + e.val, 0);
-        return (
-          <Paper withBorder radius="md" mb="lg" style={{ overflow: "hidden" }}>
-            <Group justify="space-between" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
-              <Group gap="xs">
-                <ThemeIcon variant="light" color="violet" size="sm" radius="sm"><IconDatabase size={13} /></ThemeIcon>
-                <Text size="sm" fw={700}>All-Time per User</Text>
-              </Group>
-              <Text size="xs" c="dimmed" ff="monospace">{nf.format(total)} tokens</Text>
-            </Group>
-            <Stack gap="sm" p="md">
-              {entries.map(({ key, val, label }) => (
-                <Group key={key} gap="sm" wrap="nowrap">
-                  <Text size="xs" ff="monospace" truncate style={{ minWidth: isAdmin ? 140 : 90, maxWidth: isAdmin ? 180 : 110 }}>{label}</Text>
-                  <Progress value={Math.round((val / max) * 100)} color="violet" size="md" radius="sm" style={{ flex: 1 }} />
-                  <Text size="xs" ff="monospace" c="dimmed" ta="right" style={{ minWidth: 80 }}>{nf.format(val)}</Text>
+      {/* ── Analytics: Model + Stop Reason ───────────────────── */}
+      {analytics && (
+        <Box id="analytics" mb="lg" style={{ scrollMarginTop: 16 }}>
+          <Stack gap="lg">
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              {analytics.modelDist.length > 0 && (
+                <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+                  <Group gap="xs" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+                    <ThemeIcon variant="light" color="blue" size="sm" radius="sm"><IconChartPie size={13} /></ThemeIcon>
+                    <Text size="sm" fw={700}>Model Distribution</Text>
+                  </Group>
+                  <Box p="md">
+                    <ReactECharts
+                      style={{ height: 200 }}
+                      opts={{ renderer: "canvas" }}
+                      option={{
+                        backgroundColor: "transparent",
+                        tooltip: { trigger: "item", formatter: "{b}: {c} tokens ({d}%)" },
+                        legend: { orient: "vertical", right: "5%", top: "center", textStyle: { color: isDark ? "#c1c2c5" : "#343a40", fontSize: 12 } },
+                        series: [{
+                          type: "pie", radius: ["45%", "72%"], center: ["38%", "50%"],
+                          avoidLabelOverlap: true,
+                          label: { show: false },
+                          emphasis: { label: { show: true, fontSize: 14, fontWeight: "bold" } },
+                          data: analytics.modelDist.map((m, i) => ({
+                            name: m.model, value: m.tokens,
+                            itemStyle: { color: ["#228be6","#12b886","#fab005","#e03131","#7950f2"][i % 5] },
+                          })),
+                        }],
+                      }}
+                    />
+                  </Box>
+                </Paper>
+              )}
+
+              {analytics.stopReasonDist.length > 0 && (() => {
+                const stopTotal = analytics.stopReasonDist.reduce((s, r) => s + r.n, 0) || 1;
+                const stopColors: Record<string, string> = { end_turn: "#12b886", max_tokens: "#f76707", stop_sequence: "#228be6", tool_use: "#7950f2" };
+                return (
+                  <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+                    <Group gap="xs" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+                      <ThemeIcon variant="light" color="teal" size="sm" radius="sm"><IconBolt size={13} /></ThemeIcon>
+                      <Text size="sm" fw={700}>Stop Reason Distribution</Text>
+                    </Group>
+                    <Stack gap="sm" p="md">
+                      {analytics.stopReasonDist.map(r => (
+                        <Group key={r.stop_reason} gap="sm" wrap="nowrap">
+                          <Text size="xs" ff="monospace" style={{ minWidth: 130 }}>{r.stop_reason || "unknown"}</Text>
+                          <Progress value={Math.round((r.n / stopTotal) * 100)} color={stopColors[r.stop_reason] ?? "gray"} size="sm" radius="sm" style={{ flex: 1 }} />
+                          <Text size="xs" ff="monospace" c="dimmed" style={{ minWidth: 40, textAlign: "right" }}>{r.n}</Text>
+                        </Group>
+                      ))}
+                      {analytics.stopReasonDist.some(r => r.stop_reason === "max_tokens") && (
+                        <Text size="xs" c="orange" mt={4}>
+                          ⚠ stop_reason: max_tokens — respons terpotong. User perlu naikkan max_tokens atau pecah task.
+                        </Text>
+                      )}
+                    </Stack>
+                  </Paper>
+                );
+              })()}
+            </SimpleGrid>
+
+            {/* Peak Hours (7-day pattern) */}
+            {analytics.peakHours.length > 0 && (() => {
+              return (
+                <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+                  <Group justify="space-between" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+                    <Group gap="xs">
+                      <ThemeIcon variant="light" color="orange" size="sm" radius="sm"><IconClock size={13} /></ThemeIcon>
+                      <Text size="sm" fw={700}>Peak Hours</Text>
+                      <Text size="xs" c="dimmed">— 7-day request pattern</Text>
+                    </Group>
+                    <Badge size="sm" variant="light" color="blue">Peak: {fmtHour(analytics.peakHour)}</Badge>
+                  </Group>
+                  <Box px="md" pb="sm">
+                    <ReactECharts
+                      style={{ height: 120 }}
+                      opts={{ renderer: "canvas" }}
+                      option={{
+                        backgroundColor: "transparent",
+                        tooltip: { trigger: "axis", formatter: (p: any[]) => `${fmtHour(p[0].dataIndex)} · ${p[0].value} requests` },
+                        grid: { top: 10, bottom: 30, left: 40, right: 10 },
+                        xAxis: { type: "category", data: analytics.peakHours.map(h => h.h % 6 === 0 ? fmtHour(h.h) : ""),
+                          axisLabel: { color: isDark ? "#6c757d" : "#868e96", fontSize: 11 }, axisLine: { show: false }, axisTick: { show: false } },
+                        yAxis: { type: "value", axisLabel: { show: false }, splitLine: { lineStyle: { color: isDark ? "#373a40" : "#dee2e6", type: "dashed" } } },
+                        series: [{
+                          type: "bar", barMaxWidth: 18,
+                          data: analytics.peakHours.map(h => ({
+                            value: h.requests,
+                            itemStyle: { color: h.h === analytics.peakHour ? "#228be6" : (isDark ? "#373a40" : "#dee2e6"), borderRadius: [3, 3, 0, 0] },
+                          })),
+                        }],
+                      }}
+                    />
+                  </Box>
+                </Paper>
+              );
+            })()}
+
+            {/* Cache Hit Rate */}
+            {analytics.cacheHitRate.length > 0 && (
+              <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+                <Group gap="xs" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+                  <ThemeIcon variant="light" color="violet" size="sm" radius="sm"><IconDatabase size={13} /></ThemeIcon>
+                  <Text size="sm" fw={700}>Cache Hit Rate per User</Text>
+                  <Text size="xs" c="dimmed">— higher = longer sessions, more efficient</Text>
                 </Group>
-              ))}
-            </Stack>
-          </Paper>
-        );
-      })()}
+                <Stack gap="sm" p="md">
+                  {analytics.cacheHitRate.map(u => {
+                    const display = maskToken(u.label);
+                    const dot = avatarColor(display);
+                    return (
+                      <Group key={u.label} gap="sm" wrap="nowrap">
+                        <Group gap={6} wrap="nowrap" style={{ minWidth: 110, maxWidth: 160 }}>
+                          <Box w={6} h={6} style={{ borderRadius: "50%", background: `var(--mantine-color-${dot}-5)`, flexShrink: 0 }} />
+                          <Tooltip label={u.label} withArrow openDelay={400} disabled={display === u.label}>
+                            <Text size="xs" ff="monospace" truncate>{display}</Text>
+                          </Tooltip>
+                        </Group>
+                        <Tooltip label={`${u.hitRate}% of ${nf.format(u.totalInput + u.totalCached)} input tokens served from cache`} withArrow>
+                          <Progress value={u.hitRate} color={u.hitRate > 60 ? "teal" : u.hitRate > 30 ? "yellow" : "orange"} size="md" radius="sm" style={{ flex: 1 }} />
+                        </Tooltip>
+                        <Text size="xs" ff="monospace" c="dimmed" style={{ minWidth: 40, textAlign: "right" }}>{u.hitRate}%</Text>
+                      </Group>
+                    );
+                  })}
+                </Stack>
+              </Paper>
+            )}
+
+            {/* Anomaly Scores */}
+            {analytics.anomalyScores.length > 0 && (
+              <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+                <Group gap="xs" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+                  <ThemeIcon variant="light" color="red" size="sm" radius="sm"><IconFlame size={13} /></ThemeIcon>
+                  <Text size="sm" fw={700}>Anomaly Score</Text>
+                  <Text size="xs" c="dimmed">— heaviest requests, scored 0–100 from input tokens, ratio, tool use, duration</Text>
+                </Group>
+                <Table.ScrollContainer minWidth={600}>
+                  <Table highlightOnHover>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Score</Table.Th>
+                        <Table.Th>User</Table.Th>
+                        <Table.Th>Time</Table.Th>
+                        <Table.Th ta="right">Input</Table.Th>
+                        <Table.Th ta="right">Output</Table.Th>
+                        <Table.Th ta="right">Turns</Table.Th>
+                        <Table.Th ta="right">Tools</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {analytics.anomalyScores.map(r => {
+                        const display = maskToken(r.label);
+                        return (
+                          <Table.Tr key={r.id}>
+                            <Table.Td>
+                              <Badge size="sm" style={{ background: anomalyScoreColor(r.score), color: "#fff" }} ff="monospace">{r.score}</Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              <Tooltip label={r.label} withArrow openDelay={400} disabled={display === r.label}>
+                                <Text size="xs" ff="monospace">{display}</Text>
+                              </Tooltip>
+                            </Table.Td>
+                            <Table.Td><Text size="xs" c="dimmed">{new Date(r.ts).toLocaleString()}</Text></Table.Td>
+                            <Table.Td ta="right"><Text size="xs" ff="monospace" c={r.input_tokens > 100_000 ? "red" : r.input_tokens > 50_000 ? "orange" : "dimmed"}>{nf.format(r.input_tokens)}</Text></Table.Td>
+                            <Table.Td ta="right"><Text size="xs" ff="monospace" c="dimmed">{nf.format(r.output_tokens)}</Text></Table.Td>
+                            <Table.Td ta="right"><Text size="xs" ff="monospace" c="dimmed">{r.turns}</Text></Table.Td>
+                            <Table.Td ta="right"><Text size="xs" ff="monospace" c={r.tool_use > 10 ? "violet" : "dimmed"}>{r.tool_use}</Text></Table.Td>
+                          </Table.Tr>
+                        );
+                      })}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              </Paper>
+            )}
+          </Stack>
+        </Box>
+      )}
 
       {/* ── Request Log (public shows compact preview) ───────── */}
-      <RequestLog isAdmin={isAdmin} />
+      <Box id="logs" style={{ scrollMarginTop: 16 }}>
+        <RequestLog isAdmin={isAdmin} />
+      </Box>
 
       {/* ── Admin-only sections ──────────────────────────────── */}
       {isAdmin && (
@@ -625,6 +1005,8 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
         </>
       )}
     </Container>
+    <DashboardNav />
+    <BackToTop />
     <FloatingChat />
     </Box>
   );
@@ -675,7 +1057,6 @@ export function App() {
           } />
           <Route path="/mind" element={<MindPage />} />
           <Route path="/race" element={<RacePage />} />
-          <Route path="/analytics" element={<Analytics />} />
           <Route path="/sessions/:user" element={<SessionHistory />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

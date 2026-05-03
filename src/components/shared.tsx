@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { Stack, Text, Button, Center, Paper, Box, Group, Badge, SimpleGrid, useMantineColorScheme } from "@mantine/core";
+import { Stack, Text, Button, Center, Paper, Box, Group, Badge, SimpleGrid, Tooltip, useMantineColorScheme } from "@mantine/core";
 import { Loader } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
 import ReactECharts from "echarts-for-react";
 import { fmtResetAt } from "../utils";
 import { useStatus } from "../contexts";
@@ -57,9 +58,9 @@ function needleColor(pct: number): string {
 }
 
 const DESCRIPTIONS: Record<string, string> = {
-  "5-Hour":    "Rolling 5-hour window · resets every 5 hours",
-  "7-Day":     "Rolling 7-day total across all models",
-  "7d·Sonnet": "Rolling 7-day Sonnet model usage only",
+  "5-Hour":        "Rolling 5-hour window · resets every 5 hours",
+  "7-Day":         "Rolling 7-day total across all models",
+  "Sonnet 7-Day":  "Rolling 7-day usage limited to the Sonnet model",
 };
 
 function SingleGauge({
@@ -130,17 +131,19 @@ function SingleGauge({
 
   return (
     <Box style={{ textAlign: "center" }}>
-      <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".1em" }}>
-        {label}
-      </Text>
+      <Tooltip label={DESCRIPTIONS[label] ?? ""} withArrow position="top" disabled={!DESCRIPTIONS[label]}>
+        <Group gap={4} justify="center" wrap="nowrap" style={{ cursor: DESCRIPTIONS[label] ? "help" : "default" }}>
+          <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".1em" }}>
+            {label}
+          </Text>
+          {DESCRIPTIONS[label] && <IconInfoCircle size={11} color="var(--mantine-color-dimmed)" />}
+        </Group>
+      </Tooltip>
       <ReactECharts
         option={option}
-        style={{ height: 260, width: "100%" }}
+        style={{ height: 240, width: "100%" }}
         opts={{ renderer: "canvas" }}
       />
-      <Text size="xs" c="dimmed" mt={-8} mb={4}>
-        {DESCRIPTIONS[label] ?? ""}
-      </Text>
     </Box>
   );
 }
@@ -150,9 +153,9 @@ function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
   const dark = colorScheme === "dark";
 
   const entries = [
-    upstream.fiveHour       && { label: "5-Hour",    data: upstream.fiveHour },
-    upstream.sevenDay       && { label: "7-Day",      data: upstream.sevenDay },
-    upstream.sevenDaySonnet && { label: "7d·Sonnet",  data: upstream.sevenDaySonnet },
+    upstream.fiveHour       && { label: "5-Hour",       data: upstream.fiveHour },
+    upstream.sevenDay       && { label: "7-Day",        data: upstream.sevenDay },
+    upstream.sevenDaySonnet && { label: "Sonnet 7-Day", data: upstream.sevenDaySonnet },
   ].filter(Boolean) as { label: string; data: UpstreamPeriod }[];
 
   if (entries.length === 0) return null;

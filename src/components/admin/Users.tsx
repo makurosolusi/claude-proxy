@@ -1,15 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, Textarea, Table,
   ThemeIcon, Box, Badge, ActionIcon, Tooltip, Modal, Button, Progress,
-  Accordion, Loader, Alert,
+  Accordion, Loader, Alert, Avatar, Select, Switch, Divider,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconPlayerPlay, IconTrash, IconPencil,
   IconUserPlus, IconUsers, IconAlertTriangle, IconKey, IconRotate,
-  IconPlus, IconCopy, IconCheck,
+  IconPlus, IconCopy, IconCheck, IconSearch, IconArrowsSort, IconInfoCircle,
 } from "@tabler/icons-react";
-import { adminPost } from "../../utils";
+import { adminPost, fmtRel, avatarColor } from "../../utils";
 import type { TokenStatus } from "../../contexts";
 
 interface ApiToken {
@@ -23,6 +23,25 @@ interface ApiUser {
 
 function nf(n: number) { return n.toLocaleString(); }
 const ACT = 15;
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map(p => p[0]?.toUpperCase() ?? "").join("") || "?";
+}
+
+function userAggregates(u: ApiUser) {
+  const active = u.tokens.filter(t => !t.paused);
+  const totalUsed   = u.tokens.reduce((a, t) => a + t.used, 0);
+  const todayUsed   = u.tokens.reduce((a, t) => a + t.today, 0);
+  const alltime     = u.tokens.reduce((a, t) => a + t.alltime, 0);
+  const hasUnlimited = u.tokens.some(t => t.limit === null);
+  const totalLimit  = hasUnlimited ? null : u.tokens.reduce((a, t) => a + (t.limit ?? 0), 0);
+  const aggPct      = totalLimit && totalLimit > 0 ? Math.round((totalUsed / totalLimit) * 100) : 0;
+  const maxPct      = u.tokens.reduce((a, t) => Math.max(a, t.pct), 0);
+  const pausedCount = u.tokens.filter(t => t.paused).length;
+  const overCount   = u.tokens.filter(t => t.pct > 100).length;
+  return { active, totalUsed, todayUsed, alltime, totalLimit, aggPct, maxPct, pausedCount, overCount };
+}
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
@@ -62,6 +81,100 @@ function EditUserModal({ user, onClose, onSaved }: { user: ApiUser; onClose: () 
         <Group justify="flex-end" mt="xs">
           <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
           <Button color="teal" loading={saving} onClick={save}>Save</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+function DeleteUserModal({ user, onClose, onDone }: { user: ApiUser; onClose: () => void; onDone: () => void }) {
+  const [confirmText, setConfirmText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const tokenCount = user.tokens.length;
+  const requiresType = tokenCount > 0;
+  const canDelete = !requiresType || confirmText.trim() === user.name;
+
+  const doDelete = async () => {
+    if (!canDelete) return;
+    setBusy(true);
+    await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+    setBusy(false);
+    onDone();
+    onClose();
+  };
+
+  return (
+    <Modal opened onClose={onClose} title="Delete User" size="sm">
+      <Stack gap="sm">
+        <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
+          {tokenCount === 0 ? (
+            <>This will permanently delete <b>{user.name}</b>.</>
+          ) : (
+            <>Deleting <b>{user.name}</b> will also delete <b>{tokenCount} token{tokenCount !== 1 ? "s" : ""}</b>. Any client using these tokens will start receiving 401 errors.</>
+          )}
+        </Alert>
+        {requiresType && (
+          <TextInput
+            label={<>Type <b>{user.name}</b> to confirm</>}
+            value={confirmText}
+            onChange={e => setConfirmText(e.currentTarget.value)}
+            placeholder={user.name}
+            autoFocus
+          />
+        )}
+        <Group justify="flex-end" mt="xs">
+          <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
+          <Button color="red" loading={busy} disabled={!canDelete} onClick={doDelete}
+            leftSection={<IconTrash size={14} />}>
+            Delete user
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+function EditLimitModal({ token, onClose, onSaved }: { token: ApiToken; onClose: () => void; onSaved: () => void }) {
+  const [unlimited, setUnlimited] = useState(token.limit === null);
+  const [limit, setLimit] = useState(token.limit === null ? "40000" : String(token.limit));
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    const value = unlimited ? "unlimited" : limit.trim();
+    if (!value) return;
+    if (!unlimited && (!/^\d+$/.test(value) || Number(value) <= 0)) return;
+    setBusy(true);
+    await adminPost("/admin/token/edit", { token: token.key, limit: value });
+    setBusy(false);
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <Modal opened onClose={onClose} title="Edit Token Limit" size="sm">
+      <Stack gap="sm">
+        <Box>
+          <Text size="xs" c="dimmed" mb={2}>Token</Text>
+          <Text size="sm" ff="monospace">{token.key}</Text>
+        </Box>
+        <Switch
+          label="Unlimited"
+          checked={unlimited}
+          onChange={e => setUnlimited(e.currentTarget.checked)}
+        />
+        {!unlimited && (
+          <TextInput
+            label="Window limit (tokens)"
+            description="Max input+output tokens per 5-hour window"
+            value={limit}
+            onChange={e => setLimit(e.currentTarget.value.replace(/[^\d]/g, ""))}
+            onKeyDown={e => { if (e.key === "Enter") save(); }}
+            autoFocus
+          />
+        )}
+        <Group justify="flex-end" mt="xs">
+          <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
+          <Button color="teal" loading={busy} onClick={save}>Save</Button>
         </Group>
       </Stack>
     </Modal>
@@ -120,43 +233,39 @@ function RotateModal({ token, onClose, onDone }: { token: ApiToken; onClose: () 
   );
 }
 
-function AddTokenModal({ users, onClose, onDone }: { users: ApiUser[]; onClose: () => void; onDone: () => void }) {
-  const [userId, setUserId] = useState(users[0]?.id || "");
-  const [key, setKey]       = useState("");
+function AddTokenModal({ user, onClose, onDone }: { user: ApiUser; onClose: () => void; onDone: () => void }) {
+  const [key, setKey]       = useState(`sk-user-${user.name.toLowerCase().replace(/\s+/g, "-")}`);
   const [limit, setLimit]   = useState("40000");
+  const [unlimited, setUnlimited] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     if (!key.trim()) return;
     setSaving(true);
-    await adminPost("/admin/token/add", { token: key.trim(), limit, user_id: userId });
+    await adminPost("/admin/token/add", {
+      token: key.trim(),
+      limit: unlimited ? "unlimited" : limit,
+      user_id: user.id,
+    });
     setSaving(false);
     onDone();
     onClose();
   };
 
   return (
-    <Modal opened onClose={onClose} title="Add Token to User" size="sm">
+    <Modal opened onClose={onClose} title={`Add Token to ${user.name}`} size="sm">
       <Stack gap="sm">
-        <Box>
-          <Text size="xs" fw={600} c="dimmed" mb={4} tt="uppercase" style={{ letterSpacing: ".06em" }}>User</Text>
-          <Stack gap={4}>
-            {users.map(u => (
-              <Paper key={u.id} withBorder p="xs" radius="sm"
-                style={{ cursor: "pointer", background: userId === u.id ? "var(--mantine-color-blue-light)" : undefined }}
-                onClick={() => setUserId(u.id)}>
-                <Text size="sm" fw={userId === u.id ? 700 : 400}>{u.name}</Text>
-              </Paper>
-            ))}
-          </Stack>
-        </Box>
-        <TextInput label="Token key" placeholder="sk-user-name" value={key}
+        <TextInput label="Token key" placeholder="sk-user-name" value={key} autoFocus
           onChange={e => setKey(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") save(); }} />
-        <TextInput label="Limit" value={limit}
-          onChange={e => setLimit(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") save(); }} />
+        <Switch label="Unlimited" checked={unlimited} onChange={e => setUnlimited(e.currentTarget.checked)} />
+        {!unlimited && (
+          <TextInput label="Window limit (tokens)" value={limit}
+            onChange={e => setLimit(e.currentTarget.value.replace(/[^\d]/g, ""))}
+            onKeyDown={e => { if (e.key === "Enter") save(); }} />
+        )}
         <Group justify="flex-end" mt="xs">
           <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
-          <Button color="teal" loading={saving} onClick={save}>Add Token</Button>
+          <Button color="teal" loading={saving} onClick={save} leftSection={<IconPlus size={14} />}>Add Token</Button>
         </Group>
       </Stack>
     </Modal>
@@ -173,14 +282,12 @@ function CreateUserModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   const save = async () => {
     if (!name.trim()) return;
     setSaving(true);
-    // Create user first
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), description: desc }),
     });
     const data = await res.json() as any;
-    // If token key is provided, add token linked to new user
     if (data.ok && key.trim()) {
       await adminPost("/admin/token/add", { token: key.trim(), limit, user_id: data.user.id, name: name.trim() });
     }
@@ -192,31 +299,38 @@ function CreateUserModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   return (
     <Modal opened onClose={onClose} title="Create New User" size="sm">
       <Stack gap="sm">
-        <TextInput label="Display Name" placeholder="Alice" value={name}
+        <TextInput label="Display Name" placeholder="Alice" value={name} autoFocus
           onChange={e => setName(e.currentTarget.value)} />
         <Textarea label="Description" placeholder="Optional notes" value={desc}
           onChange={e => setDesc(e.currentTarget.value)} rows={2} />
-        <TextInput label="Initial Token Key" placeholder="sk-user-alice (optional)" value={key}
+        <Divider label="Initial token (optional)" labelPosition="center" />
+        <TextInput label="Token Key" placeholder="sk-user-alice" value={key}
           onChange={e => setKey(e.currentTarget.value)} />
         {key && (
           <TextInput label="Token Limit" value={limit}
-            onChange={e => setLimit(e.currentTarget.value)} />
+            onChange={e => setLimit(e.currentTarget.value.replace(/[^\d]/g, ""))} />
         )}
         <Group justify="flex-end" mt="xs">
           <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
-          <Button color="teal" loading={saving} onClick={save}>Create</Button>
+          <Button color="teal" loading={saving} onClick={save} leftSection={<IconUserPlus size={14} />}>Create</Button>
         </Group>
       </Stack>
     </Modal>
   );
 }
 
+type SortKey = "name" | "usage" | "tokens" | "newest";
+
 export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, TokenStatus> }) {
-  const [apiUsers, setApiUsers]   = useState<ApiUser[] | null>(null);
-  const [editUser, setEditUser]   = useState<ApiUser | null>(null);
+  const [apiUsers, setApiUsers]       = useState<ApiUser[] | null>(null);
+  const [editUser, setEditUser]       = useState<ApiUser | null>(null);
+  const [deleteUser, setDeleteUser]   = useState<ApiUser | null>(null);
   const [rotateToken, setRotateToken] = useState<ApiToken | null>(null);
+  const [editLimit, setEditLimit]     = useState<ApiToken | null>(null);
+  const [addTokenTo, setAddTokenTo]   = useState<ApiUser | null>(null);
   const [showCreate, setShowCreate]   = useState(false);
-  const [showAddTok, setShowAddTok]   = useState(false);
+  const [search, setSearch]           = useState("");
+  const [sort, setSort]               = useState<SortKey>("usage");
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/admin/users");
@@ -225,11 +339,33 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
   useEffect(() => { reload(); }, [reload]);
 
-  const deleteUser = async (u: ApiUser) => {
-    if (!confirm(`Delete user "${u.name}" and all their tokens?`)) return;
-    await fetch(`/api/admin/users/${encodeURIComponent(u.id)}`, { method: "DELETE" });
-    reload();
-  };
+  const filteredUsers = useMemo(() => {
+    if (!apiUsers) return null;
+    const q = search.trim().toLowerCase();
+    let list = apiUsers;
+    if (q) {
+      list = list.filter(u =>
+        u.name.toLowerCase().includes(q) ||
+        u.description.toLowerCase().includes(q) ||
+        u.tokens.some(t => t.key.toLowerCase().includes(q))
+      );
+    }
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      switch (sort) {
+        case "name":   return a.name.localeCompare(b.name);
+        case "tokens": return b.tokens.length - a.tokens.length;
+        case "newest": return b.created_at - a.created_at;
+        case "usage":
+        default: {
+          const ua = userAggregates(a).totalUsed;
+          const ub = userAggregates(b).totalUsed;
+          return ub - ua;
+        }
+      }
+    });
+    return sorted;
+  }, [apiUsers, search, sort]);
 
   const entries    = Object.entries(tokenStatuses);
   const total      = entries.length;
@@ -238,10 +374,12 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
   return (
     <Stack gap="xl">
-      {editUser    && <EditUserModal user={editUser}     onClose={() => setEditUser(null)}    onSaved={reload} />}
-      {rotateToken && <RotateModal   token={rotateToken} onClose={() => setRotateToken(null)} onDone={reload} />}
+      {editUser    && <EditUserModal   user={editUser}     onClose={() => setEditUser(null)}    onSaved={reload} />}
+      {deleteUser  && <DeleteUserModal user={deleteUser}   onClose={() => setDeleteUser(null)}  onDone={reload} />}
+      {rotateToken && <RotateModal     token={rotateToken} onClose={() => setRotateToken(null)} onDone={reload} />}
+      {editLimit   && <EditLimitModal  token={editLimit}   onClose={() => setEditLimit(null)}   onSaved={reload} />}
+      {addTokenTo  && <AddTokenModal   user={addTokenTo}   onClose={() => setAddTokenTo(null)}  onDone={reload} />}
       {showCreate  && <CreateUserModal onClose={() => setShowCreate(false)} onDone={reload} />}
-      {showAddTok  && apiUsers && <AddTokenModal users={apiUsers} onClose={() => setShowAddTok(false)} onDone={reload} />}
 
       {/* Header */}
       <Paper withBorder p="lg" radius="md">
@@ -299,136 +437,248 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
       </SimpleGrid>
 
       {/* Users list */}
-      <Stack gap="xs">
-        <Group justify="space-between">
+      <Stack gap="sm">
+        <Group justify="space-between" wrap="wrap" gap="sm">
           <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Users</Text>
-          <Group gap="xs">
-            <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={13} />}
-              onClick={() => setShowAddTok(true)}>Add Token</Button>
-            <Button size="xs" variant="filled" color="teal" leftSection={<IconUserPlus size={13} />}
-              onClick={() => setShowCreate(true)}>Create User</Button>
-          </Group>
+          <Button size="xs" variant="filled" color="teal" leftSection={<IconUserPlus size={13} />}
+            onClick={() => setShowCreate(true)}>Create User</Button>
         </Group>
 
-        {apiUsers === null ? (
+        <Group gap="sm" wrap="wrap">
+          <TextInput
+            placeholder="Search by name, description, or token key…"
+            value={search}
+            onChange={e => setSearch(e.currentTarget.value)}
+            leftSection={<IconSearch size={14} />}
+            size="sm"
+            style={{ flex: 1, minWidth: 220 }}
+          />
+          <Select
+            value={sort}
+            onChange={v => v && setSort(v as SortKey)}
+            data={[
+              { value: "usage",  label: "Most usage" },
+              { value: "name",   label: "Name (A→Z)" },
+              { value: "tokens", label: "Token count" },
+              { value: "newest", label: "Newest" },
+            ]}
+            leftSection={<IconArrowsSort size={14} />}
+            size="sm"
+            allowDeselect={false}
+            w={170}
+          />
+        </Group>
+
+        {filteredUsers === null ? (
           <Group justify="center" py="xl"><Loader size="sm" /></Group>
-        ) : apiUsers.length === 0 ? (
+        ) : filteredUsers.length === 0 ? (
           <Paper withBorder p="lg" radius="md" ta="center">
-            <Text c="dimmed" size="sm">No users yet. Create one to get started.</Text>
+            <Text c="dimmed" size="sm">
+              {search ? `No users match "${search}".` : "No users yet. Create one to get started."}
+            </Text>
           </Paper>
         ) : (
-          <Accordion variant="separated" radius="md">
-            {apiUsers.map(u => (
-              <Accordion.Item key={u.id} value={u.id}>
-                <Accordion.Control>
-                  <Group gap="sm" wrap="nowrap">
-                    <ThemeIcon variant="light" color="blue" size="md" radius="md">
-                      <IconUsers size={14} />
-                    </ThemeIcon>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Group gap="xs" wrap="nowrap">
-                        <Text size="sm" fw={700} truncate>{u.name}</Text>
-                        <Badge size="xs" variant="dot" color="gray">{u.tokens.length} token{u.tokens.length !== 1 ? "s" : ""}</Badge>
+          <Accordion variant="separated" radius="md" multiple>
+            {filteredUsers.map(u => {
+              const agg = userAggregates(u);
+              const limitLabel = agg.totalLimit === null ? "∞" : nf(agg.totalLimit);
+              const barColor = agg.maxPct >= 95 ? "red" : agg.maxPct >= 75 ? "orange" : agg.aggPct >= 50 ? "yellow" : "teal";
+
+              return (
+                <Accordion.Item key={u.id} value={u.id}>
+                  <Accordion.Control>
+                    <Group gap="md" wrap="nowrap" align="center">
+                      <Avatar color={avatarColor(u.name)} radius="xl" size="md">{initials(u.name)}</Avatar>
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <Group gap="xs" wrap="nowrap">
+                          <Text size="sm" fw={700} truncate>{u.name}</Text>
+                          <Badge size="xs" variant="light" color="gray">
+                            {u.tokens.length} token{u.tokens.length !== 1 ? "s" : ""}
+                          </Badge>
+                          {agg.pausedCount > 0 && (
+                            <Badge size="xs" variant="light" color="orange" leftSection={<IconPlayerPause size={10} />}>
+                              {agg.pausedCount} paused
+                            </Badge>
+                          )}
+                          {agg.overCount > 0 && (
+                            <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>
+                              {agg.overCount} over
+                            </Badge>
+                          )}
+                        </Group>
+                        <Group gap="md" wrap="nowrap" mt={4}>
+                          <Text size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: "nowrap" }}>
+                            {nf(agg.totalUsed)} / {limitLabel}
+                          </Text>
+                          {agg.todayUsed > 0 && (
+                            <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+                              today <Text span ff="monospace" c="bright">{nf(agg.todayUsed)}</Text>
+                            </Text>
+                          )}
+                        </Group>
+                      </div>
+
+                      <Box visibleFrom="sm" style={{ width: 140 }}>
+                        <Group gap={6} wrap="nowrap" justify="flex-end">
+                          <Progress
+                            value={Math.min(agg.aggPct || agg.maxPct, 100)}
+                            color={barColor}
+                            size="sm"
+                            style={{ flex: 1 }}
+                          />
+                          <Text size="xs" c="dimmed" ff="monospace" style={{ width: 38, textAlign: "right" }}>
+                            {agg.totalLimit === null ? "—" : `${agg.aggPct}%`}
+                          </Text>
+                        </Group>
+                      </Box>
+
+                      <Group gap={2} wrap="nowrap" onClick={e => e.stopPropagation()}>
+                        <Tooltip label="Edit user" withArrow>
+                          <Box component="span"
+                            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-gray-light-color)" }}
+                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); setEditUser(u); }}
+                            aria-label="Edit user" role="button" tabIndex={0}
+                            onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEditUser(u); } }}>
+                            <IconPencil size={ACT} />
+                          </Box>
+                        </Tooltip>
+                        <Tooltip label="Delete user" withArrow>
+                          <Box component="span"
+                            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-red-light-color)" }}
+                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); setDeleteUser(u); }}
+                            aria-label="Delete user" role="button" tabIndex={0}
+                            onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setDeleteUser(u); } }}>
+                            <IconTrash size={ACT} />
+                          </Box>
+                        </Tooltip>
                       </Group>
-                      {u.description && <Text size="xs" c="dimmed" truncate>{u.description}</Text>}
-                    </div>
-                    <Group gap="xs" wrap="nowrap" onClick={e => e.stopPropagation()}>
-                      <Tooltip label="Edit user" withArrow>
-                        <Box component="span"
-                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-gray-light-color)" }}
-                          onClick={(e: React.MouseEvent) => { e.stopPropagation(); setEditUser(u); }}
-                          aria-label="Edit user" role="button" tabIndex={0}
-                          onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEditUser(u); } }}>
-                          <IconPencil size={ACT} />
-                        </Box>
-                      </Tooltip>
-                      <Tooltip label="Delete user" withArrow>
-                        <Box component="span"
-                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-red-light-color)" }}
-                          onClick={(e: React.MouseEvent) => { e.stopPropagation(); deleteUser(u); }}
-                          aria-label="Delete user" role="button" tabIndex={0}
-                          onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); deleteUser(u); } }}>
-                          <IconTrash size={ACT} />
-                        </Box>
-                      </Tooltip>
                     </Group>
-                  </Group>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  {u.tokens.length === 0 ? (
-                    <Text size="sm" c="dimmed" ta="center" py="md">No tokens for this user.</Text>
-                  ) : (
-                    <Table withRowBorders withColumnBorders={false} highlightOnHover>
-                      <Table.Thead>
-                        <Table.Tr>
-                          {["Token Key","Used","Today","Limit","Usage","Actions"].map(h => (
-                            <Table.Th key={h} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>{h}</Table.Th>
-                          ))}
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {u.tokens.map(tk => (
-                          <Table.Tr key={tk.key} style={tk.paused ? { opacity: 0.5 } : {}}>
-                            <Table.Td>
-                              <Group gap={4} wrap="nowrap">
-                                <IconKey size={12} color="var(--mantine-color-dimmed)" />
-                                <Text size="xs" ff="monospace">{tk.key}</Text>
-                                <CopyButton value={tk.key} />
-                                {tk.paused && <Badge size="xs" color="gray">paused</Badge>}
+                  </Accordion.Control>
+
+                  <Accordion.Panel>
+                    <Stack gap="sm">
+                      {/* User metadata strip */}
+                      <Paper withBorder={false} bg="var(--mantine-color-default-hover)" p="sm" radius="sm">
+                        <Group gap="lg" wrap="wrap">
+                          <Box>
+                            <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Created</Text>
+                            <Text size="sm">{fmtRel(u.created_at)}</Text>
+                          </Box>
+                          <Box>
+                            <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>All-time</Text>
+                            <Text size="sm" ff="monospace">{nf(agg.alltime)}</Text>
+                          </Box>
+                          <Box>
+                            <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Today</Text>
+                            <Text size="sm" ff="monospace">{nf(agg.todayUsed)}</Text>
+                          </Box>
+                          {u.description && (
+                            <Box style={{ flex: 1, minWidth: 200 }}>
+                              <Group gap={4} mb={2}>
+                                <IconInfoCircle size={11} color="var(--mantine-color-dimmed)" />
+                                <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Notes</Text>
                               </Group>
-                            </Table.Td>
-                            <Table.Td><Text size="xs" ff="monospace" c="dimmed">{nf(tk.used)}</Text></Table.Td>
-                            <Table.Td><Text size="xs" ff="monospace">{tk.today ? nf(tk.today) : "—"}</Text></Table.Td>
-                            <Table.Td><Text size="xs" ff="monospace" c="dimmed">{tk.limit === null ? "∞" : nf(tk.limit)}</Text></Table.Td>
-                            <Table.Td style={{ minWidth: 120 }}>
-                              <Group gap="xs" wrap="nowrap">
-                                <Progress value={Math.min(tk.pct, 100)} color={tk.pct >= 95 ? "red" : tk.pct >= 75 ? "orange" : "teal"}
-                                  size="sm" style={{ flex: 1 }} />
-                                <Text size="xs" c="dimmed" ff="monospace">{tk.pct}%</Text>
-                              </Group>
-                            </Table.Td>
-                            <Table.Td>
-                              <Group gap={4} wrap="nowrap">
-                                <Tooltip label="Reset usage" withArrow>
-                                  <ActionIcon variant="subtle" color="gray" size="sm"
-                                    onClick={() => adminPost("/admin/reset", { token: tk.key }).then(reload)}>
-                                    <IconRefresh size={ACT} />
-                                  </ActionIcon>
-                                </Tooltip>
-                                <Tooltip label="Edit limit" withArrow>
-                                  <ActionIcon variant="subtle" color="gray" size="sm"
-                                    onClick={() => { const v = prompt("New limit:", tk.limit === null ? "unlimited" : String(tk.limit)); if (v) adminPost("/admin/token/edit", { token: tk.key, limit: v }).then(reload); }}>
-                                    <IconPencil size={ACT} />
-                                  </ActionIcon>
-                                </Tooltip>
-                                <Tooltip label={tk.paused ? "Resume" : "Pause"} withArrow>
-                                  <ActionIcon variant="subtle" color={tk.paused ? "teal" : "orange"} size="sm"
-                                    onClick={() => adminPost("/admin/token/pause", { token: tk.key }).then(reload)}>
-                                    {tk.paused ? <IconPlayerPlay size={ACT} /> : <IconPlayerPause size={ACT} />}
-                                  </ActionIcon>
-                                </Tooltip>
-                                <Tooltip label="Rotate (generate new key)" withArrow>
-                                  <ActionIcon variant="subtle" color="blue" size="sm"
-                                    onClick={() => setRotateToken(tk)}>
-                                    <IconRotate size={ACT} />
-                                  </ActionIcon>
-                                </Tooltip>
-                                <Tooltip label="Delete token" withArrow>
-                                  <ActionIcon variant="subtle" color="red" size="sm"
-                                    onClick={() => { if (confirm(`Delete ${tk.key}?`)) adminPost("/admin/token/delete", { token: tk.key }).then(reload); }}>
-                                    <IconTrash size={ACT} />
-                                  </ActionIcon>
-                                </Tooltip>
-                              </Group>
-                            </Table.Td>
-                          </Table.Tr>
-                        ))}
-                      </Table.Tbody>
-                    </Table>
-                  )}
-                </Accordion.Panel>
-              </Accordion.Item>
-            ))}
+                              <Text size="sm">{u.description}</Text>
+                            </Box>
+                          )}
+                        </Group>
+                      </Paper>
+
+                      <Group justify="space-between">
+                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
+                        <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={12} />}
+                          onClick={() => setAddTokenTo(u)}>Add Token</Button>
+                      </Group>
+
+                      {u.tokens.length === 0 ? (
+                        <Paper withBorder p="md" radius="sm" ta="center">
+                          <Stack gap="xs" align="center">
+                            <ThemeIcon variant="light" color="gray" size="lg" radius="xl">
+                              <IconKey size={16} />
+                            </ThemeIcon>
+                            <Text size="sm" c="dimmed">This user has no tokens yet.</Text>
+                            <Button size="xs" variant="light" color="teal"
+                              leftSection={<IconPlus size={12} />}
+                              onClick={() => setAddTokenTo(u)}>Create first token</Button>
+                          </Stack>
+                        </Paper>
+                      ) : (
+                        <Box style={{ overflowX: "auto" }}>
+                          <Table withRowBorders withColumnBorders={false} highlightOnHover verticalSpacing="xs">
+                            <Table.Thead>
+                              <Table.Tr>
+                                {["Token Key","Used","Today","Limit","Usage","Actions"].map(h => (
+                                  <Table.Th key={h} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>{h}</Table.Th>
+                                ))}
+                              </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                              {u.tokens.map(tk => (
+                                <Table.Tr key={tk.key} style={tk.paused ? { opacity: 0.5 } : {}}>
+                                  <Table.Td>
+                                    <Group gap={4} wrap="nowrap">
+                                      <IconKey size={12} color="var(--mantine-color-dimmed)" />
+                                      <Text size="xs" ff="monospace" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{tk.key}</Text>
+                                      <CopyButton value={tk.key} />
+                                      {tk.paused && <Badge size="xs" color="gray">paused</Badge>}
+                                    </Group>
+                                  </Table.Td>
+                                  <Table.Td><Text size="xs" ff="monospace" c="dimmed">{nf(tk.used)}</Text></Table.Td>
+                                  <Table.Td><Text size="xs" ff="monospace">{tk.today ? nf(tk.today) : "—"}</Text></Table.Td>
+                                  <Table.Td><Text size="xs" ff="monospace" c="dimmed">{tk.limit === null ? "∞" : nf(tk.limit)}</Text></Table.Td>
+                                  <Table.Td style={{ minWidth: 120 }}>
+                                    <Group gap="xs" wrap="nowrap">
+                                      <Progress value={Math.min(tk.pct, 100)} color={tk.pct >= 95 ? "red" : tk.pct >= 75 ? "orange" : "teal"}
+                                        size="sm" style={{ flex: 1 }} />
+                                      <Text size="xs" c="dimmed" ff="monospace">{tk.pct}%</Text>
+                                    </Group>
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <Group gap={4} wrap="nowrap">
+                                      <Tooltip label="Reset usage" withArrow>
+                                        <ActionIcon variant="subtle" color="gray" size="sm"
+                                          onClick={() => adminPost("/admin/reset", { token: tk.key }).then(reload)}>
+                                          <IconRefresh size={ACT} />
+                                        </ActionIcon>
+                                      </Tooltip>
+                                      <Tooltip label="Edit limit" withArrow>
+                                        <ActionIcon variant="subtle" color="gray" size="sm"
+                                          onClick={() => setEditLimit(tk)}>
+                                          <IconPencil size={ACT} />
+                                        </ActionIcon>
+                                      </Tooltip>
+                                      <Tooltip label={tk.paused ? "Resume" : "Pause"} withArrow>
+                                        <ActionIcon variant="subtle" color={tk.paused ? "teal" : "orange"} size="sm"
+                                          onClick={() => adminPost("/admin/token/pause", { token: tk.key }).then(reload)}>
+                                          {tk.paused ? <IconPlayerPlay size={ACT} /> : <IconPlayerPause size={ACT} />}
+                                        </ActionIcon>
+                                      </Tooltip>
+                                      <Tooltip label="Rotate (generate new key)" withArrow>
+                                        <ActionIcon variant="subtle" color="blue" size="sm"
+                                          onClick={() => setRotateToken(tk)}>
+                                          <IconRotate size={ACT} />
+                                        </ActionIcon>
+                                      </Tooltip>
+                                      <Tooltip label="Delete token" withArrow>
+                                        <ActionIcon variant="subtle" color="red" size="sm"
+                                          onClick={() => { if (confirm(`Delete ${tk.key}?`)) adminPost("/admin/token/delete", { token: tk.key }).then(reload); }}>
+                                          <IconTrash size={ACT} />
+                                        </ActionIcon>
+                                      </Tooltip>
+                                    </Group>
+                                  </Table.Td>
+                                </Table.Tr>
+                              ))}
+                            </Table.Tbody>
+                          </Table>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              );
+            })}
           </Accordion>
         )}
       </Stack>
