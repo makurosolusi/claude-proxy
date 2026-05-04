@@ -110,6 +110,10 @@ db.exec(`
     action      TEXT    NOT NULL DEFAULT 'block',
     fallback_to TEXT
   );
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
 
 // Migration: add columns to existing DBs
@@ -186,6 +190,8 @@ const stmts = {
     VALUES ($mid, $thr, $act, $fb)
   `),
   deleteRoute:  db.prepare(`DELETE FROM model_routes WHERE model_id=$mid`),
+  upsertSetting: db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ($key, $value)`),
+  getSetting:    db.prepare(`SELECT value FROM settings WHERE key=$key`),
 };
 
 // ── Runtime state ─────────────────────────────────────────────────────────────
@@ -203,7 +209,10 @@ export const upstream: UpstreamState = {
   lastPoll: 0, lastPollOk: false, lastError: null,
   lastKnownResetsAt: null, detectedWindowMs: null, pollBackoffUntil: 0,
   tokenCache: { value: null, readAt: 0, email: null },
+  fallbackActive: false, fallbackProvider: null,
 };
+
+export const settings: Record<string, string> = {};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toLim(limit: number): number | null {
@@ -321,6 +330,22 @@ export function dbSaveRoutes(routes: ModelRoute[]) {
   // Sync in-memory
   for (const k of Object.keys(modelRoutes)) delete modelRoutes[k];
   for (const r of routes) modelRoutes[r.model_id] = r;
+}
+
+export function dbSaveSetting(key: string, value: string) {
+  stmts.upsertSetting.run({ $key: key, $value: value });
+  settings[key] = value;
+}
+
+export function dbGetSetting(key: string): string | null {
+  const row = stmts.getSetting.get({ $key: key }) as any;
+  return row?.value ?? null;
+}
+
+function loadSettings() {
+  const rows = db.query("SELECT key, value FROM settings").all() as any[];
+  for (const row of rows) settings[row.key] = row.value;
+  if (rows.length) console.log(`Settings loaded: ${rows.length} key(s)`);
 }
 
 function dbLoadRoutes() {
@@ -497,6 +522,7 @@ export function loadFromDb() {
   }
 
   dbLoadRoutes();
+  loadSettings();
 
   const cutoff = new Date(now - 30 * 86400000).toISOString().slice(0, 10);
   stmts.pruneDaily.run({ $cutoff: cutoff });

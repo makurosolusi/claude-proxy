@@ -176,7 +176,9 @@ function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
 }
 
 export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData; isAdmin: boolean }) {
-  if (!upstream.ok && !upstream.fiveHour) return (
+  const isFallback = upstream.fallbackProvider === "deepseek";
+
+  if (!upstream.ok && !upstream.fiveHour && !isFallback) return (
     <Stack gap="xs">
       <Group gap="xs">
         <Box w={8} h={8} style={{ borderRadius: "50%", background: "var(--mantine-color-red-5)", flexShrink: 0 }} />
@@ -191,6 +193,14 @@ export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData;
 
   return (
     <Stack gap="md">
+      {isFallback && (
+        <Paper withBorder p="xs" style={{ borderColor: "var(--mantine-color-violet-5)" }}>
+          <Group gap="xs">
+            <Text size="sm" c="violet" fw={600}>Currently using DeepSeek</Text>
+            <Text size="xs" c="dimmed">— Claude Max is rate-limited, requests are routed to DeepSeek</Text>
+          </Group>
+        </Paper>
+      )}
       {!upstream.ok && upstream.fiveHour && (
         <Paper withBorder p="xs" style={{ borderColor: "var(--mantine-color-yellow-5)" }}>
           <Text size="sm" c="yellow">⚠ Poll failed{isAdmin && upstream.error ? ` · ${upstream.error}` : ""}</Text>
@@ -198,11 +208,14 @@ export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData;
       )}
       <Group justify="space-between">
         <Group gap="sm">
-          <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${dotColor}-5)`, flexShrink: 0 }} />
-          <Text size="sm" fw={600}>Claude Max</Text>
+          <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${isFallback ? "violet" : dotColor}-5)`, flexShrink: 0 }} />
+          <Text size="sm" fw={600}>{isFallback ? "DeepSeek" : "Claude Max"}</Text>
           {isAdmin && upstream.email && <Text size="xs" c="dimmed" ff="monospace">{upstream.email}</Text>}
         </Group>
-        {upstream.stale && <Badge color="yellow" variant="light" size="xs">stale</Badge>}
+        <Group gap="xs">
+          {isFallback && <Badge color="violet" variant="light" size="xs">fallback</Badge>}
+          {upstream.stale && <Badge color="yellow" variant="light" size="xs">stale</Badge>}
+        </Group>
       </Group>
 
       <UpstreamGauge upstream={upstream} />

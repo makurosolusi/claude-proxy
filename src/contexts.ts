@@ -12,6 +12,7 @@ export interface UpstreamData {
   pollAge: string | null; nextPoll: string | null;
   fiveHour: UpstreamPeriod | null; sevenDay: UpstreamPeriod | null;
   sevenDaySonnet: UpstreamPeriod | null;
+  fallbackProvider: string | null;
 }
 export type AlertSeverity = "warning" | "critical";
 export type UserProfile   = "agentic" | "conversational" | "heavy_reader" | "efficient" | "mixed";

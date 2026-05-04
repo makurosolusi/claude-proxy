@@ -1,4 +1,4 @@
-import { tokens, users, db, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
+import { tokens, users, db, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, dbSaveSetting, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
@@ -177,6 +177,19 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     for (const [key, tk] of Object.entries(tokens)) {
       if (tk.user_id === uid) { tk.name = newName; db.query("UPDATE tokens SET name=? WHERE key=?").run(newName, key); }
     }
+    return redirect();
+  }
+
+  // DeepSeek settings
+  if (pathname === "/admin/settings/deepseek" && req.method === "POST") {
+    const apiKey   = String(form?.get("api_key")   || "").trim();
+    const baseUrl  = String(form?.get("base_url")  || "").trim();
+    const model    = String(form?.get("model")     || "").trim();
+    const override = String(form?.get("provider_override") || "");
+    if (apiKey)   dbSaveSetting("deepseek_api_key", apiKey);
+    if (baseUrl)  dbSaveSetting("deepseek_base_url", baseUrl);
+    if (model)    dbSaveSetting("deepseek_model", model);
+    dbSaveSetting("provider_override", override);
     return redirect();
   }
 

@@ -23,4 +23,7 @@ export const config = {
   tokensEnv:       process.env.TOKENS             || "",
   port:            resolvePort(),
   anthropicUrl:    process.env.ANTHROPIC_API_URL  || "https://api.anthropic.com",
+  deepseekApiKey:  process.env.DEEPSEEK_API_KEY   || "",
+  deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL  || "https://api.deepseek.com/anthropic",
+  deepseekModel:   process.env.DEEPSEEK_MODEL     || "deepseek-v4-pro[1m]",
 } as const;

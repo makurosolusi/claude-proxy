@@ -42,6 +42,8 @@ export interface UpstreamState {
   detectedWindowMs:  number | null;
   pollBackoffUntil:  number;
   tokenCache:        { value: string | null; readAt: number; email: string | null; credential?: import("./upstream").OauthCredential };
+  fallbackActive:    boolean;
+  fallbackProvider:  string | null;
 }
 
 export interface DailyUsage {

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { config } from "./config";
-import { upstream, tokens, dbSaveUpstream, dbResetAllTokens, dbAlignAllTokens } from "./state";
+import { upstream, tokens, dbSaveUpstream, dbResetAllTokens, dbAlignAllTokens, settings } from "./state";
 import { triggerBroadcast, broadcastSystemMsg } from "./broadcast";
 
 const TOKEN_CACHE_MS    = 30_000;
@@ -164,6 +164,19 @@ export async function poll() {
     upstream.lastPoll       = Date.now();
     upstream.lastPollOk     = true;
     upstream.lastError      = null;
+
+    // Clear fallback state when Anthropic utilization drops below cap
+    // Only if NOT manually overridden to DeepSeek
+    const override = settings["provider_override"] || "";
+    if (upstream.fallbackActive && data.five_hour && override !== "deepseek") {
+      const util = data.five_hour.utilization as number;
+      if (util < config.capPct) {
+        upstream.fallbackActive = false;
+        upstream.fallbackProvider = null;
+        console.log("[upstream] Anthropic recovered — fallback cleared");
+      }
+    }
+
     dbSaveUpstream();
     triggerBroadcast();
 

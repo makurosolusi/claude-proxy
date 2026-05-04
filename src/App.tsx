@@ -493,6 +493,17 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
       {/* ── Clock ────────────────────────────────────────────── */}
       <ClockPanel isDark={isDark} />
 
+      {/* ── DeepSeek Fallback Banner ──────────────────────────── */}
+      {upstream?.fallbackProvider === "deepseek" && (
+        <Alert color="violet" variant="filled" icon={<IconActivity size={18} />} mb="lg">
+          <Text size="sm" fw={600}>Currently using DeepSeek</Text>
+          <Text size="xs" mt={2}>
+            Claude Max is rate-limited. All requests are temporarily routed to DeepSeek.
+            The proxy will switch back automatically when Claude Max recovers.
+          </Text>
+        </Alert>
+      )}
+
       {/* ── Critical Sonnet Alert ────────────────────────────── */}
       {upstream?.sevenDaySonnet && (
         <SonnetCriticalAlert pct={Math.round(upstream.sevenDaySonnet.utilization)} />

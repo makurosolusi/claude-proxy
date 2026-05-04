@@ -219,6 +219,7 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean): Respo
       sevenDay:       upstream.sevenDay,
       sevenDaySonnet: upstream.sevenDaySonnet,
       sevenDayOpus:   upstream.sevenDayOpus,
+      fallbackProvider: upstream.fallbackProvider,
     },
     modelRoutes: Object.values(modelRoutes),
   }, { headers: { "Cache-Control": "no-store" } });

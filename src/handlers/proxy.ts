@@ -1,5 +1,5 @@
 import { config }          from "../config";
-import { upstream, dbLogRequest, dailyUsage, modelRoutes } from "../state";
+import { upstream, dbLogRequest, dailyUsage, modelRoutes, settings } from "../state";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
@@ -113,6 +113,50 @@ function resolveModelRoute(model: string): { rewritten: string | null; blocked: 
   return { rewritten: null, blocked: true, reason: "Too many routing hops (max 5)." };
 }
 
+function getDeepSeekConfig(): { apiKey: string; baseUrl: string; model: string } | null {
+  const apiKey = settings["deepseek_api_key"] || config.deepseekApiKey;
+  if (!apiKey) return null;
+  return {
+    apiKey,
+    baseUrl: settings["deepseek_base_url"] || config.deepseekBaseUrl,
+    model: settings["deepseek_model"] || config.deepseekModel,
+  };
+}
+
+// Build headers + body for upstream forward. Returns null if no credential available.
+function buildUpstreamRequest(
+  provider: "anthropic" | "deepseek",
+  reqHeaders: Headers,
+  pathname: string,
+  bodyText: string,
+  model: string,
+): { url: string; headers: Headers; body: string } | null {
+  const headers = new Headers(reqHeaders);
+  headers.delete("host");
+  headers.delete("x-api-key");
+
+  if (provider === "deepseek") {
+    const ds = getDeepSeekConfig();
+    if (!ds) return null;
+    headers.set("authorization", "Bearer " + ds.apiKey);
+    headers.set("anthropic-version", "2023-06-01");
+    return { url: ds.baseUrl + pathname, headers, body: bodyText };
+  }
+
+  const cred = getOauthCredential();
+  if (!cred) return null;
+  headers.set("authorization", "Bearer " + cred.token);
+  headers.set("anthropic-version", "2023-06-01");
+  headers.set("anthropic-beta", "oauth-2025-04-20");
+  return { url: config.anthropicUrl + pathname, headers, body: bodyText };
+}
+
+// Translate Claude model name to DeepSeek model
+function toDeepSeekModel(model: string): string {
+  const ds = getDeepSeekConfig();
+  return ds?.model || "deepseek-v4-pro[1m]";
+}
+
 export async function handleProxy(
   req:  Request,
   url:  URL,
@@ -172,13 +216,27 @@ export async function handleProxy(
     return Response.json({ error: { type: "not_found_error", message: "Not found" } }, { status: 404 });
   }
 
-  // Soft cap check
+  // Provider selection: manual override > auto fallback
+  let provider: "anthropic" | "deepseek" = "anthropic";
   const fh = upstream.fiveHour;
-  if (upstream.lastPollOk && fh && fh.utilization >= config.capPct) {
-    const resetIn = Math.max(1, Math.ceil((new Date(fh.resets_at).getTime() - Date.now()) / 1000));
-    return Response.json({
-      error: { type: "rate_limit_error", message: `Upstream near limit (${fh.utilization.toFixed(1)}%). Resets in ${resetIn}s.` }
-    }, { status: 429, headers: { "retry-after": String(resetIn) } });
+  const deepseek = getDeepSeekConfig();
+  const override = settings["provider_override"] || ""; // "" | "deepseek" | "anthropic"
+
+  if (override === "deepseek" && deepseek) {
+    provider = "deepseek";
+  } else if (override === "anthropic") {
+    provider = "anthropic";
+  } else if (upstream.lastPollOk && fh && fh.utilization >= config.capPct) {
+    // Auto mode: soft cap triggers fallback
+    if (deepseek) {
+      provider = "deepseek";
+      console.log(`[proxy] Soft cap ${fh.utilization.toFixed(0)}% → DeepSeek fallback [${key.slice(-6)}]`);
+    } else {
+      const resetIn = Math.max(1, Math.ceil((new Date(fh.resets_at).getTime() - Date.now()) / 1000));
+      return Response.json({
+        error: { type: "rate_limit_error", message: `Upstream near limit (${fh.utilization.toFixed(1)}%). Resets in ${resetIn}s.` }
+      }, { status: 429, headers: { "retry-after": String(resetIn) } });
+    }
   }
 
   // Per-user quota — include in-flight reservations from concurrent requests
@@ -231,9 +289,14 @@ export async function handleProxy(
   if (model && upstream.lastPollOk && Object.keys(modelRoutes).length > 0) {
     const routing = resolveModelRoute(model);
     if (routing.blocked) {
-      return Response.json({
-        error: { type: "rate_limit_error", message: routing.reason || "All models at capacity." }
-      }, { status: 429, headers: { "retry-after": "60" } });
+      if (deepseek && override !== "anthropic") {
+        provider = "deepseek";
+        console.log(`[proxy] Model routing blocked → DeepSeek fallback [${key.slice(-6)}]`);
+      } else {
+        return Response.json({
+          error: { type: "rate_limit_error", message: routing.reason || "All models at capacity." }
+        }, { status: 429, headers: { "retry-after": "60" } });
+      }
     }
     if (routing.rewritten) {
       fallbackModel = routing.rewritten;
@@ -242,6 +305,16 @@ export async function handleProxy(
       bodyText = JSON.stringify(bodyJson);
       console.log(`[proxy] Model fallback: ${originalModel} → ${routing.rewritten} [${key.slice(-6)}]`);
     }
+  }
+
+  // Map model name for DeepSeek provider
+  if (provider === "deepseek") {
+    const dsModel = toDeepSeekModel(model);
+    if (bodyJson) {
+      bodyJson.model = dsModel;
+      bodyText = JSON.stringify(bodyJson);
+    }
+    model = dsModel;
   }
 
   // Reserve only expected OUTPUT tokens. Input tokens are counted accurately from
@@ -263,47 +336,60 @@ export async function handleProxy(
   // concurrency while still limiting overshoot. TTL=10min auto-expires leaked reservations.
   const reservationId = reserveInFlight(key, estimatedTokens);
 
-  // ── Build request ────────────────────────────────────────────────────────────
-  const cred = getOauthCredential();
-  if (!cred) {
-    releaseInFlight(key, reservationId);
-    return Response.json({ error: { type: "api_error", message: "No valid OAuth credential available." } }, { status: 503 });
+  // ── Build & forward ───────────────────────────────────────────────────────────
+  let built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
+
+  // If initial provider has no credential, try the other (unless override forces a specific provider)
+  if (!built) {
+    if (provider === "anthropic" && deepseek && override !== "anthropic") {
+      provider = "deepseek";
+      model = toDeepSeekModel(originalModel || model);
+      if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
+      built = buildUpstreamRequest("deepseek", new Headers(req.headers), pathname, bodyText, model);
+      console.log(`[proxy] No Anthropic credential → DeepSeek [${key.slice(-6)}]`);
+    }
+    if (!built) {
+      releaseInFlight(key, reservationId);
+      return Response.json({ error: { type: "api_error", message: "No valid credential available." } }, { status: 503 });
+    }
   }
 
-  const headers = new Headers(req.headers);
-  headers.delete("host");
-  headers.delete("x-api-key");
-  headers.set("authorization", "Bearer " + cred.token);
-  headers.set("anthropic-version", "2023-06-01");
-  headers.set("anthropic-beta", "oauth-2025-04-20");
-
-  const upstreamUrl = config.anthropicUrl + pathname;
+  let upstreamUrl = built.url;
+  let headers = built.headers;
 
   // ── Forward & respond — reservation ALWAYS released via try-finally ─────────
   try {
     let resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
 
-    // 401 → refresh token → retry once
-    if (resp.status === 401) {
-      const newToken = await refreshOauthToken(cred.filePath, cred.refreshToken);
-      if (newToken) {
-        headers.set("authorization", "Bearer " + newToken);
+    // 401 → refresh Anthropic token → retry once (Anthropic only)
+    if (provider === "anthropic" && resp.status === 401) {
+      const cred = getOauthCredential();
+      if (cred) {
+        const newToken = await refreshOauthToken(cred.filePath, cred.refreshToken);
+        if (newToken) {
+          headers.set("authorization", "Bearer " + newToken);
+          resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
+        }
+      }
+    }
+
+    // Anthropic 429 → retry with DeepSeek (unless override forces Claude)
+    if (provider === "anthropic" && resp.status === 429 && deepseek && override !== "anthropic") {
+      provider = "deepseek";
+      model = toDeepSeekModel(originalModel || model);
+      if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
+      const dsBuilt = buildUpstreamRequest("deepseek", new Headers(req.headers), pathname, bodyText, model);
+      if (dsBuilt) {
+        upstreamUrl = dsBuilt.url;
+        headers = dsBuilt.headers;
+        console.log(`[proxy] Anthropic 429 → DeepSeek fallback [${key.slice(-6)}]`);
         resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
       }
     }
 
-    // 429 from Anthropic → try fallback model once (handles stale poll data)
-    if (resp.status === 429 && model && !fallbackModel && Object.keys(modelRoutes).length > 0) {
-      const rule = modelRoutes[model];
-      if (rule?.action === "redirect" && rule.fallback_to && rule.fallback_to !== model) {
-        fallbackModel = rule.fallback_to;
-        model = rule.fallback_to;
-        bodyJson.model = rule.fallback_to;
-        bodyText = JSON.stringify(bodyJson);
-        console.log(`[proxy] 429 auto-fallback: ${originalModel || "?"} → ${rule.fallback_to} [${key.slice(-6)}]`);
-        resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
-      }
-    }
+    // Update fallback state for frontend visibility
+    upstream.fallbackActive = provider === "deepseek";
+    upstream.fallbackProvider = provider === "deepseek" ? "deepseek" : null;
 
     const remaining   = Math.max(0, t.limit === Infinity ? 999_999_999 : t.limit - t.used);
     const rateHeaders: Record<string, string> = {
@@ -312,6 +398,7 @@ export async function handleProxy(
       "x-ratelimit-reset-tokens":     new Date(t.windowStart + t.window).toISOString(),
     };
     if (fallbackModel) rateHeaders["x-model-fallback"] = fallbackModel;
+    if (provider !== "anthropic") rateHeaders["x-provider"] = provider;
 
     const isStream = resp.headers.get("content-type")?.includes("text/event-stream");
 
