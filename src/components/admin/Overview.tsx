@@ -8,18 +8,19 @@ function StatCard({ label, value, sub, color, suffix, icon }: {
   label: string; value: string | number; sub?: string; color?: string; suffix?: string; icon: React.ReactNode;
 }) {
   return (
-    <Paper withBorder p="md" h="100%" radius="md">
+    <Paper withBorder p="md" h="100%" radius="md" style={{ overflow: "hidden" }}>
       <Group gap="sm" mb={8}>
         <ThemeIcon variant="light" color={color ?? "gray"} size="md" radius="md">
           {icon}
         </ThemeIcon>
         <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>{label}</Text>
       </Group>
-      <Group gap={4} align="baseline">
-        <Text fz={26} fw={800} ff="monospace" c={color ?? "inherit"}>
+      <Group gap={4} align="baseline" wrap="nowrap">
+        <Text fz={{ base: 18, xs: 22, sm: 26 }} fw={800} ff="monospace" c={color ?? "inherit"}
+          style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
           {typeof value === "number" ? <NumberFormatter value={value} thousandSeparator /> : value}
         </Text>
-        {suffix && <Text size="sm" c="dimmed">{suffix}</Text>}
+        {suffix && <Text size="sm" c="dimmed" style={{ flexShrink: 0 }}>{suffix}</Text>}
       </Group>
       {sub && <Text size="xs" c="dimmed" mt={2}>{sub}</Text>}
     </Paper>

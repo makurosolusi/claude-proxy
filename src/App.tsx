@@ -119,21 +119,21 @@ function ContextAlertCard({ alert: a, onDismiss }: { alert: ContextAlert; onDism
         <Stack gap="md" p="md">
           {/* Stats */}
           <Group gap="xl" wrap="wrap">
-            <Box>
+            <Box style={{ maxWidth: "100%", overflow: "hidden" }}>
               <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Input tokens</Text>
-              <Text size="lg" fw={700} ff="monospace" c={color}>{nf.format(a.input_tokens)}</Text>
+              <Text size="lg" fw={700} ff="monospace" c={color} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{nf.format(a.input_tokens)}</Text>
             </Box>
-            <Box>
+            <Box style={{ maxWidth: "100%", overflow: "hidden" }}>
               <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Output tokens</Text>
-              <Text size="lg" fw={700} ff="monospace">{nf.format(a.output_tokens)}</Text>
+              <Text size="lg" fw={700} ff="monospace" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{nf.format(a.output_tokens)}</Text>
             </Box>
-            <Box>
+            <Box style={{ maxWidth: "100%", overflow: "hidden" }}>
               <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Rasio in/out</Text>
-              <Text size="lg" fw={700} ff="monospace">{a.ratio}×</Text>
+              <Text size="lg" fw={700} ff="monospace" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{a.ratio}×</Text>
             </Box>
-            <Box>
+            <Box style={{ maxWidth: "100%", overflow: "hidden" }}>
               <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Turns session</Text>
-              <Text size="lg" fw={700} ff="monospace">{a.turns}</Text>
+              <Text size="lg" fw={700} ff="monospace" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{a.turns}</Text>
             </Box>
           </Group>
 
@@ -511,14 +511,15 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
 
       {/* ── Quick Stats ──────────────────────────────────────── */}
       <SimpleGrid cols={{ base: 2, xs: 4 }} mb="lg" id="stats" style={{ scrollMarginTop: 16 }}>
-        <Paper withBorder p="md" radius="md">
+        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
           <Group gap="sm" mb={6}>
             <ThemeIcon variant="light" color="blue" size="md" radius="md">
               <IconActivity size={16} />
             </ThemeIcon>
             <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today</Text>
           </Group>
-          <Text fz={24} fw={700} ff="monospace" c={todayTotal === 0 ? "dimmed" : undefined}>
+          <Text fz={{ base: 18, xs: 22, sm: 24 }} fw={700} ff="monospace" c={todayTotal === 0 ? "dimmed" : undefined}
+            style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
             {nf.format(todayTotal)}
           </Text>
           <Text size="xs" c="dimmed" mt={2}>
@@ -526,31 +527,38 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           </Text>
         </Paper>
 
-        <Paper withBorder p="md" radius="md">
+        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
           <Group gap="sm" mb={6}>
             <ThemeIcon variant="light" color="violet" size="md" radius="md">
               <IconDatabase size={16} />
             </ThemeIcon>
             <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>All-Time</Text>
           </Group>
-          <Text fz={24} fw={700} ff="monospace">{nf.format(status.totalAllTime ?? 0)}</Text>
+          <Text fz={{ base: 18, xs: 22, sm: 24 }} fw={700} ff="monospace"
+            style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+            {nf.format(status.totalAllTime ?? 0)}
+          </Text>
           <Text size="xs" c="dimmed" mt={2}>total tokens processed</Text>
         </Paper>
 
-        <Paper withBorder p="md" radius="md">
+        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
           <Group gap="sm" mb={6}>
             <ThemeIcon variant="light" color="teal" size="md" radius="md">
               <IconUsers size={16} />
             </ThemeIcon>
             <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Active</Text>
           </Group>
-          <Text fz={24} fw={700} ff="monospace">{activeTokens}<Text span fz="md" fw={400} c="dimmed"> / {totalTokens}</Text></Text>
+          <Text fz={{ base: 18, xs: 22, sm: 24 }} fw={700} ff="monospace"
+            style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+            {activeTokens}
+            <Text span fz="sm" fw={400} c="dimmed"> / {totalTokens}</Text>
+          </Text>
           <Text size="xs" c="dimmed" mt={2}>
             {totalTokens === 0 ? "no tokens configured" : activeTokens === 0 ? "no token has usage this window" : "tokens with usage this window"}
           </Text>
         </Paper>
 
-        <Paper withBorder p="md" radius="md">
+        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
           <Group gap="sm" mb={6}>
             <ThemeIcon variant="light" color="orange" size="md" radius="md">
               <IconClock size={16} />
@@ -559,7 +567,10 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           </Group>
           {countdownMs !== null ? (
             <>
-              <Text fz={24} fw={700} ff="monospace">{fmtCountdown(countdownMs)}</Text>
+              <Text fz={{ base: 18, xs: 22, sm: 24 }} fw={700} ff="monospace"
+                style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                {fmtCountdown(countdownMs)}
+              </Text>
               <Text size="xs" c="dimmed" mt={2}>
                 at {new Date(resetsAtMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </Text>
@@ -657,9 +668,9 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                         {ins && <Badge size="xs" variant="light" color={profColor[prof]}>{profLabel[prof]}</Badge>}
                       </Group>
                       <Progress value={pct} color={color} size="md" radius="sm" style={{ flex: 1 }} />
-                      <Group gap={4} style={{ minWidth: 90, justifyContent: "flex-end" }} wrap="nowrap">
+                      <Group gap={4} style={{ minWidth: 100, justifyContent: "flex-end" }} wrap="nowrap">
                         {spike && <Tooltip label="Spike hari ini >2× rata-rata" withArrow><IconAlertTriangle size={12} color="var(--mantine-color-orange-5)" /></Tooltip>}
-                        <Text size="xs" ff="monospace" c="dimmed" ta="right">
+                        <Text size="xs" ff="monospace" c="dimmed" ta="right" style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }}>
                           {nf.format(tk.used)}{tk.limit != null && ` / ${nf.format(tk.limit)}`}
                         </Text>
                       </Group>
