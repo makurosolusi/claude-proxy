@@ -82,7 +82,7 @@ interface Reservation {
   ts:     number;     // creation timestamp for TTL
 }
 
-const INFLIGHT_TTL_MS = 10 * 60 * 1000;  // 10 minutes safety net
+const INFLIGHT_TTL_MS = 3 * 60 * 1000;  // 3 minutes safety net — streaming rarely >2min
 const inFlightMap     = new Map<string, Reservation[]>();
 let   _nextId         = 0;
 
@@ -90,7 +90,12 @@ function cleanStale(key: string) {
   const now     = Date.now();
   const entries = inFlightMap.get(key);
   if (!entries?.length) { inFlightMap.delete(key); return; }
-  const fresh = entries.filter(e => now - e.ts < INFLIGHT_TTL_MS);
+  const fresh   = entries.filter(e => now - e.ts < INFLIGHT_TTL_MS);
+  const dropped = entries.length - fresh.length;
+  if (dropped > 0) {
+    const tokens = entries.filter(e => now - e.ts >= INFLIGHT_TTL_MS).reduce((s, e) => s + e.amount, 0);
+    console.warn(`[tokens] ${key.slice(-6)}: ${dropped} stale reservation(s) expired (${tokens} tokens freed by TTL)`);
+  }
   if (fresh.length === 0) inFlightMap.delete(key);
   else                    inFlightMap.set(key, fresh);
 }

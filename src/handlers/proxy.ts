@@ -185,8 +185,11 @@ export async function handleProxy(
   const inFlightNow = getInFlight(key);
   if (t.used + inFlightNow >= t.limit) {
     const resetIn = Math.ceil((t.windowStart + t.window - Date.now()) / 1000);
+    const msg = inFlightNow > 0
+      ? `Token quota exceeded (used: ${t.used}, in-flight: ${inFlightNow}, limit: ${t.limit}). Resets in ${resetIn}s.`
+      : `Token quota exceeded (${t.used}/${t.limit}). Resets in ${resetIn}s.`;
     return Response.json({
-      error: { type: "rate_limit_error", message: `Token quota exceeded (${t.used}/${t.limit}). Resets in ${resetIn}s.` }
+      error: { type: "rate_limit_error", message: msg }
     }, {
       status: 429,
       headers: {
@@ -241,27 +244,15 @@ export async function handleProxy(
     }
   }
 
-  // Estimate TOTAL tokens (input + output) for reservation.
-  // max_tokens is only the OUTPUT limit. Input can be huge (100k+ for Claude Code).
-  // Count actual message chars and convert to approximate tokens (1 token ≈ 3.5 chars).
+  // Reserve only expected OUTPUT tokens. Input tokens are counted accurately from
+  // message_start event after upstream accepts the request (~1-2s). Using full
+  // input estimate here was causing reservation stacking with concurrent requests
+  // (e.g. 2 large Claude Code sessions could fill 100k limit at 27% actual usage).
   const estimatedTokens = (() => {
-    let chars = 0;
-    try {
-      for (const msg of (bodyJson?.messages || [])) {
-        const c = msg.content;
-        if (typeof c === "string") chars += c.length;
-        else if (Array.isArray(c)) {
-          for (const b of c) {
-            chars += b.type === "text" ? (b.text || "").length
-                   : Math.ceil(JSON.stringify(b).length * 0.5);
-          }
-        }
-      }
-      const sys = bodyJson?.system;
-      if (typeof sys === "string") chars += sys.length;
-      else if (Array.isArray(sys)) chars += JSON.stringify(sys).length;
-    } catch {}
-    return Math.ceil(chars / 3.5) + 300 + maxOutputTokens;
+    const base = maxOutputTokens + 500;
+    // Cap at limit/5 so at least 5 concurrent requests can always proceed.
+    const cap = t.limit === Infinity ? base : Math.max(2000, Math.floor(t.limit / 5));
+    return Math.min(base, cap);
   })();
 
   // Snapshot generation at request start — stale increments ignored after reset
@@ -331,11 +322,12 @@ export async function handleProxy(
       const httpStatus = resp.status;
       // Streaming async — reservation released in its own finally
       (async () => {
-        const reader = resp.body!.getReader();
-        let buffer = "";
+        let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
         let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
         let stopReason = "", toolUseCount = 0, responseText = "";
         try {
+          reader = resp.body!.getReader();
+          let buffer = "";
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
