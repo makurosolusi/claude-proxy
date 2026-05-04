@@ -8,5 +8,4 @@ credentials/
 *.db-shm
 *.db-wal
 src/style.css
-FITURE/
 .claude/

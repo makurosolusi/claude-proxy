@@ -47,8 +47,8 @@ jumlah server maupun jumlah tool per server.
     "command": "bun",
     "args": ["run", "scripts/mcp/deploy.ts"],
     "env": {
-      "STACK_NAME": "claude-proxy",
-      "BASE_URL": "https://claude-proxy.wibudev.com",
+      "STACK_NAME": "my-app",
+      "BASE_URL": "https://my-app.example.com",
       "ENV": "stg",
       "GH_TOKEN": "${GH_TOKEN}",
       "GH_REPO": "owner/repo"
@@ -75,7 +75,7 @@ jumlah server maupun jumlah tool per server.
 4. Server HTTP dipanggil via HTTP POST dengan body JSON-RPC
 5. Semua tool dari semua server muncul di sesi dengan prefix namespace:
    - `mcp__<nama-server>__<nama-tool>`
-   - Contoh: `mcp__deploy-stg__deploy`, `mcp__deploy-stg__check_version`
+   - Contoh: `mcp__deploy-stg__deploy`, `mcp__my-app__check_version`
 
 ### Environment variable interpolation
 
@@ -107,25 +107,25 @@ hanya dengan beda konfigurasi di `.mcp.json`.
 
 ```typescript
 // ❌ Hardcode — tidak bisa dikonfigurasi ulang
-const STACK_NAME = "claude-proxy";
+const STACK_NAME = "my-app";
 const STACK_ENV = "stg";
-const STAGING_URL = "https://claude-proxy.wibudev.com";
+const STAGING_URL = "https://my-app.example.com";
 
 // ✅ Env-driven dengan fallback
-const STACK_NAME = process.env.STACK_NAME ?? "claude-proxy";
+const STACK_NAME = process.env.STACK_NAME ?? "my-app";
 const STACK_ENV = process.env.ENV ?? "stg";
-const STAGING_URL = process.env.BASE_URL ?? "https://claude-proxy.wibudev.com";
+const STAGING_URL = process.env.BASE_URL ?? "https://my-app.example.com";
 ```
 
 Lima var standar untuk deploy server:
 
 | Env Var      | Keterangan                                        | Contoh                                |
 | ------------ | ------------------------------------------------- | ------------------------------------- |
-| `STACK_NAME` | Nama stack di Portainer / nama service / app name | `claude-proxy`                        |
-| `BASE_URL`   | URL target untuk verifikasi versi live            | `https://claude-proxy.wibudev.com`    |
+| `STACK_NAME` | Nama stack di Portainer / nama service / app name | `my-app`                              |
+| `BASE_URL`   | URL target untuk verifikasi versi live            | `https://my-app.example.com`          |
 | `ENV`        | Environment label (`stg`, `prod`, `preview`)      | `stg`                                 |
-| `GH_TOKEN`   | GitHub PAT / token untuk `gh` CLI dan `git push`  | `ghp_xxx...` atau `github_pat_xxx...` |
-| `GH_REPO`    | `owner/repo` GitHub untuk trigger workflow        | `bipprojectbali/claude-proxy`         |
+| `GH_TOKEN`   | GitHub PAT / token untuk `gh` CLI dan `git push`  | nilai dari environment host           |
+| `GH_REPO`    | `owner/repo` GitHub untuk trigger workflow        | `owner/repo`                          |
 
 `GH_TOKEN` wajib untuk operasi tulis GitHub (`git push`, `gh workflow run`).
 Tanpa token, server hanya bisa melakukan operasi baca (scan, check version).
@@ -147,7 +147,7 @@ const REPO =
       const m = url.match(/github\.com[/:](.+?\/.+?)(?:\.git)?$/);
       if (m) return m[1];
     } catch {}
-    return "owner/repo"; // fallback hardcode
+    return "owner/repo"; // fallback — ganti dengan default project kamu
   })();
 ```
 
@@ -169,7 +169,7 @@ file `.mcp.json`.
 │       │                                          │
 │       ▼                                          │
 │  Claude memutuskan tool call:                    │
-│  mcp__deploy-stg__deploy({ bump: "patch" })      │
+│  mcp__<nama-server>__deploy({ bump: "patch" })   │
 │       │                                          │
 │       ▼                                          │
 │  JSON-RPC Request → stdin                        │

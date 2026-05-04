@@ -1,4 +1,4 @@
-# Skill: Click-to-Source (Dev Inspector)
+# Click-to-Source (Dev Inspector)
 
 Fitur yang memungkinkan developer mengklik elemen di browser dan langsung membuka file sumber di editor. Hanya aktif di mode development.
 
@@ -8,10 +8,10 @@ Fitur yang memungkinkan developer mengklik elemen di browser dan langsung membuk
 
 ## Cara Kerja
 
-1. **Vite Plugin** (`src/inspector-plugin.ts`) meng-inject `data-inspector-*` attributes ke setiap JSX element saat build time
-2. **DevInspector** component (`src/DevInspector.tsx`) menangkap klik di browser, membaca attributes tersebut
+1. **Vite Plugin** (`src/inspector-plugin.ts` — nama bebas) meng-inject `data-inspector-*` attributes ke setiap JSX element saat build time
+2. **DevInspector** component (`src/DevInspector.tsx` — nama bebas) menangkap klik di browser, membaca attributes tersebut
 3. Browser mengirim `POST /__open-in-editor` ke server
-4. Server (`src/index.tsx`) membuka file di editor via `Bun.spawn`
+4. Server membuka file di editor via `Bun.spawn`
 
 ---
 
@@ -245,9 +245,9 @@ export function DevInspector({ children }: { children: React.ReactNode }) {
 }
 ```
 
-### 3. `src/frontend.tsx` — Wrap app dengan DevInspector (dev only)
+### 3. Entry point React — Wrap app dengan DevInspector (dev only)
 
-Import conditional via dynamic import — tree-shaken di production build:
+Import conditional via dynamic import — tree-shaken di production build. Taruh di file entry React (mis. `src/main.tsx` atau `src/frontend.tsx`):
 
 ```tsx
 const Inspector = import.meta.env.DEV
@@ -255,11 +255,11 @@ const Inspector = import.meta.env.DEV
   : ({ children }: { children: ReactNode }) => <>{children}</>;
 ```
 
-Digunakan di dalam `<Root>` component sebagai wrapper langsung di sekitar `<App />`.
+Digunakan sebagai wrapper di sekitar komponen root `<App />`.
 
-### 4. `src/index.tsx` — Endpoint `POST /__open-in-editor`
+### 4. Backend — Endpoint `POST /__open-in-editor`
 
-Route di dalam `Bun.serve().routes`, hanya aktif saat bukan production:
+Tambahkan route ini ke server, hanya aktif saat bukan production:
 
 ```ts
 "/__open-in-editor": async req => {

@@ -1,6 +1,6 @@
-# Skill: Bun + Vite Single-Port Architecture
+# Bun + Vite Single-Port Architecture
 
-Cara menjalankan backend (Bun.serve) dan frontend (React + Vite) pada **satu port** tanpa reverse proxy, menggunakan Vite `middlewareMode`.
+Pola untuk menjalankan backend (Bun.serve) dan frontend (React + Vite) pada **satu port** tanpa reverse proxy, menggunakan Vite `middlewareMode`. Referensi file path (`src/index.tsx`, `src/serve.ts`, dll) adalah konvensi — ganti sesuai struktur project kamu.
 
 ---
 
@@ -9,11 +9,11 @@ Cara menjalankan backend (Bun.serve) dan frontend (React + Vite) pada **satu por
 Normalnya Vite menjalankan dev server sendiri di port 5173. Di arsitektur ini, Vite **tidak punya port** — dia dijalankan sebagai middleware object yang dipanggil dari dalam `fetch` handler Bun.serve. Semua traffic masuk lewat satu port, lalu di-routing secara internal.
 
 ```
-Browser → port 8080 (Bun.serve)
+Browser → port <PORT> (Bun.serve)
               │
               ▼  serveFrontend() — dipanggil dari fetch
         isApiRoute(pathname)?
-         /api/*, /v1/*, /admin/*, /ws
+         /api/*, /ws, ... (sesuai project)
               │
          YES  │  NO
               ▼  ▼
@@ -80,18 +80,16 @@ Tidak pakai Elysia. Bun.serve langsung menangani semuanya:
 ```ts
 // src/index.tsx
 serve({
-  port: config.port,  // default 8080, override via PORT env atau --port flag
+  port: process.env.PORT ? Number(process.env.PORT) : 8080,
   idleTimeout: 0,
 
   fetch: (req) => serveFrontend(req),  // fallback untuk non-matching routes
 
   routes: {
-    "/ws":         (req) => { /* WebSocket upgrade */ },
-    "/admin/login": async req => { /* login form GET/POST */ },
-    "/api/status":  req => { /* JSON status */ },
-    "/api/logs/*":  req => { /* admin: request logs */ },
-    "/v1/messages": async req => { /* proxy to upstream */ },
-    // ... route lainnya
+    "/ws":          (req) => { /* WebSocket upgrade */ },
+    "/api/health":  req  => Response.json({ ok: true }),
+    "/api/data":    req  => { /* handler */ },
+    // ... tambahkan route API/WS sesuai project
     "/api/*": () => Response.json({ error: "Not found" }, { status: 404 }),
   },
 });
@@ -158,8 +156,10 @@ async function serveFrontend(request: Request): Promise<Response> {
 
 | Port | Siapa | Keterangan |
 |---|---|---|
-| `8080` (atau `PORT` env / `--port` flag) | Bun.serve | Satu-satunya port yang terbuka untuk traffic HTTP |
-| `24678` | Vite HMR | WebSocket untuk Hot Module Replacement (dev only, tidak perlu dibuka ke publik) |
+| `8080` (atau `PORT` env) | Bun.serve | Satu-satunya port yang terbuka untuk traffic HTTP |
+| `24678` | Vite HMR | WebSocket Hot Module Replacement (dev only, tidak perlu dibuka ke publik) |
+
+> Port Bun.serve bebas — ganti sesuai kebutuhan via `PORT` env. Port Vite HMR (`24678`) internal dan tidak butuh expose ke luar.
 
 ---
 
@@ -222,10 +222,10 @@ Tidak ada dependency tambahan di luar yang sudah ada:
 | Tes | Yang Diharapkan |
 |---|---|
 | `GET /` | HTML dengan HMR script ter-inject (dev) |
-| `GET /api/status` | JSON response dari Bun.serve route |
+| `GET /api/<endpoint>` | JSON response dari Bun.serve route |
 | `GET /src/App.tsx?t=123` | JS module dari Vite transform (dev) |
 | Edit komponen → save | Browser hot-reload tanpa full refresh |
 | `GET /` di production | HTML dari `dist/index.html` |
 | `GET /assets/index-abc123.js` | JS dengan `Cache-Control: immutable` |
-| `GET /admin` (SPA route) | `dist/index.html` (SPA fallback) |
+| `GET /<spa-route>` | `dist/index.html` (SPA fallback) |
 | Jalankan `bun dev` dua kali | Proses lama ter-kill, tidak ada split traffic |
