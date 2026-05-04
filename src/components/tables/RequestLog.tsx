@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useDisclosure } from "@mantine/hooks";
 import { Link } from "react-router-dom";
 import {
-  Stack, Group, Text, Button, Select, Badge, Paper, Table, Tooltip,
+  Stack, Group, Text, Button, Select, Badge, Paper, Table, Tooltip, Box,
   Modal, Grid, Code, Pagination, Divider, ThemeIcon, ActionIcon, Anchor, Alert,
 } from "@mantine/core";
 import { IconSitemap, IconSearch, IconFilter, IconStack2, IconFlag, IconAlertTriangle, IconAlertHexagon, IconRepeat, IconUsers, IconList } from "@tabler/icons-react";
@@ -142,9 +142,9 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
-      <Stack gap="xl">
-        {/* ── Page Header ───────────────────────────────────── */}
-        <Paper withBorder p="lg" radius="md">
+      <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+        {/* ── Header ──────────────────────────────────────────── */}
+        <Box p="lg">
           <Group justify="space-between" wrap="wrap" align="flex-start">
             <div>
               <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }} mb={4}>Request Logs</Text>
@@ -178,10 +178,12 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
               </Tooltip>
             </Group>
           </Group>
-        </Paper>
+        </Box>
 
-        {/* ── Controls ──────────────────────────────────────── */}
-        <Paper withBorder p="sm" radius="md">
+        <Divider />
+
+        {/* ── Controls ─────────────────────────────────────────── */}
+        <Box p="sm">
           <Stack gap="sm">
             <Group justify="space-between" wrap="wrap">
               <Group gap="xs">
@@ -245,101 +247,103 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
               </Tooltip>
             </Group>
           </Stack>
-        </Paper>
+        </Box>
 
-        {/* ── Table ─────────────────────────────────────────── */}
-        <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
-          <Table.ScrollContainer minWidth={860}>
-            <Table highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  {visibleCols.map(c => (
-                    <Table.Th key={c.k} style={c.k === "user" ? STICKY_TH : undefined}>
-                      {c.l}
-                    </Table.Th>
-                  ))}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {!displayEntries.length ? (
-                  <Table.Tr><Table.Td colSpan={visibleCols.length}><Text ta="center" size="sm" c="dimmed" p="xl">No requests found.</Text></Table.Td></Table.Tr>
-                ) : displayEntries.map(({ log: l, count }) => {
-                  const tot = l.input_tokens + l.output_tokens;
-                  const model = l.model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
-                  const u = l.name || l.token_key;   // name is always the display-safe value
-                  const cells: Record<string, React.ReactNode> = {
-                    time: (
-                      <Table.Td key="time">
-                        <Group gap={4} wrap="nowrap">
-                          <Text size="xs" ff="monospace" c="dimmed">{fmtRel(l.ts)}</Text>
-                          {count > 1 && (
-                            <Tooltip label={`${count} identical requests grouped`} withArrow position="top">
-                              <Badge size="xs" color="orange" variant="light" style={{ cursor: "default" }}>×{count}</Badge>
-                            </Tooltip>
-                          )}
-                        </Group>
-                      </Table.Td>
-                    ),
-                    user:  <Table.Td key="user" style={STICKY_COL}>
-                      <Anchor component={Link} to={`/sessions/${encodeURIComponent(u)}`}
-                        onClick={e => e.stopPropagation()}
-                        style={{ textDecoration: "none" }}>
-                        <Badge variant="light" color="blue" size="sm" ff="monospace" style={{ cursor: "pointer" }}>{u}</Badge>
-                      </Anchor>
-                    </Table.Td>,
-                    model: <Table.Td key="model"><Text size="xs" ff="monospace" c="dimmed">{model}</Text></Table.Td>,
-                    in:    <Table.Td key="in"><Text size="xs" ff="monospace" c="dimmed">{l.input_tokens.toLocaleString()}</Text></Table.Td>,
-                    out:   <Table.Td key="out"><Text size="xs" ff="monospace" c="dimmed">{l.output_tokens.toLocaleString()}</Text></Table.Td>,
-                    total: <Table.Td key="total"><Text size="xs" ff="monospace" fw={700} className={totCls(tot)}>{tot.toLocaleString()}</Text></Table.Td>,
-                    type:  <Table.Td key="type">{l.stream ? <Badge color="blue" size="xs">stream</Badge> : <Text size="xs" c="dimmed">sync</Text>}</Table.Td>,
-                    prompt: (
-                      <Table.Td key="prompt" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        <Text size="xs" c="dimmed" truncate title={l.prompt}>{l.prompt || "—"}</Text>
-                      </Table.Td>
-                    ),
-                  };
-                  const ctxSev = ctxSeverity(l);
-                  const rowBg  = l.status >= 400
-                    ? "light-dark(rgba(239,68,68,.05),rgba(239,68,68,.1))"
-                    : ctxSev === "critical"
-                    ? "light-dark(rgba(239,68,68,.07),rgba(239,68,68,.13))"
-                    : ctxSev === "warning"
-                    ? "light-dark(rgba(249,115,22,.05),rgba(249,115,22,.1))"
-                    : undefined;
-                  return (
-                    <Table.Tr
-                      key={l.id}
-                      style={{ cursor: "pointer", background: rowBg }}
-                      onClick={() => showDetail(l)}
-                    >
-                      {visibleCols.map(c => cells[c.k])}
-                      {ctxSev && (
-                        <Table.Td style={{ width: 28, padding: "0 4px" }}>
-                          <Tooltip label={ctxSev === "critical" ? `Context kritis: ${nf.format(l.input_tokens)} tokens input` : `Context besar: ${nf.format(l.input_tokens)} tokens input`} withArrow>
-                            {ctxSev === "critical"
-                              ? <IconAlertHexagon size={14} color="var(--mantine-color-red-5)" />
-                              : <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" />}
+        <Divider />
+
+        {/* ── Table ────────────────────────────────────────────── */}
+        <Table.ScrollContainer minWidth={860}>
+          <Table highlightOnHover>
+            <Table.Thead>
+              <Table.Tr>
+                {visibleCols.map(c => (
+                  <Table.Th key={c.k} style={c.k === "user" ? STICKY_TH : undefined}>
+                    {c.l}
+                  </Table.Th>
+                ))}
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {!displayEntries.length ? (
+                <Table.Tr><Table.Td colSpan={visibleCols.length}><Text ta="center" size="sm" c="dimmed" p="xl">No requests found.</Text></Table.Td></Table.Tr>
+              ) : displayEntries.map(({ log: l, count }) => {
+                const tot = l.input_tokens + l.output_tokens;
+                const model = l.model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+                const u = l.name || l.token_key;
+                const cells: Record<string, React.ReactNode> = {
+                  time: (
+                    <Table.Td key="time">
+                      <Group gap={4} wrap="nowrap">
+                        <Text size="xs" ff="monospace" c="dimmed">{fmtRel(l.ts)}</Text>
+                        {count > 1 && (
+                          <Tooltip label={`${count} identical requests grouped`} withArrow position="top">
+                            <Badge size="xs" color="orange" variant="light" style={{ cursor: "default" }}>×{count}</Badge>
                           </Tooltip>
-                        </Table.Td>
-                      )}
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
+                        )}
+                      </Group>
+                    </Table.Td>
+                  ),
+                  user:  <Table.Td key="user" style={STICKY_COL}>
+                    <Anchor component={Link} to={`/sessions/${encodeURIComponent(u)}`}
+                      onClick={e => e.stopPropagation()}
+                      style={{ textDecoration: "none" }}>
+                      <Badge variant="light" color="blue" size="sm" ff="monospace" style={{ cursor: "pointer" }}>{u}</Badge>
+                    </Anchor>
+                  </Table.Td>,
+                  model: <Table.Td key="model"><Text size="xs" ff="monospace" c="dimmed">{model}</Text></Table.Td>,
+                  in:    <Table.Td key="in"><Text size="xs" ff="monospace" c="dimmed">{l.input_tokens.toLocaleString()}</Text></Table.Td>,
+                  out:   <Table.Td key="out"><Text size="xs" ff="monospace" c="dimmed">{l.output_tokens.toLocaleString()}</Text></Table.Td>,
+                  total: <Table.Td key="total"><Text size="xs" ff="monospace" fw={700} className={totCls(tot)}>{tot.toLocaleString()}</Text></Table.Td>,
+                  type:  <Table.Td key="type">{l.stream ? <Badge color="blue" size="xs">stream</Badge> : <Text size="xs" c="dimmed">sync</Text>}</Table.Td>,
+                  prompt: (
+                    <Table.Td key="prompt" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <Text size="xs" c="dimmed" truncate title={l.prompt}>{l.prompt || "—"}</Text>
+                    </Table.Td>
+                  ),
+                };
+                const ctxSev = ctxSeverity(l);
+                const rowBg  = l.status >= 400
+                  ? "light-dark(rgba(239,68,68,.05),rgba(239,68,68,.1))"
+                  : ctxSev === "critical"
+                  ? "light-dark(rgba(239,68,68,.07),rgba(239,68,68,.13))"
+                  : ctxSev === "warning"
+                  ? "light-dark(rgba(249,115,22,.05),rgba(249,115,22,.1))"
+                  : undefined;
+                return (
+                  <Table.Tr
+                    key={l.id}
+                    style={{ cursor: "pointer", background: rowBg }}
+                    onClick={() => showDetail(l)}
+                  >
+                    {visibleCols.map(c => cells[c.k])}
+                    {ctxSev && (
+                      <Table.Td style={{ width: 28, padding: "0 4px" }}>
+                        <Tooltip label={ctxSev === "critical" ? `Context kritis: ${nf.format(l.input_tokens)} tokens input` : `Context besar: ${nf.format(l.input_tokens)} tokens input`} withArrow>
+                          {ctxSev === "critical"
+                            ? <IconAlertHexagon size={14} color="var(--mantine-color-red-5)" />
+                            : <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" />}
+                        </Tooltip>
+                      </Table.Td>
+                    )}
+                  </Table.Tr>
+                );
+              })}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
 
-          <Group justify="space-between" p="sm" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
-            <Pagination total={pages} value={page} onChange={p => { setPage(p); fetchLogs(p, user); }} size="sm" />
-            <Text size="xs" c="dimmed">
-              {total === 0 ? "No results" : groupDups && dupCount > 0
-                ? `${uniqueCount} unique · ${dupCount} grouped · page ${page}/${pages}`
-                : `Showing ${(page-1)*LIMIT+1}–${Math.min(page*LIMIT,total)} of ${total}`
-              }
-            </Text>
-          </Group>
-        </Paper>
-      </Stack>
+        <Divider />
+
+        <Group justify="space-between" p="sm">
+          <Pagination total={pages} value={page} onChange={p => { setPage(p); fetchLogs(p, user); }} size="sm" />
+          <Text size="xs" c="dimmed">
+            {total === 0 ? "No results" : groupDups && dupCount > 0
+              ? `${uniqueCount} unique · ${dupCount} grouped · page ${page}/${pages}`
+              : `Showing ${(page-1)*LIMIT+1}–${Math.min(page*LIMIT,total)} of ${total}`
+            }
+          </Text>
+        </Group>
+      </Paper>
 
       <Modal opened={modalOpen} onClose={closeModal} title="Request Detail" size="lg" centered>
         {detail && <DetailContent log={detail} />}

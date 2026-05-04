@@ -194,7 +194,32 @@ async function toolDeploy(args: { bump?: "patch" | "minor" | "major"; skip_commi
       hint: `Harus berada di branch '${BRANCH}', saat ini di '${branch}'` };
   }
 
-  // 2 — preflight
+  // 2 — auto-commit jika dirty (sebelum preflight)
+  if (!skipCommit) {
+    const dirty = run("git status --porcelain").trim() !== "";
+    if (dirty) {
+      const uncommittedDiff = (() => {
+        try {
+          return run(
+            `git diff HEAD -- . ":(exclude)*.lock" ":(exclude)package-lock.json" ` +
+            `| grep '^+' | grep -v '^+++'`
+          );
+        } catch { return ""; }
+      })();
+      const earlyCredIssues = scanCredentials(uncommittedDiff);
+      if (earlyCredIssues.length > 0) {
+        steps.push({ step: "auto_commit", status: "blocked", issues: earlyCredIssues,
+          detail: `Credential leak: ${earlyCredIssues.map(i => i.type).join(", ")}` });
+        return { success: false, blocked_by: "credential_leak", steps,
+          hint: `Perbaiki credential leak sebelum deploy: ${earlyCredIssues.map(i => i.type).join(", ")}` };
+      }
+      run("git add -A");
+      run(`git commit -m "chore: pre-deploy snapshot"`);
+      steps.push({ step: "auto_commit", status: "ok", detail: "uncommitted changes committed" });
+    }
+  }
+
+  // 3 — preflight
   const pre = await toolPreflight();
   const preDetail = [
     !pre.working_tree_clean              && "Working tree kotor — commit atau stash dulu",

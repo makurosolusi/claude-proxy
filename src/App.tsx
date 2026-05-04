@@ -5,7 +5,7 @@ import {
   Container, Group, Stack, Title, Text, Box, Button, Paper,
   ActionIcon, Tooltip, TextInput, useMantineColorScheme,
   SimpleGrid, Progress, ThemeIcon, Divider, Alert, Badge, Code, Collapse, Loader, Transition,
-  Table,
+  Table, Pagination,
 } from "@mantine/core";
 import {
   IconSun, IconMoon, IconLogout, IconLogin,
@@ -423,6 +423,8 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   useEffect(() => {
     fetch("/api/analytics").then(r => r.json()).then(setAnalytics).catch(() => {});
   }, []);
+
+  const [anomalyPage, setAnomalyPage] = useState(1);
 
   // Persist scroll across navigations. Async content (hourly, ws status) keeps
   // resizing the page after mount, so we keep nudging scrollTo until the page
@@ -947,12 +949,19 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
             )}
 
             {/* Anomaly Scores */}
-            {analytics.anomalyScores.length > 0 && (
+            {analytics.anomalyScores.length > 0 && (() => {
+              const ANOMALY_PAGE = 10;
+              const anomalyPages = Math.ceil(analytics.anomalyScores.length / ANOMALY_PAGE);
+              const anomalySlice = analytics.anomalyScores.slice(
+                (anomalyPage - 1) * ANOMALY_PAGE, anomalyPage * ANOMALY_PAGE
+              );
+              return (
               <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
                 <Group gap="xs" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
                   <ThemeIcon variant="light" color="red" size="sm" radius="sm"><IconFlame size={13} /></ThemeIcon>
                   <Text size="sm" fw={700}>Anomaly Score</Text>
                   <Text size="xs" c="dimmed">— heaviest requests, scored 0–100 from input tokens, ratio, tool use, duration</Text>
+                  <Badge size="xs" variant="light" color="red" ml="auto">{analytics.anomalyScores.length} entries</Badge>
                 </Group>
                 <Table.ScrollContainer minWidth={600}>
                   <Table highlightOnHover>
@@ -968,7 +977,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {analytics.anomalyScores.map(r => {
+                      {anomalySlice.map(r => {
                         const display = maskToken(r.label);
                         return (
                           <Table.Tr key={r.id}>
@@ -991,8 +1000,16 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                     </Table.Tbody>
                   </Table>
                 </Table.ScrollContainer>
+
+                {anomalyPages > 1 && (
+                  <Group justify="space-between" p="sm" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
+                    <Text size="xs" c="dimmed">{analytics.anomalyScores.length} entries · page {anomalyPage}/{anomalyPages}</Text>
+                    <Pagination total={anomalyPages} value={anomalyPage} onChange={setAnomalyPage} size="sm" />
+                  </Group>
+                )}
               </Paper>
-            )}
+              );
+            })()}
           </Stack>
         </Box>
       )}
