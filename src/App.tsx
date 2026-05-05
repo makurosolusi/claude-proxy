@@ -115,7 +115,7 @@ function ContextAlertCard({ alert: a, onDismiss }: { alert: ContextAlert; onDism
         </Group>
       </Group>
 
-      <Collapse in={open}>
+      <Collapse expanded={open}>
         <Stack gap="md" p="md">
           {/* Stats */}
           <Group gap="xl" wrap="wrap">
@@ -242,6 +242,7 @@ interface AnalyticsData {
   stopReasonDist: { stop_reason: string; n: number }[];
   dailyByUser:    { date: string; by_user: Record<string, number> }[];
   dailyUsers:     string[];
+  allTimeByUser:  { user: string; total: number }[];
 }
 
 function fmtHour(h: number) { return `${String(h).padStart(2, "0")}:00`; }
@@ -709,6 +710,51 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
         </Paper>
       </Stack>
 
+      {/* ── All-Time Token Usage per User ───────────────────── */}
+      {analytics && analytics.allTimeByUser.length > 0 && (() => {
+        const COLORS = ["#228be6","#12b886","#fab005","#e03131","#7950f2","#fd7e14","#339af0","#20c997","#f59f00","#c92a2a","#74c0fc","#63e6be"];
+        const grandTotal = analytics.allTimeByUser.reduce((s, u) => s + u.total, 0) || 1;
+        return (
+          <Stack gap="xs" mb="lg">
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>All-Time Usage per User</Text>
+            <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+              <Stack gap={0}>
+                {analytics.allTimeByUser.map((u, i) => {
+                  const display = maskToken(u.user);
+                  const pct     = Math.round((u.total / grandTotal) * 100);
+                  const color   = COLORS[i % COLORS.length];
+                  return (
+                    <Box key={u.user} px="md" py="sm"
+                      style={{ borderBottom: i < analytics.allTimeByUser.length - 1 ? "1px solid var(--mantine-color-default-border)" : undefined }}>
+                      <Group justify="space-between" mb={6} wrap="nowrap">
+                        <Group gap={8} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+                          <Box w={10} h={10} style={{ borderRadius: "50%", background: color, flexShrink: 0 }} />
+                          <Tooltip label={u.user} withArrow openDelay={400} disabled={display === u.user}>
+                            <Text size="sm" fw={600} ff="monospace" truncate>{display}</Text>
+                          </Tooltip>
+                        </Group>
+                        <Group gap="xl" wrap="nowrap">
+                          <Box ta="right" style={{ minWidth: 90 }}>
+                            <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>All-Time</Text>
+                            <Text size="sm" ff="monospace" fw={700}>{nf.format(u.total)}</Text>
+                          </Box>
+                          <Box ta="right" style={{ minWidth: 40 }}>
+                            <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Share</Text>
+                            <Text size="sm" ff="monospace" fw={600} style={{ color }}>{pct}%</Text>
+                          </Box>
+                        </Group>
+                      </Group>
+                      <Progress value={pct} color={color} size="xs" radius="xl"
+                        style={{ background: isDark ? "rgba(255,255,255,.06)" : "rgba(0,0,0,.06)" }} />
+                    </Box>
+                  );
+                })}
+              </Stack>
+            </Paper>
+          </Stack>
+        );
+      })()}
+
       {/* ── Today's Activity ─────────────────────────────────── */}
       {hourly.length === 24 && (() => {
         const maxTok = Math.max(...hourly.map(h => h.tokens), 1);
@@ -841,7 +887,8 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                       axisPointer: { type: "shadow" },
                       formatter: (params: any[]) => {
                         const p = params[0];
-                        return `${p.name}<br/>${nf.format(p.value)} tokens`;
+                        const br = "<" + "br/>";
+                        return p.name + br + nf.format(p.value) + " tokens";
                       },
                     },
                     grid: { top: 8, bottom: 8, left: "2%", right: "14%", containLabel: true },
@@ -908,12 +955,16 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                     trigger: "axis",
                     axisPointer: { type: "cross" },
                     formatter: (params: any[]) => {
+                      const br = "<" + "br/>";
+                      const bOpen = "<" + "b>", bClose = "<" + "/b>";
+                      const spanOpen = (color: string) => "<" + `span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px">`;
+                      const spanClose = "<" + "/span>";
                       const date = params[0]?.axisValue ?? "";
                       const lines = params
                         .filter((p: any) => p.value > 0)
                         .sort((a: any, b: any) => b.value - a.value)
-                        .map((p: any) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:4px"></span>${p.seriesName}: ${nf.format(p.value)}`);
-                      return `<b>${date}</b><br/>${lines.join("<br/>")}`;
+                        .map((p: any) => spanOpen(p.color) + spanClose + p.seriesName + ": " + nf.format(p.value));
+                      return [bOpen + date + bClose, ...lines].join(br);
                     },
                   },
                   legend: {

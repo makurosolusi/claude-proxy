@@ -27,7 +27,6 @@ import { handleProxy }     from "./handlers/proxy";
 import { _broadcast, _broadcastSystemMsg } from "./broadcast";
 
 // ── DeepSeek connection test ──────────────────────────────────────────────────
-import { config } from "./config";
 async function handleDeepSeekTest(): Promise<Response> {
   const apiKey = settings["deepseek_api_key"] || config.deepseekApiKey;
   if (!apiKey) return Response.json({ ok: false, error: "No DeepSeek API key configured" });

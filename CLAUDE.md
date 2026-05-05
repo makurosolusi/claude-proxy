@@ -30,6 +30,11 @@ Set `REACT_EDITOR=cursor` (atau `code`, `zed`) di `.env` untuk click-to-source (
 - Tidak ada feature flag atau backwards-compat shim
 - Prefer edit file existing, bukan buat file baru
 
+## Aturan Deploy
+
+- **Jangan deploy (`mcp__deploy-stg__deploy`) sebelum ada perintah eksplisit dari user.**
+- Setelah code selesai dan siap, cukup lapor ke user — tunggu instruksi deploy.
+
 ## Referensi
 
 - @AI-CONTRACT.md — aturan kerja AI: prinsip, checklist sebelum edit, larangan, eskalasi

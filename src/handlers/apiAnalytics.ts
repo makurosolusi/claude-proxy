@@ -156,6 +156,18 @@ export function handleApiAnalytics(isAdmin: boolean): Response {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, by_user]) => ({ date, by_user }));
 
+  // ── All-time per user from request_logs — reliable source ─────────────────
+  const allTimeRows = db.query(`
+    SELECT COALESCE(NULLIF(name, ''), token_key) AS display_name,
+           SUM(input_tokens + output_tokens + cache_read + cache_creation) AS total
+    FROM request_logs
+    WHERE status < 400
+    GROUP BY display_name
+    ORDER BY total DESC
+  `).all() as { display_name: string; total: number }[];
+
+  const allTimeByUser = allTimeRows.map(r => ({ user: r.display_name, total: r.total || 0 }));
+
   return Response.json({
     modelDist,
     cacheHitRate,
@@ -166,5 +178,6 @@ export function handleApiAnalytics(isAdmin: boolean): Response {
     stopReasonDist: stopRows,
     dailyByUser,
     dailyUsers: [...userSet],
+    allTimeByUser,
   });
 }
