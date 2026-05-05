@@ -1,5 +1,9 @@
-import { db, recentLogs, dailyUsage, allTimePerUser, tokens } from "../state";
+import { db, recentLogs, dailyUsage, allTimePerUser, tokens, deriveNameFromKey } from "../state";
 import { todayKey } from "../tokens";
+
+function keyToName(key: string): string {
+  return tokens[key]?.name ?? deriveNameFromKey(key);
+}
 
 function anomalyScore(inp: number, out: number, toolUse: number, durationMs: number): number {
   let score = 0;
@@ -134,6 +138,24 @@ export function handleApiAnalytics(isAdmin: boolean): Response {
     ORDER BY n DESC
   `).all() as { stop_reason: string; n: number }[];
 
+  // ── Daily usage per user (last 30 days) — public ─────────────────────────
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const dailyRows = db.query(`
+    SELECT date, token_key, used FROM daily_usage WHERE date >= ? ORDER BY date ASC
+  `).all(cutoff) as { date: string; token_key: string; used: number }[];
+
+  const dailyMap: Record<string, Record<string, number>> = {};
+  const userSet = new Set<string>();
+  for (const r of dailyRows) {
+    const name = keyToName(r.token_key);
+    if (!dailyMap[r.date]) dailyMap[r.date] = {};
+    dailyMap[r.date][name] = (dailyMap[r.date][name] || 0) + r.used;
+    userSet.add(name);
+  }
+  const dailyByUser = Object.entries(dailyMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, by_user]) => ({ date, by_user }));
+
   return Response.json({
     modelDist,
     cacheHitRate,
@@ -142,5 +164,7 @@ export function handleApiAnalytics(isAdmin: boolean): Response {
     leaderboard,
     anomalyScores: anomalyRows,
     stopReasonDist: stopRows,
+    dailyByUser,
+    dailyUsers: [...userSet],
   });
 }
