@@ -1,4 +1,4 @@
-import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, modelRoutes } from "../state";
+import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, modelRoutes, settings } from "../state";
 import type { ContextAlert, ThresholdAlert, UserInsight, UserProfile } from "../contexts";
 import { todayKey } from "../tokens";
 
@@ -220,6 +220,20 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean): Respo
       sevenDaySonnet: upstream.sevenDaySonnet,
       sevenDayOpus:   upstream.sevenDayOpus,
       fallbackProvider: upstream.fallbackProvider,
+      activeProvider: (() => {
+        const override = settings["provider_override"] || "";
+        if (override === "deepseek")   return "deepseek";
+        if (override === "openrouter") return "openrouter";
+        if (override === "anthropic")  return null;
+        return upstream.fallbackProvider; // auto mode: runtime wins
+      })(),
+      activeModel: (() => {
+        const override = settings["provider_override"] || "";
+        const fp = override || upstream.fallbackProvider;
+        if (fp === "deepseek")   return settings["deepseek_model"]   || "deepseek-v4-pro[1m]";
+        if (fp === "openrouter") return settings["openrouter_model"] || "anthropic/claude-sonnet-4";
+        return null;
+      })(),
     },
     modelRoutes: Object.values(modelRoutes),
   }, { headers: { "Cache-Control": "no-store" } });

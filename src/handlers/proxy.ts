@@ -441,18 +441,28 @@ export async function handleProxy(
       const decoder = new TextDecoder();
       const httpStatus = resp.status;
       // Streaming async — reservation released in its own finally
+      const needModelFix = provider !== "anthropic" && !!originalModel;
       (async () => {
         let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
         let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
         let stopReason = "", toolUseCount = 0, responseText = "";
+        let modelFixPending = needModelFix;
         try {
           reader = resp.body!.getReader();
           let buffer = "";
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            await writer.write(value);
-            buffer += decoder.decode(value, { stream: true });
+            const decoded = decoder.decode(value, { stream: true });
+            let toWrite: Uint8Array = value;
+            if (modelFixPending && decoded.includes('"message_start"')) {
+              toWrite = new TextEncoder().encode(
+                decoded.replace(`"model":"${model}"`, `"model":"${originalModel}"`)
+              );
+              modelFixPending = false;
+            }
+            await writer.write(toWrite);
+            buffer += decoded;
             const lines = buffer.split("\n");
             buffer = lines.pop() || "";
             for (const line of lines) {
@@ -525,6 +535,7 @@ export async function handleProxy(
       const pct = Math.round((t.used / t.limit) * 100);
       if (pct >= 95) pushAlert(`${t.name}: quota ${pct}% — hampir habis!`);
     }
+    if (provider !== "anthropic" && originalModel && body?.model) body.model = originalModel;
     return Response.json(body, { status: resp.status, headers: rateHeaders });
 
   } catch (err: any) {

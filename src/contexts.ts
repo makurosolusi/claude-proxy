@@ -13,6 +13,8 @@ export interface UpstreamData {
   fiveHour: UpstreamPeriod | null; sevenDay: UpstreamPeriod | null;
   sevenDaySonnet: UpstreamPeriod | null;
   fallbackProvider: string | null;
+  activeProvider:   string | null;
+  activeModel:      string | null;
 }
 export type AlertSeverity = "warning" | "critical";
 export type UserProfile   = "agentic" | "conversational" | "heavy_reader" | "efficient" | "mixed";
