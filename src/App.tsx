@@ -14,7 +14,7 @@ import {
   IconAlertTriangle, IconAlertHexagon, IconChevronDown, IconChevronUp,
   IconBulb, IconX, IconChartBar, IconArrowUp, IconHeartbeat, IconKey,
   IconChartHistogram, IconList, IconFlame, IconChartPie, IconBolt,
-  IconTrophy, IconBrain, IconRobot, IconCloud, IconAi,
+  IconTrophy, IconBrain,
 } from "@tabler/icons-react";
 import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
@@ -506,32 +506,26 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
         const provName  = ap === "deepseek" ? "DeepSeek" : ap === "openrouter" ? "OpenRouter" : "Claude Max";
         const provColor = ap === "deepseek" ? "violet" : ap === "openrouter" ? "orange"
           : upstream?.ok ? "blue" : "gray";
-        const provIcon  = ap === "deepseek" ? <IconRobot size={22} />
-          : ap === "openrouter" ? <IconCloud size={22} />
-          : <IconAi size={22} />;
         const modelLabel = upstream?.activeModel ?? "claude-sonnet-4-6";
         return (
-          <Paper withBorder mb="lg" radius="md" style={{
-            borderLeft: `4px solid var(--mantine-color-${provColor}-5)`,
-            background: `var(--mantine-color-${provColor}-light)`,
-          }}>
-            <Group p="md" gap="md" wrap="nowrap" align="center">
-              <ThemeIcon variant="filled" color={provColor} size={52} radius="md" style={{ flexShrink: 0 }}>
-                {provIcon}
-              </ThemeIcon>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".1em" }}>Active Model</Text>
-                <Text fw={800} ff="monospace" fz={{ base: "lg", sm: "xl" }} lh={1.2}>{provName}</Text>
-                <Text size="sm" ff="monospace" c="dimmed" mt={2}>{modelLabel}</Text>
-              </div>
-              {isFallback
-                ? <Badge color={provColor} variant="filled" size="lg" radius="sm">Fallback</Badge>
-                : <Badge color={provColor} variant="light" size="lg" radius="sm">Primary</Badge>
-              }
+          <Paper withBorder radius="md" mb="lg" px="md" py={10}
+            style={{ background: isDark ? "rgba(255,255,255,.02)" : "rgba(0,0,0,.01)" }}>
+            <Group justify="space-between" wrap="nowrap" gap="md">
+              <Group gap="sm" wrap="nowrap">
+                <Box w={8} h={8} style={{ borderRadius: "50%", flexShrink: 0, marginTop: 1,
+                  background: `var(--mantine-color-${provColor}-5)` }} />
+                <Group gap={6} align="baseline" wrap="nowrap">
+                  <Text size="sm" fw={600}>{provName}</Text>
+                  <Text size="xs" c="dimmed" ff="monospace">{modelLabel}</Text>
+                </Group>
+              </Group>
+              <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: ".08em", flexShrink: 0 }}>
+                {isFallback ? "fallback" : "primary"}
+              </Text>
             </Group>
             {isFallback && (
-              <Text size="xs" c="dimmed" px="md" pb="md" mt={-4}>
-                Claude Max is rate-limited — requests automatically routed to {provName} until Claude recovers.
+              <Text size="xs" c="dimmed" mt={4} style={{ paddingLeft: 20 }}>
+                Claude Max rate-limited — auto-routing to {provName} until Claude recovers.
               </Text>
             )}
           </Paper>
