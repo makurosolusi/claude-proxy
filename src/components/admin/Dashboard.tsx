@@ -69,9 +69,9 @@ export function AdminDashboard() {
     { id: "logs",     label: "Request Logs",   icon: <IconList            size={SZ} />, desc: "Activity & history"     },
     { id: "stats",    label: "Stats",          icon: <IconChartBar        size={SZ} />, desc: "Daily usage history"    },
     { id: "routing",   label: "Routing",        icon: <IconRoute           size={SZ} />, desc: "Model fallback rules"      },
-    { id: "providers", label: "Providers",      icon: <IconCloud           size={SZ} />, desc: "Claude Max & DeepSeek config" },
+    { id: "providers", label: "Providers",      icon: <IconCloud           size={SZ} />, desc: "Claude Max, OpenRouter & DeepSeek" },
     { id: "test",      label: "Test Connection",icon: <IconPlugConnected   size={SZ} />, desc: "Verify API connectivity"     },
-    { id: "accounts", label: "Accounts",       icon: <IconKey             size={SZ} />, desc: "OAuth Claude accounts"   },
+    { id: "accounts", label: "Credentials",     icon: <IconKey             size={SZ} />, desc: "API keys & OAuth accounts" },
     { id: "database", label: "Database",       icon: <IconDatabase        size={SZ} />, desc: "Backup & restore DB"     },
   ];
   const footerItems: { icon: React.ReactNode; label: string; href: string; target?: string }[] = [
@@ -81,7 +81,7 @@ export function AdminDashboard() {
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
   const sectionTitles: Record<AdminSection, string> = {
-    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", routing: "Routing", providers: "Providers", test: "Test Connection", accounts: "Accounts", database: "Database",
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", routing: "Routing", providers: "Providers", test: "Test Connection", accounts: "Credentials", database: "Database",
   };
   const statusColor = upstream.ok ? "teal" : "red";
   const SIDEBAR_W   = collapsed ? 56 : 220;
@@ -215,11 +215,15 @@ export function AdminDashboard() {
                 </Text>
               </Group>
               <Group gap="xs" mb={6} align="center" wrap="nowrap">
-                <ThemeIcon variant="light" color={upstream.fallbackProvider === "deepseek" ? "violet" : "blue"} size="xs" radius="sm">
+                <ThemeIcon variant="light" color={
+                  upstream.fallbackProvider === "deepseek" ? "violet" :
+                  upstream.fallbackProvider === "openrouter" ? "orange" : "blue"
+                } size="xs" radius="sm">
                   <IconCloud size={10} />
                 </ThemeIcon>
                 <Text size="10px" c="dimmed" ff="monospace">
-                  {upstream.fallbackProvider === "deepseek" ? "DeepSeek" : "Claude Max"}
+                  {upstream.fallbackProvider === "deepseek" ? "DeepSeek" :
+                   upstream.fallbackProvider === "openrouter" ? "OpenRouter" : "Claude Max"}
                 </Text>
               </Group>
               <Group gap="xs" justify="space-between" align="center">

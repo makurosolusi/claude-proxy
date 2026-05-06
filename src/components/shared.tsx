@@ -176,7 +176,10 @@ function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
 }
 
 export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData; isAdmin: boolean }) {
-  const isFallback = upstream.fallbackProvider === "deepseek";
+  const fb = upstream.fallbackProvider;
+  const isFallback = fb != null && fb !== "anthropic";
+  const fbName = fb === "deepseek" ? "DeepSeek" : fb === "openrouter" ? "OpenRouter" : fb || "";
+  const fbColor = fb === "deepseek" ? "violet" : fb === "openrouter" ? "orange" : "violet";
 
   if (!upstream.ok && !upstream.fiveHour && !isFallback) return (
     <Stack gap="xs">
@@ -194,10 +197,10 @@ export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData;
   return (
     <Stack gap="md">
       {isFallback && (
-        <Paper withBorder p="xs" style={{ borderColor: "var(--mantine-color-violet-5)" }}>
+        <Paper withBorder p="xs" style={{ borderColor: `var(--mantine-color-${fbColor}-5)` }}>
           <Group gap="xs">
-            <Text size="sm" c="violet" fw={600}>Currently using DeepSeek</Text>
-            <Text size="xs" c="dimmed">— Claude Max is rate-limited, requests are routed to DeepSeek</Text>
+            <Text size="sm" c={fbColor} fw={600}>Currently using {fbName}</Text>
+            <Text size="xs" c="dimmed">— Claude Max is rate-limited, requests are routed to {fbName}</Text>
           </Group>
         </Paper>
       )}
@@ -208,12 +211,12 @@ export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData;
       )}
       <Group justify="space-between">
         <Group gap="sm">
-          <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${isFallback ? "violet" : dotColor}-5)`, flexShrink: 0 }} />
-          <Text size="sm" fw={600}>{isFallback ? "DeepSeek" : "Claude Max"}</Text>
+          <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${isFallback ? fbColor : dotColor}-5)`, flexShrink: 0 }} />
+          <Text size="sm" fw={600}>{isFallback ? fbName : "Claude Max"}</Text>
           {isAdmin && upstream.email && <Text size="xs" c="dimmed" ff="monospace">{upstream.email}</Text>}
         </Group>
         <Group gap="xs">
-          {isFallback && <Badge color="violet" variant="light" size="xs">fallback</Badge>}
+          {isFallback && <Badge color={fbColor} variant="light" size="xs">fallback</Badge>}
           {upstream.stale && <Badge color="yellow" variant="light" size="xs">stale</Badge>}
         </Group>
       </Group>

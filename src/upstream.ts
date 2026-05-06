@@ -166,9 +166,9 @@ export async function poll() {
     upstream.lastError      = null;
 
     // Clear fallback state when Anthropic utilization drops below cap
-    // Only if NOT manually overridden to DeepSeek
+    // Only if NOT manually overridden to a specific provider
     const override = settings["provider_override"] || "";
-    if (upstream.fallbackActive && data.five_hour && override !== "deepseek") {
+    if (upstream.fallbackActive && data.five_hour && override !== "deepseek" && override !== "openrouter") {
       const util = data.five_hour.utilization as number;
       if (util < config.capPct) {
         upstream.fallbackActive = false;

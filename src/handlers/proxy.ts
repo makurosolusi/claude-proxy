@@ -123,9 +123,19 @@ function getDeepSeekConfig(): { apiKey: string; baseUrl: string; model: string }
   };
 }
 
+function getOpenRouterConfig(): { apiKey: string; baseUrl: string; model: string } | null {
+  const apiKey = settings["openrouter_api_key"] || config.openrouterApiKey;
+  if (!apiKey) return null;
+  return {
+    apiKey,
+    baseUrl: settings["openrouter_base_url"] || config.openrouterBaseUrl,
+    model: settings["openrouter_model"] || config.openrouterModel,
+  };
+}
+
 // Build headers + body for upstream forward. Returns null if no credential available.
 function buildUpstreamRequest(
-  provider: "anthropic" | "deepseek",
+  provider: "anthropic" | "deepseek" | "openrouter",
   reqHeaders: Headers,
   pathname: string,
   bodyText: string,
@@ -143,6 +153,15 @@ function buildUpstreamRequest(
     return { url: ds.baseUrl + pathname, headers, body: bodyText };
   }
 
+  if (provider === "openrouter") {
+    const or = getOpenRouterConfig();
+    if (!or) return null;
+    headers.set("authorization", "Bearer " + or.apiKey);
+    headers.set("anthropic-version", "2023-06-01");
+    headers.set("HTTP-Referer", "https://claude-proxy.wibudev.com");
+    return { url: or.baseUrl + pathname, headers, body: bodyText };
+  }
+
   const cred = getOauthCredential();
   if (!cred) return null;
   headers.set("authorization", "Bearer " + cred.token);
@@ -151,10 +170,17 @@ function buildUpstreamRequest(
   return { url: config.anthropicUrl + pathname, headers, body: bodyText };
 }
 
-// Translate Claude model name to DeepSeek model
-function toDeepSeekModel(model: string): string {
-  const ds = getDeepSeekConfig();
-  return ds?.model || "deepseek-v4-pro[1m]";
+// Translate Claude model name to provider-specific model
+function toProviderModel(model: string, provider: string): string {
+  if (provider === "deepseek") {
+    const ds = getDeepSeekConfig();
+    return ds?.model || "deepseek-v4-pro[1m]";
+  }
+  if (provider === "openrouter") {
+    const or = getOpenRouterConfig();
+    return or?.model || "anthropic/claude-sonnet-4";
+  }
+  return model;
 }
 
 export async function handleProxy(
@@ -217,20 +243,27 @@ export async function handleProxy(
   }
 
   // Provider selection: manual override > auto fallback
-  let provider: "anthropic" | "deepseek" = "anthropic";
+  type Provider = "anthropic" | "deepseek" | "openrouter";
+  let provider: Provider = "anthropic";
   const fh = upstream.fiveHour;
-  const deepseek = getDeepSeekConfig();
-  const override = settings["provider_override"] || ""; // "" | "deepseek" | "anthropic"
+  const deepseek   = getDeepSeekConfig();
+  const openrouter = getOpenRouterConfig();
+  const override = settings["provider_override"] || ""; // "" | "deepseek" | "openrouter" | "anthropic"
+
+  // Auto-fallback order: openrouter first (cheaper/faster), then deepseek
+  const autoFallback = openrouter || deepseek;
 
   if (override === "deepseek" && deepseek) {
     provider = "deepseek";
+  } else if (override === "openrouter" && openrouter) {
+    provider = "openrouter";
   } else if (override === "anthropic") {
     provider = "anthropic";
   } else if (upstream.lastPollOk && fh && fh.utilization >= config.capPct) {
-    // Auto mode: soft cap triggers fallback
-    if (deepseek) {
-      provider = "deepseek";
-      console.log(`[proxy] Soft cap ${fh.utilization.toFixed(0)}% → DeepSeek fallback [${key.slice(-6)}]`);
+    // Auto mode: soft cap triggers fallback — try openrouter first, then deepseek
+    if (autoFallback) {
+      provider = openrouter ? "openrouter" : "deepseek";
+      console.log(`[proxy] Soft cap ${fh.utilization.toFixed(0)}% → ${provider} fallback [${key.slice(-6)}]`);
     } else {
       const resetIn = Math.max(1, Math.ceil((new Date(fh.resets_at).getTime() - Date.now()) / 1000));
       return Response.json({
@@ -289,9 +322,9 @@ export async function handleProxy(
   if (model && upstream.lastPollOk && Object.keys(modelRoutes).length > 0) {
     const routing = resolveModelRoute(model);
     if (routing.blocked) {
-      if (deepseek && override !== "anthropic") {
-        provider = "deepseek";
-        console.log(`[proxy] Model routing blocked → DeepSeek fallback [${key.slice(-6)}]`);
+      if (autoFallback && override !== "anthropic") {
+        provider = openrouter ? "openrouter" : "deepseek";
+        console.log(`[proxy] Model routing blocked → ${provider} fallback [${key.slice(-6)}]`);
       } else {
         return Response.json({
           error: { type: "rate_limit_error", message: routing.reason || "All models at capacity." }
@@ -307,14 +340,14 @@ export async function handleProxy(
     }
   }
 
-  // Map model name for DeepSeek provider
-  if (provider === "deepseek") {
-    const dsModel = toDeepSeekModel(model);
+  // Map model name for non-Anthropic providers
+  if (provider !== "anthropic") {
+    const pm = toProviderModel(model, provider);
     if (bodyJson) {
-      bodyJson.model = dsModel;
+      bodyJson.model = pm;
       bodyText = JSON.stringify(bodyJson);
     }
-    model = dsModel;
+    model = pm;
   }
 
   // Reserve only expected OUTPUT tokens. Input tokens are counted accurately from
@@ -339,14 +372,14 @@ export async function handleProxy(
   // ── Build & forward ───────────────────────────────────────────────────────────
   let built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
 
-  // If initial provider has no credential, try the other (unless override forces a specific provider)
+  // If initial provider has no credential, try fallbacks (unless override forces a specific provider)
   if (!built) {
-    if (provider === "anthropic" && deepseek && override !== "anthropic") {
-      provider = "deepseek";
-      model = toDeepSeekModel(originalModel || model);
+    if (provider === "anthropic" && autoFallback && override !== "anthropic") {
+      provider = openrouter ? "openrouter" : "deepseek";
+      model = toProviderModel(originalModel || model, provider);
       if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
-      built = buildUpstreamRequest("deepseek", new Headers(req.headers), pathname, bodyText, model);
-      console.log(`[proxy] No Anthropic credential → DeepSeek [${key.slice(-6)}]`);
+      built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
+      console.log(`[proxy] No Anthropic credential → ${provider} [${key.slice(-6)}]`);
     }
     if (!built) {
       releaseInFlight(key, reservationId);
@@ -373,23 +406,23 @@ export async function handleProxy(
       }
     }
 
-    // Anthropic 429 → retry with DeepSeek (unless override forces Claude)
-    if (provider === "anthropic" && resp.status === 429 && deepseek && override !== "anthropic") {
-      provider = "deepseek";
-      model = toDeepSeekModel(originalModel || model);
+    // Anthropic 429 → retry with fallback provider (unless override forces Claude)
+    if (provider === "anthropic" && resp.status === 429 && autoFallback && override !== "anthropic") {
+      provider = openrouter ? "openrouter" : "deepseek";
+      model = toProviderModel(originalModel || model, provider);
       if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
-      const dsBuilt = buildUpstreamRequest("deepseek", new Headers(req.headers), pathname, bodyText, model);
-      if (dsBuilt) {
-        upstreamUrl = dsBuilt.url;
-        headers = dsBuilt.headers;
-        console.log(`[proxy] Anthropic 429 → DeepSeek fallback [${key.slice(-6)}]`);
+      const fbBuilt = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
+      if (fbBuilt) {
+        upstreamUrl = fbBuilt.url;
+        headers = fbBuilt.headers;
+        console.log(`[proxy] Anthropic 429 → ${provider} fallback [${key.slice(-6)}]`);
         resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
       }
     }
 
     // Update fallback state for frontend visibility
-    upstream.fallbackActive = provider === "deepseek";
-    upstream.fallbackProvider = provider === "deepseek" ? "deepseek" : null;
+    upstream.fallbackActive = provider !== "anthropic";
+    upstream.fallbackProvider = provider !== "anthropic" ? provider : null;
 
     const remaining   = Math.max(0, t.limit === Infinity ? 999_999_999 : t.limit - t.used);
     const rateHeaders: Record<string, string> = {

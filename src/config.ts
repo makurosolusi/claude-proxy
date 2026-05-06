@@ -23,7 +23,10 @@ export const config = {
   tokensEnv:       process.env.TOKENS             || "",
   port:            resolvePort(),
   anthropicUrl:    process.env.ANTHROPIC_API_URL  || "https://api.anthropic.com",
-  deepseekApiKey:  process.env.DEEPSEEK_API_KEY   || "",
-  deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL  || "https://api.deepseek.com/anthropic",
-  deepseekModel:   process.env.DEEPSEEK_MODEL     || "deepseek-v4-pro[1m]",
+  deepseekApiKey:    process.env.DEEPSEEK_API_KEY     || "",
+  deepseekBaseUrl:   process.env.DEEPSEEK_BASE_URL    || "https://api.deepseek.com/anthropic",
+  deepseekModel:     process.env.DEEPSEEK_MODEL       || "deepseek-v4-pro[1m]",
+  openrouterApiKey:  process.env.OPENROUTER_API_KEY   || "",
+  openrouterBaseUrl: process.env.OPENROUTER_BASE_URL  || "https://openrouter.ai/api",
+  openrouterModel:   process.env.OPENROUTER_MODEL     || "anthropic/claude-sonnet-4",
 } as const;

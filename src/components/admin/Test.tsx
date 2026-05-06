@@ -4,7 +4,7 @@ import {
 } from "@mantine/core";
 import {
   IconCircleCheck, IconCircleX, IconClock, IconWifi, IconKey, IconActivity,
-  IconMessages, IconRobot, IconAi,
+  IconMessages, IconRobot, IconAi, IconCloud,
 } from "@tabler/icons-react";
 
 interface TestResult { ok: boolean; latency: number; detail: string; error?: string; }
@@ -54,10 +54,11 @@ function ResultRow({ label, desc, icon, result }: {
 }
 
 export function AdminTest() {
-  const [claude, setClaude]     = useState<ClaudeResults | null>(null);
-  const [deepseek, setDeepseek] = useState<DeepSeekResult | null>(null);
-  const [loading, setLoading]   = useState<"claude" | "deepseek" | "both" | null>(null);
-  const [err, setErr]           = useState<string | null>(null);
+  const [claude, setClaude]       = useState<ClaudeResults | null>(null);
+  const [deepseek, setDeepseek]   = useState<DeepSeekResult | null>(null);
+  const [openrouter, setOpenrouter] = useState<DeepSeekResult | null>(null);
+  const [loading, setLoading]     = useState<"claude" | "deepseek" | "openrouter" | "all" | null>(null);
+  const [err, setErr]             = useState<string | null>(null);
 
   const runClaude = async () => {
     setLoading("claude"); setErr(null); setClaude(null);
@@ -78,22 +79,34 @@ export function AdminTest() {
     finally { setLoading(null); }
   };
 
-  const runBoth = async () => {
-    setLoading("both"); setErr(null); setClaude(null); setDeepseek(null);
+  const runOpenRouter = async () => {
+    setLoading("openrouter"); setErr(null); setOpenrouter(null);
     try {
-      const [r1, r2] = await Promise.all([
+      const r = await fetch("/api/admin/test/openrouter");
+      setOpenrouter(await r.json());
+    } catch (e: any) { setErr(e.message); }
+    finally { setLoading(null); }
+  };
+
+  const runAll = async () => {
+    setLoading("all"); setErr(null); setClaude(null); setDeepseek(null); setOpenrouter(null);
+    try {
+      const [r1, r2, r3] = await Promise.all([
         fetch("/api/admin/test"),
         fetch("/api/admin/test/deepseek"),
+        fetch("/api/admin/test/openrouter"),
       ]);
       if (r1.ok) setClaude(await r1.json());
       else setErr("Claude test HTTP " + r1.status);
       try { setDeepseek(await r2.json()); } catch {}
+      try { setOpenrouter(await r3.json()); } catch {}
     } catch (e: any) { setErr(e.message); }
     finally { setLoading(null); }
   };
 
   const claudeAllOk = claude ? Object.values(claude.results).every(r => r.ok) : null;
   const deepseekOk  = deepseek?.ok ?? null;
+  const openrouterOk = openrouter?.ok ?? null;
   const loadingAny  = loading !== null;
 
   return (
@@ -109,9 +122,9 @@ export function AdminTest() {
           <Group gap="xs">
             <Button
               size="sm" radius="md" variant="light"
-              leftSection={loading === "both" ? <Loader size={14} /> : <IconWifi size={16} />}
-              loading={loading === "both"}
-              onClick={runBoth}
+              leftSection={loading === "all" ? <Loader size={14} /> : <IconWifi size={16} />}
+              loading={loading === "all"}
+              onClick={runAll}
             >
               Test All
             </Button>
@@ -143,7 +156,7 @@ export function AdminTest() {
             </div>
             <Button
               size="xs" variant="light" color="blue" radius="md"
-              loading={loading === "claude" || loading === "both"}
+              loading={loading === "claude" || loading === "all"}
               onClick={runClaude}
             >
               {claude ? "Retest" : "Test"}
@@ -205,7 +218,7 @@ export function AdminTest() {
             </div>
             <Button
               size="xs" variant="light" color="violet" radius="md"
-              loading={loading === "deepseek" || loading === "both"}
+              loading={loading === "deepseek" || loading === "all"}
               onClick={runDeepSeek}
             >
               {deepseek ? "Retest" : "Test"}
@@ -253,6 +266,68 @@ export function AdminTest() {
 
           {!deepseek && !loadingAny && (
             <Text size="xs" c="dimmed" ta="center" mt="md">Click Test to verify DeepSeek connection</Text>
+          )}
+        </Paper>
+
+        {/* OpenRouter */}
+        <Paper withBorder p="lg" radius="md">
+          <Group gap="sm" mb="lg">
+            <ThemeIcon variant="light" color="orange" size="lg" radius="md">
+              <IconCloud size={18} />
+            </ThemeIcon>
+            <div style={{ flex: 1 }}>
+              <Text size="sm" fw={700}>OpenRouter</Text>
+              <Text size="xs" c="dimmed">API gateway · Anthropic-compatible endpoint</Text>
+            </div>
+            <Button
+              size="xs" variant="light" color="orange" radius="md"
+              loading={loading === "openrouter" || loading === "all"}
+              onClick={runOpenRouter}
+            >
+              {openrouter ? "Retest" : "Test"}
+            </Button>
+          </Group>
+
+          {openrouterOk !== null && (
+            <Paper withBorder p="xs" radius="md" mb="md" style={{
+              borderColor: `var(--mantine-color-${openrouterOk ? "teal" : "red"}-4)`,
+              background: `var(--mantine-color-${openrouterOk ? "teal" : "red"}-light)`,
+            }}>
+              <Group gap="sm">
+                <ThemeIcon variant="light" color={openrouterOk ? "teal" : "red"} size="sm" radius="sm">
+                  {openrouterOk ? <IconCircleCheck size={14} /> : <IconCircleX size={14} />}
+                </ThemeIcon>
+                <Text size="xs" fw={600} c={openrouterOk ? "teal" : "red"}>
+                  {openrouterOk ? "OpenRouter connection OK" : (openrouter?.error || "Connection failed")}
+                </Text>
+              </Group>
+              {openrouter && openrouter.latency > 0 && (
+                <Group gap={4} mt={4}>
+                  <IconClock size={12} color="var(--mantine-color-dimmed)" />
+                  <Text size="xs" c="dimmed" ff="monospace">{openrouter.latency}ms · {openrouter.detail || ""}</Text>
+                </Group>
+              )}
+            </Paper>
+          )}
+
+          {openrouter && (
+            <Stack gap="sm">
+              <ResultRow
+                label="Messages API"
+                desc="POST /v1/messages to OpenRouter endpoint"
+                icon={<IconMessages size={16} />}
+                result={{
+                  ok: openrouter.ok,
+                  latency: openrouter.latency,
+                  detail: openrouter.detail || openrouter.error || "",
+                  error: openrouter.error,
+                }}
+              />
+            </Stack>
+          )}
+
+          {!openrouter && !loadingAny && (
+            <Text size="xs" c="dimmed" ta="center" mt="md">Click Test to verify OpenRouter connection</Text>
           )}
         </Paper>
       </SimpleGrid>

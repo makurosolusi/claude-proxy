@@ -193,6 +193,19 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
+  // OpenRouter settings
+  if (pathname === "/admin/settings/openrouter" && req.method === "POST") {
+    const apiKey   = String(form?.get("api_key")   || "").trim();
+    const baseUrl  = String(form?.get("base_url")  || "").trim();
+    const model    = String(form?.get("model")     || "").trim();
+    const override = String(form?.get("provider_override") || "");
+    if (apiKey)   dbSaveSetting("openrouter_api_key", apiKey);
+    if (baseUrl)  dbSaveSetting("openrouter_base_url", baseUrl);
+    if (model)    dbSaveSetting("openrouter_model", model);
+    dbSaveSetting("provider_override", override);
+    return redirect();
+  }
+
   // Clear logs
   if (pathname === "/admin/logs/clear" && req.method === "POST") {
     const user = form ? String(form.get("user") || "").trim() : "";
