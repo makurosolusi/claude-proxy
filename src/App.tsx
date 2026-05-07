@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useDisclosure } from "@mantine/hooks";
 import { Routes, Route } from "react-router-dom";
 import ReactECharts from "echarts-for-react";
 import {
   Container, Group, Stack, Title, Text, Box, Button, Paper,
   ActionIcon, Tooltip, TextInput, useMantineColorScheme,
   SimpleGrid, Progress, ThemeIcon, Divider, Alert, Badge, Code, Collapse, Loader, Transition,
-  Table, Pagination,
+  Table, Pagination, Modal,
 } from "@mantine/core";
 import {
   IconSun, IconMoon, IconLogout, IconLogin,
@@ -22,7 +23,7 @@ import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
 import { useStatus } from "./contexts";
 import { LoadingScreen, NotFoundPage, RequireAdmin, UpstreamSection } from "./components/shared";
 import { DailyHistory } from "./components/tables/DailyHistory";
-import { RequestLog } from "./components/tables/RequestLog";
+import { RequestLog, DetailContent } from "./components/tables/RequestLog";
 import { AdminDashboard } from "./components/admin/Dashboard";
 import { MindPage } from "./components/MindPage";
 import { RacePage } from "./components/RacePage";
@@ -358,6 +359,183 @@ function SonnetCriticalAlert({ pct }: { pct: number }) {
   );
 }
 
+function TokenDetailModal({ tokenKey, tk, ins, opened, onClose }: {
+  tokenKey: string;
+  tk: import("./contexts").TokenStatus;
+  ins: import("./contexts").UserInsight | undefined;
+  opened: boolean;
+  onClose: () => void;
+}) {
+  const nfm = new Intl.NumberFormat();
+  const pct = tk.limit == null ? 0 : Math.min(100, Math.round((tk.used / tk.limit) * 100));
+  const color = tk.paused ? "gray" : pct >= 95 ? "red" : pct >= 75 ? "orange" : pct >= 50 ? "yellow" : "teal";
+  const maxSpark = Math.max(...(ins?.sparkline ?? [0]), 1);
+
+  const profColor: Record<string, string> = { agentic: "violet", conversational: "blue", heavy_reader: "orange", efficient: "teal", mixed: "gray" };
+  const profLabel: Record<string, string> = { agentic: "Agentic", conversational: "Chat", heavy_reader: "Heavy Reader", efficient: "Efisien", mixed: "Mixed" };
+  const prof = ins?.profile ?? "mixed";
+
+  const stopTotal = Object.values(ins?.stopReasons ?? {}).reduce((s, v) => s + v, 0) || 1;
+  const stopColors: Record<string, string> = { end_turn: "teal", max_tokens: "orange", stop_sequence: "blue", tool_use: "violet" };
+
+  const qs = ins?.quotaSuggestion;
+  const qsColor = qs?.action === "increase" ? "red" : qs?.action === "decrease" ? "blue" : "teal";
+
+  const providerName = tk.activeProvider === "deepseek" ? "DeepSeek"
+    : tk.activeProvider === "openrouter" ? "OpenRouter" : "Claude Max";
+  const providerColor = tk.activeProvider === "deepseek" ? "violet"
+    : tk.activeProvider === "openrouter" ? "orange" : "blue";
+
+  return (
+    <Modal opened={opened} onClose={onClose} title={
+      <Group gap="sm">
+        <Text fw={700} ff="monospace">{maskToken(tk.label)}</Text>
+        {tk.paused && <Badge color="gray" size="xs">paused</Badge>}
+        <Badge color={providerColor} variant="light" size="xs">{providerName}</Badge>
+      </Group>
+    } size="md" centered>
+      <Stack gap="md">
+
+        {/* ── Usage ─────────────────────────────────────── */}
+        <Stack gap={6}>
+          <Group justify="space-between">
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".07em" }}>Window Usage</Text>
+            <Text size="xs" ff="monospace" c="dimmed">
+              {nfm.format(tk.used)}{tk.limit != null ? ` / ${nfm.format(tk.limit)}` : " / ∞"}
+              {tk.limit != null && ` · ${pct}%`}
+            </Text>
+          </Group>
+          <Progress value={pct} color={color} size="lg" radius="sm" />
+          <Group gap="xl">
+            <Box>
+              <Text size="xs" c="dimmed">Today</Text>
+              <Text size="sm" fw={600} ff="monospace">{nfm.format(tk.today)}</Text>
+            </Box>
+            <Box>
+              <Text size="xs" c="dimmed">All-time</Text>
+              <Text size="sm" fw={600} ff="monospace">{nfm.format(tk.alltime)}</Text>
+            </Box>
+            {tk.remaining != null && (
+              <Box>
+                <Text size="xs" c="dimmed">Remaining</Text>
+                <Text size="sm" fw={600} ff="monospace" c={tk.remaining < 5000 ? "red" : undefined}>
+                  {nfm.format(tk.remaining)}
+                </Text>
+              </Box>
+            )}
+          </Group>
+        </Stack>
+
+        {/* ── Sparkline 7 days ──────────────────────────── */}
+        {ins && ins.sparkline.length === 7 && (
+          <Stack gap={6}>
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".07em" }}>7-Day History</Text>
+            <Group gap={4} align="flex-end" style={{ height: 48 }}>
+              {ins.sparkline.map((v, i) => {
+                const label = i === 6 ? "Today" : `-${6 - i}d`;
+                return (
+                  <Tooltip key={i} label={`${label}: ${nfm.format(v)}`} withArrow>
+                    <Box style={{
+                      flex: 1,
+                      height: Math.max(4, Math.round((v / maxSpark) * 44)),
+                      borderRadius: 3,
+                      background: i === 6 ? "var(--mantine-color-blue-5)" : "var(--mantine-color-default-border)",
+                      cursor: "default",
+                    }} />
+                  </Tooltip>
+                );
+              })}
+            </Group>
+            <Group gap="xs" justify="space-between">
+              {ins.sparkline.map((_, i) => (
+                <Text key={i} size="10px" c="dimmed" style={{ flex: 1, textAlign: "center" }}>
+                  {i === 6 ? "T" : `-${6 - i}`}
+                </Text>
+              ))}
+            </Group>
+          </Stack>
+        )}
+
+        {/* ── Burn rate + Profile ────────────────────────── */}
+        {ins && (
+          <SimpleGrid cols={2} spacing="sm">
+            <Paper withBorder p="sm" radius="md">
+              <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={6} style={{ letterSpacing: ".06em" }}>Burn Rate</Text>
+              <Stack gap={4}>
+                <Group justify="space-between">
+                  <Text size="xs" c="dimmed">Avg daily</Text>
+                  <Text size="xs" ff="monospace">{nfm.format(Math.round(ins.burnRate.avgDaily))}</Text>
+                </Group>
+                {ins.burnRate.hoursLeft != null && (
+                  <Group justify="space-between">
+                    <Text size="xs" c="dimmed">Est. left</Text>
+                    <Text size="xs" ff="monospace"
+                      c={ins.burnRate.hoursLeft < 4 ? "red" : ins.burnRate.hoursLeft < 12 ? "orange" : undefined}>
+                      {ins.burnRate.hoursLeft < 1 ? "< 1h" : ins.burnRate.hoursLeft < 48
+                        ? `~${ins.burnRate.hoursLeft.toFixed(0)}h`
+                        : `~${(ins.burnRate.hoursLeft / 24).toFixed(0)}d`}
+                    </Text>
+                  </Group>
+                )}
+                {ins.burnRate.spikeMultiple >= 2 && (
+                  <Text size="xs" c="orange">⚠ Spike {ins.burnRate.spikeMultiple}× rata-rata</Text>
+                )}
+              </Stack>
+            </Paper>
+            <Paper withBorder p="sm" radius="md">
+              <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={6} style={{ letterSpacing: ".06em" }}>Profile</Text>
+              <Badge color={profColor[prof]} variant="light" size="sm" mb={6}>{profLabel[prof]}</Badge>
+              <Text size="xs" c="dimmed" style={{ lineHeight: 1.5 }}>{ins.profileReason}</Text>
+            </Paper>
+          </SimpleGrid>
+        )}
+
+        {/* ── Cache + Stop reasons ──────────────────────── */}
+        {ins && (
+          <SimpleGrid cols={2} spacing="sm">
+            <Paper withBorder p="sm" radius="md">
+              <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={6} style={{ letterSpacing: ".06em" }}>Cache Hit Rate</Text>
+              <Text size="xl" fw={700} ff="monospace" c={ins.cacheHitRate > 0.5 ? "teal" : undefined}>
+                {(ins.cacheHitRate * 100).toFixed(0)}%
+              </Text>
+              <Text size="xs" c="dimmed" mt={2}>avg {nfm.format(ins.avgInputTokens)} in/req</Text>
+            </Paper>
+            {Object.keys(ins.stopReasons).length > 0 && (
+              <Paper withBorder p="sm" radius="md">
+                <Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={6} style={{ letterSpacing: ".06em" }}>Stop Reasons</Text>
+                <Stack gap={4}>
+                  {Object.entries(ins.stopReasons).map(([k, v]) => (
+                    <Group key={k} justify="space-between">
+                      <Badge size="xs" color={stopColors[k] ?? "gray"} variant="light">{k.replace(/_/g, " ")}</Badge>
+                      <Text size="xs" ff="monospace" c="dimmed">{((v / stopTotal) * 100).toFixed(0)}%</Text>
+                    </Group>
+                  ))}
+                </Stack>
+              </Paper>
+            )}
+          </SimpleGrid>
+        )}
+
+        {/* ── Quota suggestion ──────────────────────────── */}
+        {qs && (
+          <Paper withBorder p="sm" radius="md" style={{ borderColor: `var(--mantine-color-${qsColor}-4)` }}>
+            <Group gap="sm" mb={4}>
+              <Badge color={qsColor} variant="light" size="sm">
+                {qs.action === "increase" ? "Perlu naik" : qs.action === "decrease" ? "Bisa turun" : "Limit OK"}
+              </Badge>
+              {qs.suggested != null && (
+                <Text size="xs" ff="monospace" c="dimmed">Saran: {nfm.format(qs.suggested)}</Text>
+              )}
+            </Group>
+            <Text size="xs" c="dimmed">{qs.reason}</Text>
+          </Paper>
+        )}
+
+      </Stack>
+    </Modal>
+  );
+}
+
 function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
@@ -429,6 +607,10 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
 
 
   const [anomalyPage, setAnomalyPage] = useState(1);
+  const [selectedToken, setSelectedToken] = useState<{ key: string; tk: import("./contexts").TokenStatus } | null>(null);
+  const [anomalyDetail, setAnomalyDetail] = useState<import("./contexts").LogEntry | null>(null);
+  const [anomalyDetailLoading, setAnomalyDetailLoading] = useState(false);
+  const [anomalyModalOpen, { open: openAnomalyModal, close: closeAnomalyModal }] = useDisclosure(false);
 
   // Persist scroll across navigations. Async content (hourly, ws status) keeps
   // resizing the page after mount, so we keep nudging scrollTo until the page
@@ -686,7 +868,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                 const display  = maskToken(tk.label);
                 const dotColor = avatarColor(display);
                 return (
-                  <Box key={key}>
+                  <Box key={key} style={{ cursor: "pointer" }} onClick={() => setSelectedToken({ key, tk })}>
                     <Group gap="sm" wrap="nowrap" mb={4}>
                       <Group gap={6} style={{ minWidth: isAdmin ? 140 : 90, maxWidth: isAdmin ? 180 : 110 }} wrap="nowrap">
                         <Box w={6} h={6} style={{ borderRadius: "50%", background: `var(--mantine-color-${dotColor}-5)`, flexShrink: 0 }} />
@@ -1206,8 +1388,16 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                     <Table.Tbody>
                       {anomalySlice.map(r => {
                         const display = maskToken(r.label);
+                        const openDetail = async () => {
+                          setAnomalyDetailLoading(true);
+                          openAnomalyModal();
+                          try {
+                            const res = await fetch(`/api/logs/${r.id}`);
+                            if (res.ok) setAnomalyDetail(await res.json());
+                          } finally { setAnomalyDetailLoading(false); }
+                        };
                         return (
-                          <Table.Tr key={r.id}>
+                          <Table.Tr key={r.id} style={{ cursor: "pointer" }} onClick={openDetail}>
                             <Table.Td>
                               <Badge size="sm" style={{ background: anomalyScoreColor(r.score), color: "#fff" }} ff="monospace">{r.score}</Badge>
                             </Table.Td>
@@ -1240,6 +1430,28 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           </Stack>
         </Box>
       )}
+
+      {/* ── Token Detail Modal ───────────────────────────────── */}
+      {selectedToken && (
+        <TokenDetailModal
+          tokenKey={selectedToken.key}
+          tk={selectedToken.tk}
+          ins={insights[selectedToken.key]}
+          opened={!!selectedToken}
+          onClose={() => setSelectedToken(null)}
+        />
+      )}
+
+      {/* ── Anomaly Detail Modal ─────────────────────────────── */}
+      <Modal opened={anomalyModalOpen} onClose={() => { closeAnomalyModal(); setAnomalyDetail(null); }}
+        title="Request Detail" size="lg" centered>
+        {anomalyDetailLoading
+          ? <Group justify="center" py="xl"><Loader size="sm" /></Group>
+          : anomalyDetail
+          ? <DetailContent log={anomalyDetail} />
+          : <Text size="sm" c="dimmed">Failed to load detail.</Text>
+        }
+      </Modal>
 
       {/* ── Request Log (public shows compact preview) ───────── */}
       <Box id="logs" style={{ scrollMarginTop: 16 }}>

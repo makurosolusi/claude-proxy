@@ -53,7 +53,7 @@ function groupDuplicateLogs(logs: LogEntry[]): Array<{ log: LogEntry; count: num
   return out;
 }
 
-function DetailContent({ log: l }: { log: LogEntry }) {
+export function DetailContent({ log: l }: { log: LogEntry }) {
   const tot    = l.input_tokens + l.output_tokens;
   const sev    = ctxSeverity(l);
   const ratio  = Math.round(l.input_tokens / Math.max(l.output_tokens, 1));

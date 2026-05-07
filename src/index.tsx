@@ -303,45 +303,229 @@ function checkAdmin(req: Request): boolean {
 }
 
 function loginPage(error?: string): Response {
-  const errHtml = error ? `<p style="color:#ef4444;font-size:.85rem;margin:0 0 12px">${error}</p>` : "";
   return new Response(`<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>claude-proxy · login</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>claude-proxy · Admin</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;background:#f8f9fa;color:#1c1c1e}
-@media(prefers-color-scheme:dark){body{background:#1a1b1e;color:#c1c2c5}}
-.card{background:#fff;border:1px solid #dee2e6;border-radius:16px;padding:32px;width:100%;max-width:360px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-@media(prefers-color-scheme:dark){.card{background:#25262b;border-color:#373a40}}
-.logo{width:36px;height:36px;background:#228be6;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:16px}
-.logo span{color:#fff;font-size:.75rem;font-weight:700}
-h1{font-size:1.1rem;font-weight:700;margin-bottom:2px}
-.sub{font-size:.8rem;color:#868e96;margin-bottom:24px}
-label{display:block;font-size:.75rem;font-weight:600;color:#868e96;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
-input{width:100%;padding:10px 12px;border:1px solid #dee2e6;border-radius:8px;font-size:.875rem;font-family:inherit;background:#fff;color:#1c1c1e;outline:none;margin-bottom:16px;transition:border-color .15s}
-input:focus{border-color:#228be6}
-@media(prefers-color-scheme:dark){input{background:#2c2e33;border-color:#373a40;color:#c1c2c5}}
-@media(prefers-color-scheme:dark){input:focus{border-color:#339af0}}
-button{width:100%;padding:10px;background:#228be6;color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;transition:background .15s}
-button:hover{background:#1c7ed6}
+
+:root{
+  --bg:#0f1012;
+  --surface:#1a1b1e;
+  --border:#2c2e33;
+  --border-focus:#339af0;
+  --text:#c9cace;
+  --text-dim:#636770;
+  --text-bright:#e9eaec;
+  --blue:#228be6;
+  --blue-hover:#1c7ed6;
+  --red:#fa5252;
+  --red-bg:rgba(250,82,82,.1);
+  --input-bg:#25262b;
+}
+@media(prefers-color-scheme:light){
+  :root{
+    --bg:#f0f2f5;
+    --surface:#fff;
+    --border:#dee2e6;
+    --border-focus:#228be6;
+    --text:#1c1c1e;
+    --text-dim:#868e96;
+    --text-bright:#000;
+    --input-bg:#f8f9fa;
+  }
+}
+
+body{
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  min-height:100vh;
+  background:var(--bg);
+  color:var(--text);
+  display:grid;
+  place-items:center;
+  padding:16px;
+}
+
+.wrap{width:100%;max-width:400px}
+
+/* ── Brand ── */
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:32px;justify-content:center}
+.logo{
+  width:44px;height:44px;
+  background:var(--blue);
+  border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+}
+.logo span{color:#fff;font-size:.8rem;font-weight:800;letter-spacing:.02em}
+.brand-text{}
+.brand-name{font-size:1.05rem;font-weight:700;color:var(--text-bright);letter-spacing:.04em}
+.brand-sub{font-size:.72rem;color:var(--text-dim);margin-top:1px}
+
+/* ── Card ── */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:28px 28px 24px;
+  box-shadow:0 4px 24px rgba(0,0,0,.18);
+}
+
+.card-title{font-size:.95rem;font-weight:700;color:var(--text-bright);margin-bottom:4px}
+.card-desc{font-size:.78rem;color:var(--text-dim);margin-bottom:24px;line-height:1.5}
+
+/* ── Error ── */
+.error{
+  display:flex;align-items:center;gap:8px;
+  background:var(--red-bg);
+  border:1px solid rgba(250,82,82,.3);
+  border-radius:8px;
+  padding:10px 12px;
+  margin-bottom:16px;
+  font-size:.8rem;
+  color:var(--red);
+}
+.error-icon{font-size:.9rem;flex-shrink:0}
+
+/* ── Form ── */
+.field{margin-bottom:16px}
+.field:last-of-type{margin-bottom:20px}
+label{
+  display:block;
+  font-size:.7rem;
+  font-weight:700;
+  color:var(--text-dim);
+  text-transform:uppercase;
+  letter-spacing:.07em;
+  margin-bottom:7px;
+}
+input{
+  width:100%;
+  padding:10px 12px;
+  background:var(--input-bg);
+  border:1px solid var(--border);
+  border-radius:8px;
+  font-size:.875rem;
+  font-family:inherit;
+  color:var(--text-bright);
+  outline:none;
+  transition:border-color .15s,box-shadow .15s;
+}
+input::placeholder{color:var(--text-dim);opacity:.7}
+input:focus{border-color:var(--border-focus);box-shadow:0 0 0 3px rgba(51,154,240,.12)}
+
+/* ── Button ── */
+button{
+  width:100%;
+  padding:11px;
+  background:var(--blue);
+  color:#fff;
+  border:none;
+  border-radius:8px;
+  font-size:.875rem;
+  font-weight:600;
+  cursor:pointer;
+  font-family:inherit;
+  letter-spacing:.02em;
+  transition:background .15s,opacity .15s;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+button:hover{background:var(--blue-hover)}
+button:active{opacity:.85}
+button:disabled{opacity:.6;cursor:not-allowed}
+
+/* ── Divider ── */
+.divider{border:none;border-top:1px solid var(--border);margin:20px 0}
+
+/* ── Footer ── */
+.footer{
+  margin-top:16px;
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:.7rem;color:var(--text-dim);
+}
+.footer a{color:var(--text-dim);text-decoration:none}
+.footer a:hover{color:var(--text)}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--text-dim);display:inline-block;margin-right:6px;vertical-align:middle}
+
+/* ── Info strip ── */
+.info{
+  margin-top:12px;
+  font-size:.7rem;
+  color:var(--text-dim);
+  line-height:1.6;
+  display:flex;
+  align-items:flex-start;
+  gap:7px;
+}
+.info-icon{flex-shrink:0;margin-top:1px}
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo"><span>CP</span></div>
-  <h1>claude-proxy</h1>
-  <p class="sub">Sign in to admin dashboard</p>
-  ${errHtml}
-  <form method="POST" action="/admin/login">
-    <label>Username</label>
-    <input type="text" name="username" autocomplete="username" autofocus required placeholder="username">
-    <label>Password</label>
-    <input type="password" name="password" autocomplete="current-password" required placeholder="••••••••">
-    <button type="submit">Sign in</button>
-  </form>
+<div class="wrap">
+
+  <!-- Brand -->
+  <div class="brand">
+    <div class="logo"><span>CP</span></div>
+    <div class="brand-text">
+      <div class="brand-name">claude-proxy</div>
+      <div class="brand-sub">Admin Dashboard</div>
+    </div>
+  </div>
+
+  <!-- Card -->
+  <div class="card">
+    <div class="card-title">Sign in</div>
+    <div class="card-desc">Enter your credentials to access the admin panel.</div>
+
+    ${error ? `
+    <div class="error">
+      <span class="error-icon">⚠</span>
+      <span>${error}</span>
+    </div>` : ""}
+
+    <form method="POST" action="/admin/login" id="form">
+      <div class="field">
+        <label for="u">Username</label>
+        <input id="u" type="text" name="username" autocomplete="username"
+          autofocus required placeholder="admin">
+      </div>
+      <div class="field">
+        <label for="p">Password</label>
+        <input id="p" type="password" name="password" autocomplete="current-password"
+          required placeholder="••••••••">
+      </div>
+      <button type="submit" id="btn">
+        <span id="btn-label">Sign in</span>
+      </button>
+    </form>
+
+    <hr class="divider">
+
+    <div class="info">
+      <span class="info-icon">🔒</span>
+      <span>Session lasts 30 days. Admin key or username/password required.
+      Credentials are set via <code>ADMIN_USERNAME</code> and <code>ADMIN_PASSWORD</code> env vars.</span>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span><span class="dot"></span>claude-proxy</span>
+    <a href="/">← Public view</a>
+  </div>
+
 </div>
+<script>
+  document.getElementById("form").addEventListener("submit", function() {
+    const btn = document.getElementById("btn");
+    const label = document.getElementById("btn-label");
+    btn.disabled = true;
+    label.textContent = "Signing in…";
+  });
+</script>
 </body>
 </html>`, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }

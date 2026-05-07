@@ -190,6 +190,54 @@ function EditLimitModal({ token, onClose, onSaved }: { token: ApiToken; onClose:
   );
 }
 
+function EditAllLimitsModal({ user, onClose, onSaved }: { user: ApiUser; onClose: () => void; onSaved: () => void }) {
+  const firstLimit = user.tokens[0]?.limit ?? null;
+  const mixedLimits = user.tokens.some(t => t.limit !== firstLimit);
+  const [unlimited, setUnlimited] = useState(firstLimit === null && !mixedLimits);
+  const [limit, setLimit]         = useState(firstLimit !== null ? String(firstLimit) : "40000");
+  const [busy, setBusy]           = useState(false);
+
+  const save = async () => {
+    const value = unlimited ? "unlimited" : limit.trim();
+    if (!value || (!unlimited && (!/^\d+$/.test(value) || Number(value) <= 0))) return;
+    setBusy(true);
+    try {
+      await Promise.all(user.tokens.map(t => adminPost("/admin/token/edit", { token: t.key, limit: value })));
+      notifications.show({ color: "teal", message: `All ${user.tokens.length} token(s) set to ${unlimited ? "unlimited" : value}`, autoClose: 2000 });
+      onSaved();
+      onClose();
+    } catch {
+      notifications.show({ color: "red", message: "Failed to update limits", autoClose: 3000 });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal opened onClose={onClose} title={`Edit All Limits — ${user.name}`} size="sm">
+      <Stack gap="sm">
+        <Text size="xs" c="dimmed">
+          Apply the same limit to all <b>{user.tokens.length}</b> token{user.tokens.length !== 1 ? "s" : ""} for this user.
+          {mixedLimits && <Text span c="orange"> Current limits are mixed.</Text>}
+        </Text>
+        <Switch label="Unlimited" checked={unlimited} onChange={e => setUnlimited(e.currentTarget.checked)} />
+        {!unlimited && (
+          <TextInput
+            label="Window limit (tokens)"
+            description="Max input+output tokens per 5-hour window"
+            value={limit}
+            onChange={e => setLimit(e.currentTarget.value.replace(/[^\d]/g, ""))}
+            onKeyDown={e => { if (e.key === "Enter") save(); }}
+            autoFocus
+          />
+        )}
+        <Group justify="flex-end" mt="xs">
+          <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
+          <Button color="teal" loading={busy} onClick={save}>Apply to all</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 function RotateModal({ token, onClose, onDone }: { token: ApiToken; onClose: () => void; onDone: () => void }) {
   const [newKey, setNewKey] = useState("");
   const [result, setResult] = useState<string | null>(null);
@@ -330,16 +378,61 @@ function CreateUserModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   );
 }
 
+function EditAllLimitsGlobalModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [unlimited, setUnlimited] = useState(false);
+  const [limit, setLimit]         = useState("40000");
+  const [busy, setBusy]           = useState(false);
+
+  const save = async () => {
+    const value = unlimited ? "unlimited" : limit.trim();
+    if (!value || (!unlimited && (!/^\d+$/.test(value) || Number(value) <= 0))) return;
+    setBusy(true);
+    try {
+      await adminPost("/admin/token/edit-all", { limit: value });
+      notifications.show({ color: "teal", message: `All tokens set to ${unlimited ? "unlimited" : Number(value).toLocaleString()}`, autoClose: 2000 });
+      onSaved();
+      onClose();
+    } catch {
+      notifications.show({ color: "red", message: "Failed to update limits", autoClose: 3000 });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal opened onClose={onClose} title="Edit All Limits — Global" size="sm">
+      <Stack gap="sm">
+        <Text size="xs" c="dimmed">Apply the same limit to <b>every token</b> across all users.</Text>
+        <Switch label="Unlimited" checked={unlimited} onChange={e => setUnlimited(e.currentTarget.checked)} />
+        {!unlimited && (
+          <TextInput
+            label="Window limit (tokens)"
+            description="Max input+output tokens per 5-hour window"
+            value={limit}
+            onChange={e => setLimit(e.currentTarget.value.replace(/[^\d]/g, ""))}
+            onKeyDown={e => { if (e.key === "Enter") save(); }}
+            autoFocus
+          />
+        )}
+        <Group justify="flex-end" mt="xs">
+          <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
+          <Button color="blue" loading={busy} onClick={save}>Apply to all</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 type SortKey = "name" | "usage" | "tokens" | "newest";
 
 export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, TokenStatus> }) {
   const [apiUsers, setApiUsers]       = useState<ApiUser[] | null>(null);
-  const [editUser, setEditUser]       = useState<ApiUser | null>(null);
-  const [deleteUser, setDeleteUser]   = useState<ApiUser | null>(null);
-  const [rotateToken, setRotateToken] = useState<ApiToken | null>(null);
-  const [editLimit, setEditLimit]     = useState<ApiToken | null>(null);
-  const [addTokenTo, setAddTokenTo]   = useState<ApiUser | null>(null);
-  const [showCreate, setShowCreate]   = useState(false);
+  const [editUser, setEditUser]           = useState<ApiUser | null>(null);
+  const [deleteUser, setDeleteUser]       = useState<ApiUser | null>(null);
+  const [rotateToken, setRotateToken]     = useState<ApiToken | null>(null);
+  const [editLimit, setEditLimit]         = useState<ApiToken | null>(null);
+  const [editAllLimits, setEditAllLimits]         = useState<ApiUser | null>(null);
+  const [showEditAllGlobal, setShowEditAllGlobal] = useState(false);
+  const [addTokenTo, setAddTokenTo]               = useState<ApiUser | null>(null);
+  const [showCreate, setShowCreate]               = useState(false);
   const [search, setSearch]           = useState("");
   const [sort, setSort]               = useState<SortKey>("usage");
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
@@ -408,12 +501,14 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
   return (
     <Stack gap="xl">
-      {editUser    && <EditUserModal   user={editUser}     onClose={() => setEditUser(null)}    onSaved={reload} />}
-      {deleteUser  && <DeleteUserModal user={deleteUser}   onClose={() => setDeleteUser(null)}  onDone={reload} />}
-      {rotateToken && <RotateModal     token={rotateToken} onClose={() => setRotateToken(null)} onDone={reload} />}
-      {editLimit   && <EditLimitModal  token={editLimit}   onClose={() => setEditLimit(null)}   onSaved={reload} />}
-      {addTokenTo  && <AddTokenModal   user={addTokenTo}   onClose={() => setAddTokenTo(null)}  onDone={reload} />}
-      {showCreate  && <CreateUserModal onClose={() => setShowCreate(false)} onDone={reload} />}
+      {editUser          && <EditUserModal       user={editUser}       onClose={() => setEditUser(null)}             onSaved={reload} />}
+      {deleteUser        && <DeleteUserModal     user={deleteUser}     onClose={() => setDeleteUser(null)}           onDone={reload} />}
+      {rotateToken       && <RotateModal         token={rotateToken}   onClose={() => setRotateToken(null)}          onDone={reload} />}
+      {editLimit         && <EditLimitModal      token={editLimit}     onClose={() => setEditLimit(null)}            onSaved={reload} />}
+      {editAllLimits     && <EditAllLimitsModal  user={editAllLimits}  onClose={() => setEditAllLimits(null)}        onSaved={reload} />}
+      {showEditAllGlobal && <EditAllLimitsGlobalModal onClose={() => setShowEditAllGlobal(false)} onSaved={reload} />}
+      {addTokenTo        && <AddTokenModal       user={addTokenTo}     onClose={() => setAddTokenTo(null)}           onDone={reload} />}
+      {showCreate        && <CreateUserModal     onClose={() => setShowCreate(false)}                                onDone={reload} />}
 
       {/* Header */}
       <Paper withBorder p="lg" radius="md">
@@ -447,7 +542,17 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
       </Paper>
 
       {/* Bulk actions */}
-      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+        <Paper withBorder p="sm" radius="md" style={{ cursor: "pointer" }}
+          onClick={() => setShowEditAllGlobal(true)}>
+          <Group gap="sm" wrap="nowrap">
+            <ThemeIcon variant="light" color="blue" size="lg" radius="md"><IconPencil size={18} /></ThemeIcon>
+            <div>
+              <Text size="sm" fw={600}>Edit All Limits</Text>
+              <Text size="xs" c="dimmed">Set a uniform quota for every token</Text>
+            </div>
+          </Group>
+        </Paper>
         {([
           { act: "reset" as const, color: "gray",   icon: <IconRefresh size={18} />,     label: "Reset All Usage",    desc: "Zero out window counters for all tokens" },
           { act: "pause" as const, color: "orange", icon: <IconPlayerPause size={18} />, label: "Pause All Tokens",   desc: "Suspend all tokens temporarily" },
@@ -644,8 +749,14 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
                       <Group justify="space-between">
                         <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
-                        <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={12} />}
-                          onClick={() => setAddTokenTo(u)}>Add Token</Button>
+                        <Group gap="xs">
+                          {u.tokens.length > 0 && (
+                            <Button size="xs" variant="subtle" color="gray" leftSection={<IconPencil size={12} />}
+                              onClick={() => setEditAllLimits(u)}>Edit All Limits</Button>
+                          )}
+                          <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={12} />}
+                            onClick={() => setAddTokenTo(u)}>Add Token</Button>
+                        </Group>
                       </Group>
 
                       {u.tokens.length === 0 ? (
