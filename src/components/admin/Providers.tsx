@@ -3,6 +3,7 @@ import {
   Stack, Text, Paper, Group, Button, Badge,
   ThemeIcon, Box, SegmentedControl,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconRobot, IconCloud, IconAi,
 } from "@tabler/icons-react";
@@ -23,7 +24,6 @@ export function AdminProviders() {
   const [deepseekConfigured, setDeepseekConfigured] = useState(false);
   const [openrouterConfigured, setOpenrouterConfigured] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/settings")
@@ -43,7 +43,7 @@ export function AdminProviders() {
     try {
       const r = await fetch("/admin/settings/deepseek", { method: "POST", body: form });
       const d = await r.json() as any;
-      if (d.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
+      if (d.ok) { notifications.show({ color: "teal", message: "Routing mode saved", autoClose: 2000 }); }
     } finally { setSaving(false); }
   };
 
@@ -111,7 +111,6 @@ export function AdminProviders() {
         />
         <Text size="xs" c={modeColor} mt={8} style={{ lineHeight: 1.5 }}>{modeLabel}</Text>
         <Group justify="flex-end" mt="md" gap="xs">
-          {saved && <Text size="xs" c="teal">Saved</Text>}
           <Button size="xs" onClick={save} loading={saving} radius="md">Save</Button>
         </Group>
       </Paper>

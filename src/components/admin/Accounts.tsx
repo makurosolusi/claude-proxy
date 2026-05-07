@@ -4,6 +4,7 @@ import {
   ActionIcon, Tooltip, Center, Loader, Code, ThemeIcon,
   PasswordInput, SimpleGrid, Divider,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconExternalLink, IconCircleCheck, IconKey, IconPlayerStop,
   IconUserCircle, IconPlugConnected, IconAlertTriangle,
@@ -27,7 +28,6 @@ function DeepSeekCredentials() {
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; latency: number; detail?: string; error?: string } | null>(null);
 
@@ -51,7 +51,7 @@ function DeepSeekCredentials() {
     try {
       const r = await fetch("/admin/settings/deepseek", { method: "POST", body: form });
       const d = await r.json() as any;
-      if (d.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
+      if (d.ok) { notifications.show({ color: "teal", message: "DeepSeek credentials saved", autoClose: 2000 }); }
     } finally { setSaving(false); }
   };
 
@@ -111,7 +111,6 @@ function DeepSeekCredentials() {
             {configured ? `Key: ...${apiKey.slice(-8)}` : "API key required to enable fallback"}
           </Text>
           <Group gap="xs">
-            {saved && <Text size="xs" c="teal">Saved</Text>}
             <Button
               size="xs" variant="light" color="gray" radius="md"
               onClick={test} loading={testing} disabled={!configured}
@@ -150,7 +149,6 @@ function OpenRouterCredentials() {
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; latency: number; detail?: string; error?: string } | null>(null);
 
@@ -174,7 +172,7 @@ function OpenRouterCredentials() {
     try {
       const r = await fetch("/admin/settings/openrouter", { method: "POST", body: form });
       const d = await r.json() as any;
-      if (d.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
+      if (d.ok) { notifications.show({ color: "teal", message: "OpenRouter credentials saved", autoClose: 2000 }); }
     } finally { setSaving(false); }
   };
 
@@ -234,7 +232,6 @@ function OpenRouterCredentials() {
             {configured ? `Key: ...${apiKey.slice(-8)}` : "API key required to enable OpenRouter"}
           </Text>
           <Group gap="xs">
-            {saved && <Text size="xs" c="teal">Saved</Text>}
             <Button
               size="xs" variant="light" color="gray" radius="md"
               onClick={test} loading={testing} disabled={!configured}

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, Textarea, Table,
   ThemeIcon, Box, Badge, ActionIcon, Tooltip, Modal, Button, Progress,
-  Accordion, Loader, Alert, Avatar, Select, Switch, Divider, SegmentedControl, Transition,
+  Accordion, Loader, Alert, Avatar, Select, Switch, Divider, SegmentedControl,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconPlayerPlay, IconTrash, IconPencil,
@@ -11,6 +11,8 @@ import {
 } from "@tabler/icons-react";
 import { adminPost, fmtRel, avatarColor } from "../../utils";
 import type { TokenStatus } from "../../contexts";
+import { notifications } from "@mantine/notifications";
+import { modals } from "@mantine/modals";
 
 interface ApiToken {
   key: string; name: string; limit: number | null; used: number;
@@ -62,14 +64,20 @@ function EditUserModal({ user, onClose, onSaved }: { user: ApiUser; onClose: () 
   const save = async () => {
     if (!name.trim()) return;
     setSaving(true);
-    await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), description: desc }),
-    });
-    setSaving(false);
-    onSaved();
-    onClose();
+    try {
+      await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), description: desc }),
+      });
+      notifications.show({ color: "teal", message: "User updated", autoClose: 2000 });
+      onSaved();
+      onClose();
+    } catch {
+      notifications.show({ color: "red", message: "Failed to update user", autoClose: 3000 });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -335,12 +343,33 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [search, setSearch]           = useState("");
   const [sort, setSort]               = useState<SortKey>("usage");
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
-  const [savedProvider, setSavedProvider]   = useState<string | null>(null);
+  const [rowAction, setRowAction]           = useState<{ key: string; act: string } | null>(null);
+  const [bulkAction, setBulkAction]         = useState<"reset" | "pause" | "purge" | null>(null);
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/admin/users");
     setApiUsers(await res.json());
   }, []);
+
+  const runRowAction = async (key: string, act: string, fn: () => Promise<void>, msg: string) => {
+    setRowAction({ key, act });
+    try {
+      await fn(); await reload();
+      notifications.show({ color: "teal", message: msg, autoClose: 2000 });
+    } catch (e: any) {
+      notifications.show({ color: "red", title: "Error", message: e.message || "Action failed", autoClose: 4000 });
+    } finally { setRowAction(null); }
+  };
+
+  const runBulkAction = async (act: "reset" | "pause" | "purge", fn: () => Promise<void>, msg: string) => {
+    setBulkAction(act);
+    try {
+      await fn(); await reload();
+      notifications.show({ color: "teal", message: msg, autoClose: 2000 });
+    } catch (e: any) {
+      notifications.show({ color: "red", title: "Error", message: e.message || "Action failed", autoClose: 4000 });
+    } finally { setBulkAction(null); }
+  };
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -413,45 +442,55 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                 </Group>
               </Paper>
             )}
-            {(apiUsers?.length ?? 0) > 10 && (
-              <Tooltip label="Delete users with no tokens (orphan cleanup)" withArrow>
-                <Button size="xs" variant="light" color="red" leftSection={<IconTrash size={13} />}
-                  onClick={async () => {
-                    if (!confirm("Delete all users that have no tokens? This cannot be undone.")) return;
-                    const r = await fetch("/admin/users/purge-orphans", { method: "POST" });
-                    const d = await r.json() as any;
-                    if (d.ok) reload();
-                  }}>
-                  Purge orphans
-                </Button>
-              </Tooltip>
-            )}
           </Group>
         </Group>
       </Paper>
 
       {/* Bulk actions */}
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-        <Paper withBorder p="sm" radius="md" style={{ cursor: "pointer" }}
-          onClick={() => { if (confirm("Reset all token usage?")) adminPost("/admin/reset", { all: "true" }); }}>
-          <Group gap="sm" wrap="nowrap">
-            <ThemeIcon variant="light" color="gray" size="lg" radius="md"><IconRefresh size={18} /></ThemeIcon>
-            <div>
-              <Text size="sm" fw={600}>Reset All Usage</Text>
-              <Text size="xs" c="dimmed">Zero out window counters for all tokens</Text>
-            </div>
-          </Group>
-        </Paper>
-        <Paper withBorder p="sm" radius="md" style={{ cursor: "pointer" }}
-          onClick={() => adminPost("/admin/token/pause", { all: "true" })}>
-          <Group gap="sm" wrap="nowrap">
-            <ThemeIcon variant="light" color="orange" size="lg" radius="md"><IconPlayerPause size={18} /></ThemeIcon>
-            <div>
-              <Text size="sm" fw={600}>Pause All Tokens</Text>
-              <Text size="xs" c="dimmed">Suspend all tokens temporarily</Text>
-            </div>
-          </Group>
-        </Paper>
+      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+        {([
+          { act: "reset" as const, color: "gray",   icon: <IconRefresh size={18} />,     label: "Reset All Usage",    desc: "Zero out window counters for all tokens" },
+          { act: "pause" as const, color: "orange", icon: <IconPlayerPause size={18} />, label: "Pause All Tokens",   desc: "Suspend all tokens temporarily" },
+          { act: "purge" as const, color: "red",    icon: <IconTrash size={18} />,       label: "Purge Orphan Users", desc: "Delete users with no tokens" },
+        ]).map(({ act, color, icon, label, desc }) => {
+          const busy = bulkAction === act;
+          const doAction = () => runBulkAction(act, async () => {
+            if (act === "reset") await adminPost("/admin/reset", { all: "true" });
+            else if (act === "pause") await adminPost("/admin/token/pause", { all: "true" });
+            else { const r = await fetch("/admin/users/purge-orphans", { method: "POST" }); await r.json(); }
+          }, act === "reset" ? "All usage reset" : act === "pause" ? "All tokens paused/resumed" : "Orphan users removed");
+          return (
+            <Paper key={act} withBorder p="sm" radius="md"
+              style={{ cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1 }}
+              onClick={busy ? undefined : () => {
+                if (act === "reset") modals.openConfirmModal({
+                  title: "Reset All Usage",
+                  children: <Text size="sm">Zero out all token counters? This cannot be undone.</Text>,
+                  labels: { confirm: "Reset", cancel: "Cancel" },
+                  confirmProps: { color: "red" },
+                  onConfirm: doAction,
+                });
+                else if (act === "purge") modals.openConfirmModal({
+                  title: "Purge Orphan Users",
+                  children: <Text size="sm">Delete all users with no tokens? This cannot be undone.</Text>,
+                  labels: { confirm: "Purge", cancel: "Cancel" },
+                  confirmProps: { color: "red" },
+                  onConfirm: doAction,
+                });
+                else doAction();
+              }}>
+              <Group gap="sm" wrap="nowrap">
+                <ThemeIcon variant="light" color={color} size="lg" radius="md">
+                  {busy ? <Loader size={16} color="var(--mantine-color-dimmed)" /> : icon}
+                </ThemeIcon>
+                <div>
+                  <Text size="sm" fw={600}>{label}</Text>
+                  <Text size="xs" c="dimmed">{desc}</Text>
+                </div>
+              </Group>
+            </Paper>
+          );
+        })}
       </SimpleGrid>
 
       {/* Users list */}
@@ -660,12 +699,15 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                                         disabled={savingProvider === tk.key}
                                         onChange={async v => {
                                           setSavingProvider(tk.key);
-                                          setSavedProvider(null);
-                                          await adminPost("/admin/token/provider", { token: tk.key, provider: v });
-                                          await reload();
-                                          setSavingProvider(null);
-                                          setSavedProvider(tk.key);
-                                          setTimeout(() => setSavedProvider(null), 1500);
+                                          try {
+                                            await adminPost("/admin/token/provider", { token: tk.key, provider: v });
+                                            await reload();
+                                            notifications.show({ color: "teal", message: `Provider set to ${v === "inherit" ? "Auto" : v}`, autoClose: 2000 });
+                                          } catch {
+                                            notifications.show({ color: "red", message: "Failed to update provider", autoClose: 3000 });
+                                          } finally {
+                                            setSavingProvider(null);
+                                          }
                                         }}
                                         data={[
                                           { label: "Auto",       value: "inherit"    },
@@ -675,14 +717,20 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                                         ]}
                                       />
                                       {savingProvider === tk.key && <Loader size={12} />}
-                                      {savedProvider === tk.key && <Text size="xs" c="teal">Saved</Text>}
                                     </Group>
                                   </Table.Td>
                                   <Table.Td>
                                     <Group gap={4} wrap="nowrap">
                                       <Tooltip label="Reset usage" withArrow>
                                         <ActionIcon variant="subtle" color="gray" size="sm"
-                                          onClick={() => adminPost("/admin/reset", { token: tk.key }).then(reload)}>
+                                          loading={rowAction?.key === tk.key && rowAction.act === "reset"}
+                                          onClick={() => modals.openConfirmModal({
+                                            title: "Reset usage",
+                                            children: <Text size="sm">Reset usage counter for <b>{tk.key}</b>?</Text>,
+                                            labels: { confirm: "Reset", cancel: "Cancel" },
+                                            confirmProps: { color: "gray" },
+                                            onConfirm: () => runRowAction(tk.key, "reset", () => adminPost("/admin/reset", { token: tk.key }), "Usage reset"),
+                                          })}>
                                           <IconRefresh size={ACT} />
                                         </ActionIcon>
                                       </Tooltip>
@@ -694,7 +742,8 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                                       </Tooltip>
                                       <Tooltip label={tk.paused ? "Resume" : "Pause"} withArrow>
                                         <ActionIcon variant="subtle" color={tk.paused ? "teal" : "orange"} size="sm"
-                                          onClick={() => adminPost("/admin/token/pause", { token: tk.key }).then(reload)}>
+                                          loading={rowAction?.key === tk.key && rowAction.act === "pause"}
+                                          onClick={() => runRowAction(tk.key, "pause", () => adminPost("/admin/token/pause", { token: tk.key }), tk.paused ? "Token resumed" : "Token paused")}>
                                           {tk.paused ? <IconPlayerPlay size={ACT} /> : <IconPlayerPause size={ACT} />}
                                         </ActionIcon>
                                       </Tooltip>
@@ -706,7 +755,14 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                                       </Tooltip>
                                       <Tooltip label="Delete token" withArrow>
                                         <ActionIcon variant="subtle" color="red" size="sm"
-                                          onClick={() => { if (confirm(`Delete ${tk.key}?`)) adminPost("/admin/token/delete", { token: tk.key }).then(reload); }}>
+                                          loading={rowAction?.key === tk.key && rowAction.act === "delete"}
+                                          onClick={() => modals.openConfirmModal({
+                                            title: "Delete token",
+                                            children: <Text size="sm">Delete <b>{tk.key}</b>? Clients using this token will get 401.</Text>,
+                                            labels: { confirm: "Delete", cancel: "Cancel" },
+                                            confirmProps: { color: "red" },
+                                            onConfirm: () => runRowAction(tk.key, "delete", () => adminPost("/admin/token/delete", { token: tk.key }), "Token deleted"),
+                                          })}>
                                           <IconTrash size={ACT} />
                                         </ActionIcon>
                                       </Tooltip>

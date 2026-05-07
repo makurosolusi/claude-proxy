@@ -1,8 +1,11 @@
 import "@mantine/core/styles.css";
+import "@mantine/notifications/styles.css";
 import "./custom.css";
 import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MantineProvider, createTheme } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
+import { ModalsProvider } from "@mantine/modals";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 
@@ -20,9 +23,12 @@ function Root() {
   return (
     <BrowserRouter>
       <MantineProvider theme={theme} defaultColorScheme="auto">
-        <Inspector>
-          <App />
-        </Inspector>
+        <ModalsProvider>
+          <Notifications position="top-right" />
+          <Inspector>
+            <App />
+          </Inspector>
+        </ModalsProvider>
       </MantineProvider>
     </BrowserRouter>
   );

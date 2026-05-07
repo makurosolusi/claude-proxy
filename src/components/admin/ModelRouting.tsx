@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Stack, Paper, Text, Group, Box, Button, Select, NumberInput,
-  Badge, ActionIcon, Alert,
+  Badge, ActionIcon,
 } from "@mantine/core";
-import { IconPlus, IconTrash, IconDeviceFloppy, IconAlertTriangle } from "@tabler/icons-react";
+import { IconPlus, IconTrash, IconDeviceFloppy } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 
 interface RouteRow {
   model_id:    string;
@@ -41,8 +42,7 @@ function modelLabel(id: string): string {
 
 export function AdminModelRouting() {
   const [routes, setRoutes] = useState<RouteRow[]>([]);
-  const [saved, setSaved]   = useState(false);
-  const [error, setError]   = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -50,14 +50,12 @@ export function AdminModelRouting() {
       const data = await r.json() as RouteRow[];
       if (Array.isArray(data)) setRoutes(data.length ? data : []);
     } catch {}
-    setSaved(false);
-    setError(null);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   const save = async () => {
-    setError(null);
+    setSaving(true);
     try {
       const r = await fetch("/api/admin/model-routes", {
         method: "POST",
@@ -65,11 +63,15 @@ export function AdminModelRouting() {
         body: JSON.stringify(routes.filter(x => x.model_id)),
       });
       const data = await r.json();
-      if (!r.ok) { setError(data.error || "Save failed"); return; }
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      if (!r.ok) {
+        notifications.show({ color: "red", title: "Save failed", message: data.error || "Unknown error", autoClose: 4000 });
+        return;
+      }
+      notifications.show({ color: "teal", message: "Routing rules saved", autoClose: 2000 });
     } catch (e: any) {
-      setError(e.message || "Network error");
+      notifications.show({ color: "red", title: "Network error", message: e.message, autoClose: 4000 });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -105,19 +107,12 @@ export function AdminModelRouting() {
               Add Rule
             </Button>
             <Button size="xs" leftSection={<IconDeviceFloppy size={14} />}
-              color={saved ? "teal" : "blue"}
-              onClick={save} disabled={saved}>
-              {saved ? "Saved" : "Save"}
+              color="blue" onClick={save} loading={saving}>
+              Save
             </Button>
           </Group>
         </Group>
       </Paper>
-
-      {error && (
-        <Alert color="red" icon={<IconAlertTriangle size={14} />} withCloseButton onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
 
       {routes.length === 0 ? (
         <Paper withBorder p="xl" radius="md" style={{ textAlign: "center" }}>
