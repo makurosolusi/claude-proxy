@@ -129,6 +129,7 @@ try { db.exec("ALTER TABLE request_logs ADD COLUMN response_text TEXT DEFAULT ''
 try { db.exec("ALTER TABLE request_logs ADD COLUMN name TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN name TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN mode TEXT NOT NULL DEFAULT 'inherit'"); } catch {} // kept for DB compat
+try { db.exec("ALTER TABLE tokens ADD COLUMN provider TEXT NOT NULL DEFAULT 'inherit'"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE request_logs ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE daily_usage ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
@@ -136,16 +137,17 @@ try { db.exec("ALTER TABLE daily_usage ADD COLUMN user_id TEXT NOT NULL DEFAULT 
 // ── Prepared statements ───────────────────────────────────────────────────────
 const stmts = {
   insertIgnore: db.prepare(`
-    INSERT OR IGNORE INTO tokens (key, name, user_id, lim, win, used, window_start, paused, dynamic)
-    VALUES ($key, $name, $user_id, $lim, $win, $used, $window_start, $paused, $dynamic)
+    INSERT OR IGNORE INTO tokens (key, name, user_id, lim, win, used, window_start, paused, dynamic, provider)
+    VALUES ($key, $name, $user_id, $lim, $win, $used, $window_start, $paused, $dynamic, $provider)
   `),
   insertReplace: db.prepare(`
-    INSERT OR REPLACE INTO tokens (key, name, user_id, lim, win, used, window_start, paused, dynamic, deleted)
-    VALUES ($key, $name, $user_id, $lim, $win, $used, $window_start, $paused, $dynamic, 0)
+    INSERT OR REPLACE INTO tokens (key, name, user_id, lim, win, used, window_start, paused, dynamic, deleted, provider)
+    VALUES ($key, $name, $user_id, $lim, $win, $used, $window_start, $paused, $dynamic, 0, $provider)
   `),
   updateUsage: db.prepare(`UPDATE tokens SET used=$used WHERE key=$key`),
-  updateToken: db.prepare(`UPDATE tokens SET lim=$lim, win=$win, paused=$paused WHERE key=$key`),
-  updateName:  db.prepare(`UPDATE tokens SET name=$name WHERE key=$key`),
+  updateToken:    db.prepare(`UPDATE tokens SET lim=$lim, win=$win, paused=$paused WHERE key=$key`),
+  updateProvider: db.prepare(`UPDATE tokens SET provider=$provider WHERE key=$key`),
+  updateName:     db.prepare(`UPDATE tokens SET name=$name WHERE key=$key`),
   softDelete:  db.prepare(`UPDATE tokens SET deleted=1 WHERE key=$key`),
   resetOne:    db.prepare(`UPDATE tokens SET used=0, window_start=$ws WHERE key=$key`),
   resetAll:    db.prepare(`UPDATE tokens SET used=0, win=$win, window_start=$ws WHERE deleted=0`),
@@ -245,7 +247,7 @@ export function dbInsertEnvToken(key: string, entry: TokenEntry) {
   stmts.insertIgnore.run({
     $key: key, $name: entry.name, $user_id: entry.user_id || "", $lim: toLim(entry.limit), $win: entry.window,
     $used: entry.used, $window_start: entry.windowStart,
-    $paused: entry.paused ? 1 : 0, $dynamic: 0,
+    $paused: entry.paused ? 1 : 0, $dynamic: 0, $provider: entry.provider || "inherit",
   });
 }
 
@@ -253,8 +255,12 @@ export function dbInsertToken(key: string, entry: TokenEntry) {
   stmts.insertReplace.run({
     $key: key, $name: entry.name, $user_id: entry.user_id || "", $lim: toLim(entry.limit), $win: entry.window,
     $used: entry.used, $window_start: entry.windowStart,
-    $paused: entry.paused ? 1 : 0, $dynamic: entry.dynamic ? 1 : 0,
+    $paused: entry.paused ? 1 : 0, $dynamic: entry.dynamic ? 1 : 0, $provider: entry.provider || "inherit",
   });
+}
+
+export function dbUpdateProvider(key: string, provider: string) {
+  stmts.updateProvider.run({ $provider: provider, $key: key });
 }
 
 export function dbUpsertUser(entry: UserEntry) {
@@ -499,6 +505,7 @@ export function loadFromDb() {
       paused:      row.paused === 1,
       dynamic:     row.dynamic === 1,
       mode:        (row.mode as "inherit" | "direct" | "cliproxy") || "inherit",
+      provider:    (row.provider as import("./types").TokenProvider) || "inherit",
       name:        row.name || deriveNameFromKey(row.key),
       user_id:     row.user_id || "",
     };

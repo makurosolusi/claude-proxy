@@ -5,6 +5,9 @@ export interface TokenStatus {
   label: string; name: string; user_id: string;
   used: number; limit: number | null;
   remaining: number | null; pct: number; paused: boolean; today: number; alltime: number;
+  provider:       string;
+  activeProvider: string;
+  activeModel:    string | null;
 }
 export interface UpstreamPeriod { utilization: number; resets_at: string; }
 export interface UpstreamData {

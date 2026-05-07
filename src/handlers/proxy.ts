@@ -242,18 +242,34 @@ export async function handleProxy(
     return Response.json({ error: { type: "not_found_error", message: "Not found" } }, { status: 404 });
   }
 
-  // Provider selection: manual override > auto fallback
+  // Provider selection: per-token > global override > auto fallback
   type Provider = "anthropic" | "deepseek" | "openrouter";
   let provider: Provider = "anthropic";
   const fh = upstream.fiveHour;
   const deepseek   = getDeepSeekConfig();
   const openrouter = getOpenRouterConfig();
   const override = settings["provider_override"] || ""; // "" | "deepseek" | "openrouter" | "anthropic"
+  const tokenProvider = t.provider || "inherit";
 
   // Auto-fallback order: openrouter first (cheaper/faster), then deepseek
   const autoFallback = openrouter || deepseek;
 
-  if (override === "deepseek" && deepseek) {
+  if (tokenProvider !== "inherit") {
+    // Per-token hard override — verify provider is configured
+    if (tokenProvider === "deepseek") {
+      if (!deepseek) return Response.json({
+        error: { type: "api_error", message: "Provider 'deepseek' is set for this token but not configured. Contact admin." }
+      }, { status: 503 });
+      provider = "deepseek";
+    } else if (tokenProvider === "openrouter") {
+      if (!openrouter) return Response.json({
+        error: { type: "api_error", message: "Provider 'openrouter' is set for this token but not configured. Contact admin." }
+      }, { status: 503 });
+      provider = "openrouter";
+    } else {
+      provider = "anthropic"; // tokenProvider === "anthropic"
+    }
+  } else if (override === "deepseek" && deepseek) {
     provider = "deepseek";
   } else if (override === "openrouter" && openrouter) {
     provider = "openrouter";
@@ -420,9 +436,11 @@ export async function handleProxy(
       }
     }
 
-    // Update fallback state for frontend visibility
-    upstream.fallbackActive = provider !== "anthropic";
-    upstream.fallbackProvider = provider !== "anthropic" ? provider : null;
+    // Update global fallback state only for inherit-routing tokens (not per-token overrides)
+    if (tokenProvider === "inherit") {
+      upstream.fallbackActive   = provider !== "anthropic";
+      upstream.fallbackProvider = provider !== "anthropic" ? provider : null;
+    }
 
     const remaining   = Math.max(0, t.limit === Infinity ? 999_999_999 : t.limit - t.used);
     const rateHeaders: Record<string, string> = {

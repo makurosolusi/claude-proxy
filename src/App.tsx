@@ -698,6 +698,13 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                       <Progress value={pct} color={color} size="md" radius="sm" style={{ flex: 1 }} />
                       <Group gap={4} style={{ minWidth: 100, justifyContent: "flex-end" }} wrap="nowrap">
                         {spike && <Tooltip label="Spike hari ini >2× rata-rata" withArrow><IconAlertTriangle size={12} color="var(--mantine-color-orange-5)" /></Tooltip>}
+                        {tk.activeProvider && tk.activeProvider !== "anthropic" && (
+                          <Text size="10px" ff="monospace"
+                            c={tk.activeProvider === "deepseek" ? "violet" : "orange"}
+                            style={{ flexShrink: 0 }}>
+                            {tk.activeProvider === "deepseek" ? "deepseek" : "openrouter"}
+                          </Text>
+                        )}
                         <Text size="xs" ff="monospace" c="dimmed" ta="right" style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }}>
                           {nf.format(tk.used)}{tk.limit != null && ` / ${nf.format(tk.limit)}`}
                         </Text>

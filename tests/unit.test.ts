@@ -101,7 +101,7 @@ describe("checkReset", () => {
     return {
       limit: 1000, window: 18_000_000, used: 500,
       windowStart: Date.now() - 19_000_000, // expired
-      paused: false, dynamic: false, mode: "inherit", name: "test", user_id: "",
+      paused: false, dynamic: false, mode: "inherit", provider: "inherit", name: "test", user_id: "",
       ...overrides,
     };
   }
@@ -174,7 +174,7 @@ describe("TokenEntry.mode", () => {
   test("effective mode: token mode=inherit uses global", () => {
     const token: TokenEntry = {
       limit: 1000, window: 18_000_000, used: 0,
-      windowStart: Date.now(), paused: false, dynamic: false, mode: "inherit", name: "test", user_id: "",
+      windowStart: Date.now(), paused: false, dynamic: false, mode: "inherit", provider: "inherit", name: "test", user_id: "",
     };
     const global = "direct";
     const effective = token.mode !== "inherit" ? token.mode : global;
@@ -184,7 +184,7 @@ describe("TokenEntry.mode", () => {
   test("effective mode: token mode=cliproxy overrides global direct", () => {
     const token: TokenEntry = {
       limit: 1000, window: 18_000_000, used: 0,
-      windowStart: Date.now(), paused: false, dynamic: false, mode: "cliproxy", name: "test", user_id: "",
+      windowStart: Date.now(), paused: false, dynamic: false, mode: "cliproxy", provider: "inherit", name: "test", user_id: "",
     };
     const global = "direct";
     const effective = token.mode !== "inherit" ? token.mode : global;
@@ -194,7 +194,7 @@ describe("TokenEntry.mode", () => {
   test("effective mode: token mode=direct overrides global cliproxy", () => {
     const token: TokenEntry = {
       limit: 1000, window: 18_000_000, used: 0,
-      windowStart: Date.now(), paused: false, dynamic: false, mode: "direct", name: "test", user_id: "",
+      windowStart: Date.now(), paused: false, dynamic: false, mode: "direct", provider: "inherit", name: "test", user_id: "",
     };
     const global = "cliproxy";
     const effective = token.mode !== "inherit" ? token.mode : global;

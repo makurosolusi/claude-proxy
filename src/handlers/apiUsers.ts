@@ -29,6 +29,7 @@ export async function handleApiUsers(
           today:     (dailyUsage[today] || {})[key] || 0,
           alltime:   allTimePerUser[u.id] || 0,
           pct:       tk.limit === Infinity ? 0 : Math.round((tk.used / tk.limit) * 100),
+          provider:  tk.provider || "inherit",
         }));
       return { ...u, tokens: userTokens };
     }).sort((a, b) => a.name.localeCompare(b.name));

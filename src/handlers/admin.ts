@@ -1,4 +1,5 @@
-import { tokens, users, db, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, dbSaveSetting, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
+import { tokens, users, db, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
+import type { TokenProvider } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
@@ -68,7 +69,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
 
     const entry: TokenEntry = {
       limit: parsed, window: config.windowMs,
-      used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit",
+      used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit", provider: "inherit",
       name: users[uid]?.name ?? displayName,
       user_id: uid,
     };
@@ -161,6 +162,18 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     clearInFlight(target);
     delete tokens[target];
     return Response.json({ ok: true, newKey });
+  }
+
+  // Set per-token provider
+  if (pathname === "/admin/token/provider" && req.method === "POST") {
+    const target   = String(form?.get("token")    || "").trim();
+    const provider = String(form?.get("provider") || "inherit").trim() as TokenProvider;
+    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
+    const valid: TokenProvider[] = ["inherit", "anthropic", "deepseek", "openrouter"];
+    if (!valid.includes(provider)) return new Response("Invalid provider\n", { status: 400 });
+    tokens[target].provider = provider;
+    dbUpdateProvider(target, provider);
+    return redirect();
   }
 
   // Edit user name / description (via admin panel without going through /api/admin/users)

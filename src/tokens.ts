@@ -16,6 +16,7 @@ export function initFromEnv() {
       paused:      false,
       dynamic:     false,
       mode:        "inherit",
+      provider:    "inherit",
       name:        deriveNameFromKey(key),
       user_id:     "",  // will be set by backfillUsers()
     };

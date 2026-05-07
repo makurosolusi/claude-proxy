@@ -104,18 +104,35 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean): Respo
   const now   = Date.now();
   const today = todayKey();
 
+  // Resolved global active provider (same logic as proxy.ts + apiStatus activeProvider)
+  const globalOverride = settings["provider_override"] || "";
+  const globalActiveProvider: string =
+    globalOverride === "deepseek"   ? "deepseek"   :
+    globalOverride === "openrouter" ? "openrouter"  :
+    globalOverride === "anthropic"  ? "anthropic"   :
+    upstream.fallbackProvider ?? "anthropic";
+
   const tokenData: Record<string, any> = {};
   for (const [k, tk] of Object.entries(tokens)) {
+    const tp = tk.provider || "inherit";
+    const effectiveProvider = tp === "inherit" ? globalActiveProvider : tp;
+    const activeModel =
+      effectiveProvider === "deepseek"   ? (settings["deepseek_model"]   || "deepseek-v4-pro[1m]") :
+      effectiveProvider === "openrouter" ? (settings["openrouter_model"] || "anthropic/claude-sonnet-4") :
+      null;
     tokenData[k] = {
-      label:     isAdmin ? k : tk.name,   // name is always safe for public
-      name:      tk.name,
-      used:      tk.used,
-      limit:     tk.limit === Infinity ? null : tk.limit,
-      remaining: tk.limit === Infinity ? null : Math.max(0, tk.limit - tk.used),
-      pct:       tk.limit === Infinity ? 0 : Math.round((tk.used / tk.limit) * 100),
-      paused:    tk.paused,
-      today:     (dailyUsage[today] || {})[k] || 0,
-      alltime:   allTimePerUser[k] || 0,
+      label:           isAdmin ? k : tk.name,
+      name:            tk.name,
+      used:            tk.used,
+      limit:           tk.limit === Infinity ? null : tk.limit,
+      remaining:       tk.limit === Infinity ? null : Math.max(0, tk.limit - tk.used),
+      pct:             tk.limit === Infinity ? 0 : Math.round((tk.used / tk.limit) * 100),
+      paused:          tk.paused,
+      today:           (dailyUsage[today] || {})[k] || 0,
+      alltime:         allTimePerUser[k] || 0,
+      provider:        tp,
+      activeProvider:  effectiveProvider,
+      activeModel,
     };
   }
 

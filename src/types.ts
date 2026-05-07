@@ -12,6 +12,8 @@ export interface UserEntry {
   created_at:  number;   // epoch ms
 }
 
+export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter";
+
 export interface TokenEntry {
   limit:       number;   // Infinity = unlimited
   window:      number;   // ms
@@ -20,6 +22,7 @@ export interface TokenEntry {
   paused:      boolean;
   dynamic:     boolean;
   mode:        "inherit" | "direct" | "cliproxy";
+  provider:    TokenProvider;
   name:        string;   // display name, mirrors user.name for active tokens
   user_id:     string;   // references users.id
 }
