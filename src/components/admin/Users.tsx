@@ -811,11 +811,20 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                                         onChange={async v => {
                                           setSavingProvider(tk.key);
                                           try {
-                                            await adminPost("/admin/token/provider", { token: tk.key, provider: v });
+                                            const r = await fetch("/admin/token/provider", {
+                                              method: "POST",
+                                              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                                              body: new URLSearchParams({ token: tk.key, provider: v }),
+                                            });
+                                            const d = await r.json() as any;
+                                            if (!d.ok) {
+                                              notifications.show({ color: "red", title: "Cannot switch provider", message: d.error || "Failed", autoClose: 5000 });
+                                              return;
+                                            }
                                             await reload();
                                             notifications.show({ color: "teal", message: `Provider set to ${v === "inherit" ? "Auto" : v}`, autoClose: 2000 });
-                                          } catch {
-                                            notifications.show({ color: "red", message: "Failed to update provider", autoClose: 3000 });
+                                          } catch (e: any) {
+                                            notifications.show({ color: "red", title: "Error", message: e.message || "Failed to update provider", autoClose: 4000 });
                                           } finally {
                                             setSavingProvider(null);
                                           }

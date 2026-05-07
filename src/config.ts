@@ -29,4 +29,6 @@ export const config = {
   openrouterApiKey:  process.env.OPENROUTER_API_KEY   || "",
   openrouterBaseUrl: process.env.OPENROUTER_BASE_URL  || "https://openrouter.ai/api",
   openrouterModel:   process.env.OPENROUTER_MODEL     || "anthropic/claude-sonnet-4",
+  oauthCallbackPort: parseInt(process.env.OAUTH_CALLBACK_PORT || "54545"),
+  hmrPort:           parseInt(process.env.REACT_DEV_HMR_PORT  || "24678"),
 } as const;

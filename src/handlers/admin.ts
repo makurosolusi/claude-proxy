@@ -1,4 +1,4 @@
-import { tokens, users, db, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
+import { tokens, users, db, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
 import type { TokenProvider } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
@@ -171,6 +171,16 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
     const valid: TokenProvider[] = ["inherit", "anthropic", "deepseek", "openrouter"];
     if (!valid.includes(provider)) return new Response("Invalid provider\n", { status: 400 });
+
+    // Guard: reject switch to provider that has no API key configured.
+    // Prevents 503 loop when admin switches a token to an unconfigured provider.
+    if (provider === "deepseek" && !settings["deepseek_api_key"]) {
+      return Response.json({ ok: false, error: "DeepSeek API key not configured. Set it in Credentials first." }, { status: 400 });
+    }
+    if (provider === "openrouter" && !settings["openrouter_api_key"]) {
+      return Response.json({ ok: false, error: "OpenRouter API key not configured. Set it in Credentials first." }, { status: 400 });
+    }
+
     tokens[target].provider = provider;
     dbUpdateProvider(target, provider);
     return redirect();

@@ -7,7 +7,7 @@ import { upstream } from "../state";
 const OAUTH_CLIENT_ID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const OAUTH_AUTH_URL    = "https://claude.ai/oauth/authorize";
 const OAUTH_TOKEN_URL   = "https://api.anthropic.com/v1/oauth/token";
-const CALLBACK_URI      = "http://localhost:54545/callback";
+const CALLBACK_URI      = `http://localhost:${config.oauthCallbackPort}/callback`;
 const SCOPES            = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 const PENDING_TTL_MS    = 10 * 60 * 1000;
 
