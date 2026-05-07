@@ -219,6 +219,22 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
+  // Purge orphan users — delete users with no tokens and whose id matches a duplicate name slug
+  if (pathname === "/admin/users/purge-orphans" && req.method === "POST") {
+    // Find users with no linked active tokens
+    const tokenUserIds = new Set(Object.values(tokens).map(tk => tk.user_id).filter(Boolean));
+    const orphans = Object.values(users).filter(u => !tokenUserIds.has(u.id));
+    // Group orphans by name slug — keep none (they're all orphans), delete all
+    let deleted = 0;
+    for (const u of orphans) {
+      db.query("DELETE FROM users WHERE id=?").run(u.id);
+      delete users[u.id];
+      deleted++;
+    }
+    triggerBroadcast();
+    return Response.json({ ok: true, deleted });
+  }
+
   // Clear logs
   if (pathname === "/admin/logs/clear" && req.method === "POST") {
     const user = form ? String(form.get("user") || "").trim() : "";

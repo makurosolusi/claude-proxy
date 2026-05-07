@@ -583,7 +583,14 @@ export function backfillUsers() {
 
   // Active tokens (in-memory map, already loaded)
   for (const [key, tk] of Object.entries(tokens)) {
-    const uid = tk.user_id || ensureUniqueSlug(slugify(tk.name), users);
+    let uid = tk.user_id;
+    if (!uid) {
+      const base = slugify(tk.name);
+      // Prefer linking to existing user with same slug over creating a new numbered one.
+      // ensureUniqueSlug would return "bip-2", "bip-3", etc. on each restart — causing
+      // duplicate users to accumulate whenever user_id was cleared from a token row.
+      uid = users[base] ? base : ensureUniqueSlug(base, users);
+    }
     if (!users[uid]) {
       const entry: UserEntry = { id: uid, name: tk.name, description: "", created_at: now };
       users[uid] = entry;

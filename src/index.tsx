@@ -567,7 +567,9 @@ server = serve({
     "/admin/token/delete":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/rotate":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/rename":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/provider":     req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/user/edit":          req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/users/purge-orphans": req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/deepseek":    req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/openrouter": req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
 

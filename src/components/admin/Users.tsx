@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, Textarea, Table,
   ThemeIcon, Box, Badge, ActionIcon, Tooltip, Modal, Button, Progress,
-  Accordion, Loader, Alert, Avatar, Select, Switch, Divider, SegmentedControl,
+  Accordion, Loader, Alert, Avatar, Select, Switch, Divider, SegmentedControl, Transition,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconPlayerPlay, IconTrash, IconPencil,
@@ -279,9 +279,11 @@ function CreateUserModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   const [key, setKey]     = useState("");
   const [limit, setLimit] = useState("40000");
   const [saving, setSaving] = useState(false);
+  const inFlight = { current: false };
 
   const save = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || inFlight.current) return;
+    inFlight.current = true;
     setSaving(true);
     const res = await fetch("/api/admin/users", {
       method: "POST",
@@ -332,6 +334,8 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [showCreate, setShowCreate]   = useState(false);
   const [search, setSearch]           = useState("");
   const [sort, setSort]               = useState<SortKey>("usage");
+  const [savingProvider, setSavingProvider] = useState<string | null>(null);
+  const [savedProvider, setSavedProvider]   = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/admin/users");
@@ -408,6 +412,19 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                   <Text size="xs" c="dimmed">over</Text>
                 </Group>
               </Paper>
+            )}
+            {(apiUsers?.length ?? 0) > 10 && (
+              <Tooltip label="Delete users with no tokens (orphan cleanup)" withArrow>
+                <Button size="xs" variant="light" color="red" leftSection={<IconTrash size={13} />}
+                  onClick={async () => {
+                    if (!confirm("Delete all users that have no tokens? This cannot be undone.")) return;
+                    const r = await fetch("/admin/users/purge-orphans", { method: "POST" });
+                    const d = await r.json() as any;
+                    if (d.ok) reload();
+                  }}>
+                  Purge orphans
+                </Button>
+              </Tooltip>
             )}
           </Group>
         </Group>
@@ -635,18 +652,31 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                                       <Text size="xs" c="dimmed" ff="monospace">{tk.pct}%</Text>
                                     </Group>
                                   </Table.Td>
-                                  <Table.Td style={{ minWidth: 200 }}>
-                                    <SegmentedControl
-                                      size="xs"
-                                      value={tk.provider || "inherit"}
-                                      onChange={v => adminPost("/admin/token/provider", { token: tk.key, provider: v }).then(reload)}
-                                      data={[
-                                        { label: "Auto",       value: "inherit"    },
-                                        { label: "Claude",     value: "anthropic"  },
-                                        { label: "DeepSeek",   value: "deepseek"   },
-                                        { label: "OpenRouter", value: "openrouter" },
-                                      ]}
-                                    />
+                                  <Table.Td style={{ minWidth: 220 }}>
+                                    <Group gap="xs" wrap="nowrap" align="center">
+                                      <SegmentedControl
+                                        size="xs"
+                                        value={tk.provider || "inherit"}
+                                        disabled={savingProvider === tk.key}
+                                        onChange={async v => {
+                                          setSavingProvider(tk.key);
+                                          setSavedProvider(null);
+                                          await adminPost("/admin/token/provider", { token: tk.key, provider: v });
+                                          await reload();
+                                          setSavingProvider(null);
+                                          setSavedProvider(tk.key);
+                                          setTimeout(() => setSavedProvider(null), 1500);
+                                        }}
+                                        data={[
+                                          { label: "Auto",       value: "inherit"    },
+                                          { label: "Claude",     value: "anthropic"  },
+                                          { label: "DeepSeek",   value: "deepseek"   },
+                                          { label: "OpenRouter", value: "openrouter" },
+                                        ]}
+                                      />
+                                      {savingProvider === tk.key && <Loader size={12} />}
+                                      {savedProvider === tk.key && <Text size="xs" c="teal">Saved</Text>}
+                                    </Group>
                                   </Table.Td>
                                   <Table.Td>
                                     <Group gap={4} wrap="nowrap">
