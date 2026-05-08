@@ -125,21 +125,31 @@ function resolveModelRoute(model: string): { rewritten: string | null; blocked: 
 // Thinking blocks have Anthropic-specific signatures — non-Anthropic providers reject them
 function stripThinkingBlocks(bodyJson: any): void {
   if (!bodyJson?.messages) return;
+  let strippedCount = 0;
   bodyJson.messages = bodyJson.messages.map((msg: any) => {
     if (msg.role === "assistant" && Array.isArray(msg.content)) {
-      const stripped = msg.content.filter((b: any) => b.type !== "thinking" && b.type !== "redacted_thinking");
-      return { ...msg, content: stripped.length > 0 ? stripped : [{ type: "text", text: "" }] };
+      const keep = msg.content.filter((b: any) => {
+        if (b.type === "thinking" || b.type === "redacted_thinking" || b.type === "reasoning") {
+          strippedCount++;
+          return false;
+        }
+        return true;
+      });
+      return { ...msg, content: keep.length > 0 ? keep : [{ type: "text", text: "" }] };
     }
     return msg;
   });
-  delete bodyJson.thinking;
+  if (bodyJson.thinking) {
+    bodyJson.thinking = { type: "disabled" };
+    console.log(`[proxy] stripThinkingBlocks: removed ${strippedCount} thinking blocks, disabled thinking mode`);
+  }
 }
 
 function hasThinkingBlocks(messages: any[]): boolean {
   if (!Array.isArray(messages)) return false;
   return messages.some((msg: any) =>
     msg.role === "assistant" && Array.isArray(msg.content) &&
-    msg.content.some((b: any) => b.type === "thinking" || b.type === "redacted_thinking")
+    msg.content.some((b: any) => b.type === "thinking" || b.type === "redacted_thinking" || b.type === "reasoning")
   );
 }
 
