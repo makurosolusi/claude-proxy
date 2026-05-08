@@ -11,6 +11,15 @@
         "GH_TOKEN": "${GH_TOKEN}",
         "GH_REPO": "bipprojectbali/claude-proxy"
       }
+    },
+    "debug-stg": {
+      "command": "bun",
+      "args": ["run", "scripts/mcp/debug-stg.ts"],
+      "description": "Debug staging runtime: query DB, cek logs, status, dan inspeksi token langsung dari local",
+      "env": {
+        "BASE_URL": "https://claude-proxy.wibudev.com",
+        "MCP_SECRET": "${MCP_SECRET}"
+      }
     }
   }
 }

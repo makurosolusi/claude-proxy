@@ -44,4 +44,5 @@ export const config = {
   betterAuthSecret:  process.env.BETTER_AUTH_SECRET  || "",
   superAdminEmails:    parseSuperAdminEmails(),
   defaultTokenLimit:   parseInt(process.env.DEFAULT_TOKEN_LIMIT || "40000"),
+  mcpSecret:           process.env.MCP_SECRET              || "",
 } as const;

@@ -20,6 +20,7 @@ import { handleApiAnalytics }    from "./handlers/apiAnalytics";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
+import { handleDebugQuery } from "./handlers/apiDebug";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModelRoutes } from "./handlers/apiModelRoutes";
@@ -585,6 +586,9 @@ server = serve({
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleDbUpload(req);
     },
+
+    // Debug query — auth via x-mcp-secret (untuk MCP debug-stg)
+    "/api/debug/query": async req => { return handleDebugQuery(req); },
 
     // Users API (admin only)
     "/api/admin/users": async req => {
