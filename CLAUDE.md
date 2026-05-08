@@ -41,4 +41,3 @@ Set `REACT_EDITOR=cursor` (atau `code`, `zed`) di `.env` untuk click-to-source (
 - @docs/ARCHITECTURE.md — file structure, DB schema, API endpoints, env vars
 - @docs/LOGIC.md — quota system, upstream mode, token refresh, /mind graph
 - @docs/DEPLOY.md — scripts, infra, Docker, Traefik
-

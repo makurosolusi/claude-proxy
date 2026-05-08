@@ -245,6 +245,25 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   }
 
   // Purge orphan users — delete users with no tokens and whose id matches a duplicate name slug
+  // Purge legacy users — users with no email (not yet migrated to Google login)
+  if (pathname === "/admin/users/purge-legacy" && req.method === "POST") {
+    const legacyUsers = Object.values(users).filter(u => !u.email);
+    let deleted = 0;
+    for (const u of legacyUsers) {
+      // Soft-delete all tokens linked to this user
+      const userTokenKeys = Object.keys(tokens).filter(k => tokens[k]!.user_id === u.id);
+      for (const key of userTokenKeys) {
+        db.query("UPDATE tokens SET deleted=1 WHERE key=?").run(key);
+        delete tokens[key];
+      }
+      db.query("DELETE FROM users WHERE id=?").run(u.id);
+      delete users[u.id];
+      deleted++;
+    }
+    triggerBroadcast();
+    return Response.json({ ok: true, deleted });
+  }
+
   if (pathname === "/admin/users/purge-orphans" && req.method === "POST") {
     // Find users with no linked active tokens
     const tokenUserIds = new Set(Object.values(tokens).map(tk => tk.user_id).filter(Boolean));
