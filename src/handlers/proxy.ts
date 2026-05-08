@@ -122,53 +122,14 @@ function resolveModelRoute(model: string): { rewritten: string | null; blocked: 
   return { rewritten: null, blocked: true, reason: "Too many routing hops (max 5)." };
 }
 
-// Thinking blocks have Anthropic-specific signatures — non-Anthropic providers reject them
-function stripThinkingBlocks(bodyJson: any): void {
-  if (!bodyJson?.messages) return;
-  let strippedCount = 0;
-  bodyJson.messages = bodyJson.messages.map((msg: any) => {
-    if (msg.role === "assistant" && Array.isArray(msg.content)) {
-      const keep = msg.content.filter((b: any) => {
-        if (b.type === "thinking" || b.type === "redacted_thinking" || b.type === "reasoning") {
-          strippedCount++;
-          return false;
-        }
-        return true;
-      });
-      return { ...msg, content: keep.length > 0 ? keep : [{ type: "text", text: "" }] };
-    }
-    return msg;
-  });
-  if (bodyJson.thinking) {
-    bodyJson.thinking = { type: "disabled" };
-    console.log(`[proxy] stripThinkingBlocks: removed ${strippedCount} thinking blocks, disabled thinking mode`);
-  }
-}
-
+// Detect if conversation history contains thinking blocks — used to catch orphaned
+// thinking param when switching back to Anthropic after non-Anthropic provider requests
 function hasThinkingBlocks(messages: any[]): boolean {
   if (!Array.isArray(messages)) return false;
   return messages.some((msg: any) =>
     msg.role === "assistant" && Array.isArray(msg.content) &&
     msg.content.some((b: any) => b.type === "thinking" || b.type === "redacted_thinking" || b.type === "reasoning")
   );
-}
-
-function diagnoseThinking(bodyJson: any): string {
-  if (!bodyJson) return "bodyJson=null";
-  const parts: string[] = [];
-  parts.push(`thinking=${JSON.stringify(bodyJson.thinking)}`);
-  if (Array.isArray(bodyJson.messages)) {
-    const counts: Record<string, number> = {};
-    for (const msg of bodyJson.messages) {
-      if (!Array.isArray(msg.content)) continue;
-      for (const b of msg.content) {
-        counts[b.type] = (counts[b.type] || 0) + 1;
-      }
-    }
-    parts.push(`content_types=${JSON.stringify(counts)}`);
-    parts.push(`msg_count=${bodyJson.messages.length}`);
-  }
-  return parts.join(" ");
 }
 
 function getDeepSeekConfig(): { apiKey: string; baseUrl: string; model: string } | null {
@@ -577,8 +538,7 @@ export async function handleProxy(
             stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
             turns, prompt, system_prompt: systemPrompt,
             messages_json: messagesJson,
-            response_text: (httpStatus >= 400 && bodyJson ? `[thinkDiag] provider=${provider} ${diagnoseThinking(bodyJson)} | ` : "")
-              + responseText.slice(0, 3000) });
+            response_text: responseText.slice(0, 3000) });
           // Real-time threshold alerts
           if (inputTokens > 80_000)
             pushAlert(`${t.name}: ${(inputTokens/1000).toFixed(0)}k tokens input — context sangat besar, jalankan /compact`);
@@ -613,8 +573,7 @@ export async function handleProxy(
       stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
       turns, prompt, system_prompt: systemPrompt,
       messages_json: messagesJson,
-      response_text: (resp.status >= 400 && bodyJson ? `[thinkDiag] provider=${provider} ${diagnoseThinking(bodyJson)} | ` : "")
-        + extractResponseText(body, resp.status) });
+      response_text: extractResponseText(body, resp.status) });
     if (inputTokens > 80_000)
       pushAlert(`${t.name}: ${(inputTokens/1000).toFixed(0)}k tokens input — jalankan /compact`);
     if (t.limit !== Infinity) {
