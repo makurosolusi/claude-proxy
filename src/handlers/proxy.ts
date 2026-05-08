@@ -63,9 +63,11 @@ function extractResponseText(body: any, status: number): string {
       .join("")
       .slice(0, 3000);
   }
-  if (status >= 400 && body?.error) {
-    const e = body.error;
-    return (e.message || JSON.stringify(e)).slice(0, 3000);
+  if (status >= 400) {
+    if (body?.error?.message) return String(body.error.message).slice(0, 3000);
+    if (body?.error) return String(typeof body.error === "string" ? body.error : JSON.stringify(body.error)).slice(0, 3000);
+    if (body?.message) return String(body.message).slice(0, 3000);
+    return JSON.stringify(body).slice(0, 3000);
   }
   return "";
 }
