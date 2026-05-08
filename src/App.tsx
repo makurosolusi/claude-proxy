@@ -6,7 +6,7 @@ import {
   Container, Group, Stack, Title, Text, Box, Button, Paper,
   ActionIcon, Tooltip, TextInput, useMantineColorScheme,
   SimpleGrid, Progress, ThemeIcon, Divider, Alert, Badge, Code, Collapse, Loader, Transition,
-  Table, Pagination, Modal,
+  Table, Pagination, Modal, Anchor,
 } from "@mantine/core";
 import {
   IconSun, IconMoon, IconLogout, IconLogin,
@@ -21,7 +21,7 @@ import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
 import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
 import { useStatus } from "./contexts";
-import { LoadingScreen, NotFoundPage, RequireAdmin, UpstreamSection } from "./components/shared";
+import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, UpstreamSection } from "./components/shared";
 import { DailyHistory } from "./components/tables/DailyHistory";
 import { RequestLog, DetailContent } from "./components/tables/RequestLog";
 import { AdminDashboard } from "./components/admin/Dashboard";
@@ -29,6 +29,26 @@ import { MindPage } from "./components/MindPage";
 import { RacePage } from "./components/RacePage";
 import { SessionHistory } from "./components/SessionHistory";
 import { FloatingChat } from "./components/FloatingChat";
+
+async function resolveLoginRedirect(): Promise<string> {
+  try {
+    const r = await fetch("/api/profile", { credentials: "include" });
+    const d = await r.json() as any;
+    if (d?.role === "SUPER_ADMIN" || d?.role === "ADMIN") return "/admin";
+  } catch {}
+  return "/";
+}
+
+async function signInWithGoogle() {
+  const r = await fetch("/api/auth/sign-in/social", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ provider: "google", callbackURL: "/login/redirect" }),
+  });
+  const d = await r.json() as any;
+  if (d?.url) window.location.href = d.url;
+}
 
 function fmtCountdown(ms: number): string {
   if (ms <= 0) return "now";
@@ -536,7 +556,331 @@ function TokenDetailModal({ tokenKey, tk, ins, opened, onClose }: {
   );
 }
 
-function Dashboard({ isAdmin }: { isAdmin: boolean }) {
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <Tooltip label={copied ? "Copied!" : "Copy"} withArrow position="top">
+      <ActionIcon variant={copied ? "filled" : "default"} color={copied ? "teal" : undefined} size="sm" radius="sm" onClick={copy}>
+        {copied ? <IconActivity size={12} /> : <IconDatabase size={12} />}
+      </ActionIcon>
+    </Tooltip>
+  );
+}
+
+function ProfilePage() {
+  const [profile, setProfile] = useState<import("./contexts").ProfileResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const nfm = new Intl.NumberFormat();
+  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const isDark = colorScheme === "dark";
+  const baseUrl = window.location.origin;
+
+  useEffect(() => {
+    fetch("/api/profile", { credentials: "include" })
+      .then(r => r.json())
+      .then(d => { setProfile(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5" }}>
+      <Container size="sm" py="xl">
+        <Group justify="center" py="xl"><Loader size="md" /></Group>
+      </Container>
+    </Box>
+  );
+
+  if (!profile?.authenticated) return (
+    <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5" }}>
+      <Container size="sm" py="xl">
+        <Paper withBorder p="lg" radius="md" ta="center">
+          <Stack gap="md" align="center">
+            <ThemeIcon variant="light" color="gray" size="xl" radius="xl"><IconKey size={22} /></ThemeIcon>
+            <Text size="lg" fw={700}>Not signed in</Text>
+            <Button onClick={() => signInWithGoogle()} color="blue" size="sm" radius="md" leftSection={<IconLogin size={16} />}>
+              Sign in with Google
+            </Button>
+            <Anchor href="/" size="xs" c="dimmed">← Dashboard</Anchor>
+          </Stack>
+        </Paper>
+      </Container>
+    </Box>
+  );
+
+  const tkEntries = Object.entries(profile.tokens ?? {});
+  const totalToday   = tkEntries.reduce((s, [, t]) => s + (t.today   ?? 0), 0);
+  const totalAlltime = tkEntries.reduce((s, [, t]) => s + (t.alltime ?? 0), 0);
+  const roleColor = profile.role === "SUPER_ADMIN" ? "red" : profile.role === "ADMIN" ? "orange" : "blue";
+  const roleLabel = profile.role === "SUPER_ADMIN" ? "Super Admin" : profile.role === "ADMIN" ? "Admin" : "User";
+  const initials = (profile.name || profile.email || "?").slice(0, 2).toUpperCase();
+
+  const codeBg  = isDark ? "#1a1b1e" : "#f1f3f5";
+  const codeFg  = isDark ? "#c9cace" : "#2c2e33";
+
+  return (
+    <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5" }}>
+      <Container size="sm" py="xl">
+        <Stack gap="lg">
+
+          {/* ── Header ───────────────────────────────────────────── */}
+          <Paper withBorder p="lg" radius="md">
+            <Group justify="space-between" wrap="wrap" gap="sm">
+              <Group gap="md">
+                <Box style={{
+                  width: 46, height: 46, borderRadius: "50%", flexShrink: 0,
+                  background: `var(--mantine-color-${avatarColor(profile.name || profile.email || "")}-5)`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Text span fz={15} fw={700} c="white">{initials}</Text>
+                </Box>
+                <div>
+                  <Group gap={6} align="center">
+                    <Text size="md" fw={700}>{profile.name}</Text>
+                    <Badge size="xs" color={roleColor} variant="light" radius="sm">{roleLabel}</Badge>
+                  </Group>
+                  <Text size="xs" c="dimmed">{profile.email}</Text>
+                </div>
+              </Group>
+              <Group gap="xs">
+                <ActionIcon variant="default" size="lg" radius="md" onClick={() => toggleColorScheme()}>
+                  {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+                </ActionIcon>
+                <Button component="a" href="/" variant="default" size="xs" radius="md">Dashboard</Button>
+                <Button component="a" href="/auth/logout" variant="subtle" color="red" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
+              </Group>
+            </Group>
+          </Paper>
+
+          {/* ── Stats ────────────────────────────────────────────── */}
+          <SimpleGrid cols={3} spacing="sm">
+            {[
+              { label: "API Keys", value: tkEntries.length },
+              { label: "Today", value: nfm.format(totalToday) },
+              { label: "All-Time", value: nfm.format(totalAlltime) },
+            ].map(s => (
+              <Paper key={s.label} withBorder p="md" radius="md">
+                <Text size="xs" c="dimmed" tt="uppercase" fw={700} style={{ letterSpacing: ".06em" }}>{s.label}</Text>
+                <Text size="xl" fw={700} ff="monospace" mt={2}>{s.value}</Text>
+              </Paper>
+            ))}
+          </SimpleGrid>
+
+          {/* ── API Keys ─────────────────────────────────────────── */}
+          {tkEntries.length === 0 ? (
+            <Paper withBorder p="xl" radius="md" ta="center">
+              <Text size="sm" c="dimmed">No API key assigned yet. Please contact the admin.</Text>
+            </Paper>
+          ) : (
+            <Stack gap="sm">
+              <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>API Keys</Text>
+              {tkEntries.map(([key, tk]) => {
+                const pct   = tk.limit == null ? 0 : Math.min(100, tk.pct);
+                const color = tk.paused ? "gray" : pct >= 95 ? "red" : pct >= 75 ? "orange" : pct >= 50 ? "yellow" : "teal";
+                const pn    = tk.provider === "deepseek" ? "DeepSeek" : tk.provider === "openrouter" ? "OpenRouter" : tk.provider === "anthropic" ? "Claude Max" : "Auto";
+                const pc    = tk.provider === "deepseek" ? "violet" : tk.provider === "openrouter" ? "orange" : tk.provider === "anthropic" ? "blue" : "gray";
+                return (
+                  <Paper key={key} withBorder p="md" radius="md"
+                    style={{ borderColor: tk.paused ? "var(--mantine-color-orange-4)" : undefined, opacity: tk.paused ? 0.85 : 1 }}>
+                    <Stack gap="sm">
+                      {/* Pending banner */}
+                      {tk.paused && (
+                        <Group gap="xs" p="xs" style={{ background: isDark ? "rgba(255,140,0,.08)" : "rgba(255,140,0,.06)", borderRadius: 6 }}>
+                          <Text size="xs" c="orange" fw={600}>Pending activation — contact the admin to enable this key.</Text>
+                        </Group>
+                      )}
+                      {/* Key row */}
+                      <Group justify="space-between" wrap="nowrap" gap="sm">
+                        <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+                          <ThemeIcon variant="light" color={tk.paused ? "orange" : "blue"} size="sm" radius="sm">
+                            <IconKey size={12} />
+                          </ThemeIcon>
+                          <Text size="xs" ff="monospace" c="dimmed">
+                            {key.slice(0, 6)}{"•".repeat(20)}{key.slice(-4)}
+                          </Text>
+                        </Group>
+                        <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
+                          <CopyButton value={key} />
+                          <Badge size="xs" color={pc} variant="light">{pn}</Badge>
+                          <Badge size="xs" color={tk.paused ? "orange" : "teal"} variant="light">
+                            {tk.paused ? "Inactive" : "Active"}
+                          </Badge>
+                        </Group>
+                      </Group>
+                      {/* Quota — only meaningful when active */}
+                      {!tk.paused && (
+                        <div>
+                          <Group justify="space-between" mb={4}>
+                            <Text size="xs" c="dimmed">Quota this window</Text>
+                            <Text size="xs" ff="monospace">
+                              {nfm.format(tk.used)} / {tk.limit == null ? "∞" : nfm.format(tk.limit)} tokens
+                              {tk.limit != null && <> · <Text span c={color}>{pct}%</Text></>}
+                            </Text>
+                          </Group>
+                          <Progress value={pct} color={color} size="sm" radius="xl" />
+                        </div>
+                      )}
+                      {/* Today / All-time */}
+                      <Group gap="xl">
+                        <div>
+                          <Text size="xs" c="dimmed">Today</Text>
+                          <Text size="xs" ff="monospace" fw={600}>{nfm.format(tk.today)} tokens</Text>
+                        </div>
+                        <div>
+                          <Text size="xs" c="dimmed">All-time</Text>
+                          <Text size="xs" ff="monospace" fw={600}>{nfm.format(tk.alltime)} tokens</Text>
+                        </div>
+                      </Group>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          )}
+
+          {/* ── Usage Guide — Claude Code ────────────────────────── */}
+          {tkEntries.length > 0 && (() => {
+            const firstKey = tkEntries[0]![0];
+            const envExample =
+`export ANTHROPIC_API_KEY="${firstKey}"
+export ANTHROPIC_BASE_URL="${baseUrl}"`;
+            const configExample =
+`claude config set apiKey "${firstKey}"
+claude config set baseUrl "${baseUrl}"`;
+            const border = `1px solid var(--mantine-color-default-border)`;
+            return (
+              <Stack gap="sm">
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Claude Code — Setup</Text>
+                <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+                  <Stack gap={0}>
+
+                    {/* Option 1: env vars */}
+                    <Box px="md" py="sm" style={{ borderBottom: border }}>
+                      <Group justify="space-between" mb={6}>
+                        <div>
+                          <Text size="xs" fw={700} c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Option 1 — Environment variables</Text>
+                          <Text size="xs" c="dimmed" mt={2}>Add to your <Text span ff="monospace">.bashrc</Text> / <Text span ff="monospace">.zshrc</Text></Text>
+                        </div>
+                        <CopyButton value={envExample} />
+                      </Group>
+                      <Box style={{ background: codeBg, borderRadius: 6, padding: "10px 12px" }}>
+                        <Text size="xs" ff="monospace" style={{ color: codeFg, whiteSpace: "pre" }}>{envExample}</Text>
+                      </Box>
+                    </Box>
+
+                    {/* Option 2: claude config */}
+                    <Box px="md" py="sm">
+                      <Group justify="space-between" mb={6}>
+                        <div>
+                          <Text size="xs" fw={700} c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Option 2 — Claude Code config</Text>
+                          <Text size="xs" c="dimmed" mt={2}>Run once in your terminal</Text>
+                        </div>
+                        <CopyButton value={configExample} />
+                      </Group>
+                      <Box style={{ background: codeBg, borderRadius: 6, padding: "10px 12px" }}>
+                        <Text size="xs" ff="monospace" style={{ color: codeFg, whiteSpace: "pre" }}>{configExample}</Text>
+                      </Box>
+                    </Box>
+
+                  </Stack>
+                </Paper>
+                <Text size="xs" c="dimmed">After setup, run <Text span ff="monospace">claude</Text> as usual — requests will be routed through this proxy.</Text>
+              </Stack>
+            );
+          })()}
+
+        </Stack>
+      </Container>
+    </Box>
+  );
+}
+
+function LoginRedirect() {
+  useEffect(() => {
+    resolveLoginRedirect().then(url => { window.location.replace(url); });
+  }, []);
+  return <LoadingScreen />;
+}
+
+function LoginPage() {
+  const isDark = useMantineColorScheme().colorScheme === "dark";
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true); setError("");
+    const r = await fetch("/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+    const d = await r.json() as any;
+    if (r.ok) {
+      window.location.href = await resolveLoginRedirect();
+    } else {
+      setError(d?.message || d?.error || "Invalid credentials");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <Paper withBorder p="xl" radius="md" style={{ width: "100%", maxWidth: 380 }}>
+        <Stack gap="lg" align="center">
+          <Box style={{ width: 44, height: 44, background: "#228be6", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Text span fz={13} fw={800} c="white" ff="monospace">CP</Text>
+          </Box>
+          <div style={{ textAlign: "center" }}>
+            <Text fw={700} size="lg">claude-proxy</Text>
+            <Text size="sm" c="dimmed" mt={2}>Sign in to continue</Text>
+          </div>
+
+          <Button fullWidth onClick={() => signInWithGoogle()} color="blue" leftSection={<IconLogin size={16} />}>
+            Sign in with Google
+          </Button>
+
+          <Divider label="or" labelPosition="center" w="100%" />
+
+          <form onSubmit={handleEmail} style={{ width: "100%" }}>
+            <Stack gap="sm">
+              {error && <Text size="sm" c="red" ta="center">{error}</Text>}
+              <div>
+                <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={4} style={{ letterSpacing: ".07em" }}>Email</Text>
+                <input
+                  type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${isDark ? "#2c2e33" : "#dee2e6"}`, background: isDark ? "#25262b" : "#f8f9fa", color: isDark ? "#e9eaec" : "#1c1c1e", fontFamily: "inherit", fontSize: "0.875rem", outline: "none" }}
+                />
+              </div>
+              <div>
+                <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={4} style={{ letterSpacing: ".07em" }}>Password</Text>
+                <input
+                  type="password" required value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${isDark ? "#2c2e33" : "#dee2e6"}`, background: isDark ? "#25262b" : "#f8f9fa", color: isDark ? "#e9eaec" : "#1c1c1e", fontFamily: "inherit", fontSize: "0.875rem", outline: "none" }}
+                />
+              </div>
+              <Button type="submit" fullWidth loading={loading} variant="default" mt="xs">Sign in</Button>
+            </Stack>
+          </form>
+
+          <Anchor href="/" size="xs" c="dimmed">← Back to dashboard</Anchor>
+        </Stack>
+      </Paper>
+    </Box>
+  );
+}
+
+function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import("./contexts").ProfileResponse }) {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { tokens, upstream, contextAlerts = [], thresholdAlerts = [], insights = {} } = status;
@@ -668,15 +1012,72 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
                 {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
               </ActionIcon>
             </Tooltip>
-{isAdmin
-              ? <Button component="a" href="/admin/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
-              : status.isAdmin
-              ? <Button component="a" href="/admin" variant="light" size="xs" radius="md" leftSection={<IconLogin size={13} />}>Admin</Button>
-              : <Button component="a" href="/admin/login" variant="light" size="xs" radius="md" leftSection={<IconLogin size={13} />}>Sign in</Button>
+{(isAdmin || status.isAdmin || (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN"))
+              ? <>
+                <Button component="a" href="/admin" variant="light" size="xs" radius="md" leftSection={<IconLogin size={13} />}>Admin</Button>
+                <Button component="a" href="/auth/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
+                </>
+              : <>
+                <Button component="a" href="/auth/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
+                </>
             }
           </Group>
         </Group>
       </Paper>
+
+      {/* ── User profile card ───────────────────────────────── */}
+      {profile?.authenticated && (() => {
+        const roleColor = profile.role === "SUPER_ADMIN" ? "red" : profile.role === "ADMIN" ? "orange" : "blue";
+        const roleLabel = profile.role === "SUPER_ADMIN" ? "Super Admin" : profile.role === "ADMIN" ? "Admin" : "User";
+        const myTokens  = Object.values(profile.tokens || {});
+        const totalUsed = myTokens.reduce((s, t) => s + t.used, 0);
+        const totalLim  = myTokens.reduce((s, t) => s + (t.limit ?? 0), 0);
+        const todayTok  = myTokens.reduce((s, t) => s + t.today, 0);
+        const pct       = totalLim > 0 ? Math.min(100, Math.round((totalUsed / totalLim) * 100)) : 0;
+        const initials  = (profile.name || profile.email || "?").slice(0, 2).toUpperCase();
+        return (
+          <Paper withBorder radius="md" p="md" mb="lg"
+            style={{ background: isDark ? "rgba(255,255,255,.02)" : "rgba(0,0,0,.01)" }}>
+            <Group justify="space-between" wrap="wrap" gap="sm">
+              <Group gap="sm" wrap="nowrap">
+                <Box style={{
+                  width: 38, height: 38, borderRadius: "50%", flexShrink: 0,
+                  background: `var(--mantine-color-${avatarColor(profile.name || profile.email || "")}-5)`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Text span fz={13} fw={700} c="white">{initials}</Text>
+                </Box>
+                <div>
+                  <Group gap={6} align="center">
+                    <Text size="sm" fw={600}>{profile.name || profile.email}</Text>
+                    <Badge size="xs" color={roleColor} variant="light" radius="sm">{roleLabel}</Badge>
+                  </Group>
+                  <Text size="xs" c="dimmed">{profile.email}</Text>
+                </div>
+              </Group>
+              <Group gap="xl" wrap="nowrap">
+                {totalLim > 0 && (
+                  <div style={{ minWidth: 140 }}>
+                    <Group justify="space-between" mb={4}>
+                      <Text size="xs" c="dimmed">Quota</Text>
+                      <Text size="xs" ff="monospace" c={pct > 80 ? "red" : "dimmed"}>{pct}%</Text>
+                    </Group>
+                    <Progress value={pct} size="xs" radius="xl" color={pct > 80 ? "red" : pct > 50 ? "yellow" : "blue"} />
+                    <Text size="xs" c="dimmed" mt={3}>{nf.format(totalUsed)} / {nf.format(totalLim)} tokens</Text>
+                  </div>
+                )}
+                <div style={{ textAlign: "right" }}>
+                  <Text size="xs" c="dimmed">Today</Text>
+                  <Text size="sm" fw={600} ff="monospace">{nf.format(todayTok)}</Text>
+                </div>
+                <Button component="a" href="/profile" variant="light" size="xs" radius="md" leftSection={<IconUsers size={13} />}>
+                  Profile
+                </Button>
+              </Group>
+            </Group>
+          </Paper>
+        );
+      })()}
 
       {/* ── Clock ────────────────────────────────────────────── */}
       <ClockPanel isDark={isDark} />
@@ -1492,6 +1893,7 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
 
 export function App() {
   const [status, setStatus]     = useState<StatusResponse | null>(null);
+  const [profile, setProfile]   = useState<import("./contexts").ProfileResponse | null | "loading">("loading");
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -1521,18 +1923,30 @@ export function App() {
     return () => { dead = true; ws?.close(); };
   }, []);
 
+  useEffect(() => {
+    fetch("/api/profile", { credentials: "include" })
+      .then(r => r.json())
+      .then(d => setProfile(d))
+      .catch(() => setProfile({ authenticated: false }));
+  }, []);
+
   return (
     <ChatCtx.Provider value={{ messages: chatMsgs, send: sendChat }}>
       <StatusCtx.Provider value={status}>
         <Routes>
           <Route path="/" element={
-            status ? <Dashboard isAdmin={false} /> : <LoadingScreen />
+            <RequireAuth profile={profile}>
+              {status ? <Dashboard isAdmin={false} profile={profile as import("./contexts").ProfileResponse} /> : <LoadingScreen />}
+            </RequireAuth>
           } />
           <Route path="/admin" element={
             <RequireAdmin>
               <AdminDashboard />
             </RequireAdmin>
           } />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login/redirect" element={<LoginRedirect />} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/mind" element={<MindPage />} />
           <Route path="/race" element={<RacePage />} />
           <Route path="/sessions/:user" element={<SessionHistory />} />

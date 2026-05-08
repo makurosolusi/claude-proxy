@@ -43,8 +43,22 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   const status = useStatus();
   if (!status) return <LoadingScreen />;
   if (!status.isAdmin) {
-    // Hard redirect — /admin/login is server-rendered HTML, not in React Router
-    window.location.replace("/admin/login");
+    window.location.replace("/login");
+    return null;
+  }
+  return <>{children}</>;
+}
+
+export function RequireAuth({
+  profile,
+  children,
+}: {
+  profile: import("../contexts").ProfileResponse | null | "loading";
+  children: ReactNode;
+}) {
+  if (profile === "loading") return <LoadingScreen />;
+  if (!profile?.authenticated) {
+    window.location.replace("/login");
     return null;
   }
   return <>{children}</>;

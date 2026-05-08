@@ -113,6 +113,18 @@ function resolveModelRoute(model: string): { rewritten: string | null; blocked: 
   return { rewritten: null, blocked: true, reason: "Too many routing hops (max 5)." };
 }
 
+// Thinking blocks have Anthropic-specific signatures — non-Anthropic providers reject them
+function stripThinkingBlocks(bodyJson: any): void {
+  if (!bodyJson?.messages) return;
+  bodyJson.messages = bodyJson.messages.map((msg: any) => {
+    if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      const stripped = msg.content.filter((b: any) => b.type !== "thinking" && b.type !== "redacted_thinking");
+      return { ...msg, content: stripped.length > 0 ? stripped : [{ type: "text", text: "" }] };
+    }
+    return msg;
+  });
+}
+
 function getDeepSeekConfig(): { apiKey: string; baseUrl: string; model: string } | null {
   const apiKey = settings["deepseek_api_key"] || config.deepseekApiKey;
   if (!apiKey) return null;
@@ -329,6 +341,7 @@ export async function handleProxy(
   // Strip client-specific fields Anthropic API doesn't accept
   if (bodyJson) {
     delete bodyJson.context_management;
+    if (provider !== "anthropic") stripThinkingBlocks(bodyJson);
     bodyText = JSON.stringify(bodyJson);
   }
 
@@ -426,7 +439,7 @@ export async function handleProxy(
     if (provider === "anthropic" && resp.status === 429 && autoFallback && override !== "anthropic") {
       provider = openrouter ? "openrouter" : "deepseek";
       model = toProviderModel(originalModel || model, provider);
-      if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
+      if (bodyJson) { bodyJson.model = model; stripThinkingBlocks(bodyJson); bodyText = JSON.stringify(bodyJson); }
       const fbBuilt = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
       if (fbBuilt) {
         upstreamUrl = fbBuilt.url;

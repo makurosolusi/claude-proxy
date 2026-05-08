@@ -98,6 +98,13 @@ db.exec(`
     created_at INTEGER NOT NULL,
     last_used  INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS user_sessions (
+    token      TEXT    PRIMARY KEY,
+    user_id    TEXT    NOT NULL,
+    email      TEXT    NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    last_used  INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS users (
     id          TEXT    PRIMARY KEY,
     name        TEXT    NOT NULL,
@@ -113,6 +120,48 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS "user" (
+    "id"            TEXT NOT NULL PRIMARY KEY,
+    "name"          TEXT NOT NULL,
+    "email"         TEXT NOT NULL UNIQUE,
+    "emailVerified" INTEGER NOT NULL DEFAULT 0,
+    "image"         TEXT,
+    "createdAt"     INTEGER NOT NULL,
+    "updatedAt"     INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS "session" (
+    "id"        TEXT NOT NULL PRIMARY KEY,
+    "expiresAt" INTEGER NOT NULL,
+    "token"     TEXT NOT NULL UNIQUE,
+    "createdAt" INTEGER NOT NULL,
+    "updatedAt" INTEGER NOT NULL,
+    "ipAddress" TEXT,
+    "userAgent" TEXT,
+    "userId"    TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS "account" (
+    "id"                    TEXT NOT NULL PRIMARY KEY,
+    "accountId"             TEXT NOT NULL,
+    "providerId"            TEXT NOT NULL,
+    "userId"                TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    "accessToken"           TEXT,
+    "refreshToken"          TEXT,
+    "idToken"               TEXT,
+    "accessTokenExpiresAt"  INTEGER,
+    "refreshTokenExpiresAt" INTEGER,
+    "scope"                 TEXT,
+    "password"              TEXT,
+    "createdAt"             INTEGER NOT NULL,
+    "updatedAt"             INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS "verification" (
+    "id"         TEXT NOT NULL PRIMARY KEY,
+    "identifier" TEXT NOT NULL,
+    "value"      TEXT NOT NULL,
+    "expiresAt"  INTEGER NOT NULL,
+    "createdAt"  INTEGER,
+    "updatedAt"  INTEGER
   );
 `);
 
@@ -130,9 +179,12 @@ try { db.exec("ALTER TABLE request_logs ADD COLUMN name TEXT DEFAULT ''"); } cat
 try { db.exec("ALTER TABLE tokens ADD COLUMN name TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN mode TEXT NOT NULL DEFAULT 'inherit'"); } catch {} // kept for DB compat
 try { db.exec("ALTER TABLE tokens ADD COLUMN provider TEXT NOT NULL DEFAULT 'inherit'"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE tokens ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE request_logs ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE daily_usage ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'USER'"); } catch {}
+try { db.exec("ALTER TABLE \"user\" ADD COLUMN \"role\" TEXT NOT NULL DEFAULT 'USER'"); } catch {}
 
 // ── Prepared statements ───────────────────────────────────────────────────────
 const stmts = {
@@ -168,7 +220,13 @@ const stmts = {
   checkSession:  db.prepare(`SELECT 1 FROM admin_sessions WHERE token=$token`),
   deleteSession: db.prepare(`DELETE FROM admin_sessions WHERE token=$token`),
   pruneSessions: db.prepare(`DELETE FROM admin_sessions WHERE last_used < $cutoff`),
-  upsertUser:    db.prepare(`INSERT OR REPLACE INTO users (id, name, description, created_at) VALUES ($id, $name, $desc, $ts)`),
+  insertUserSession:  db.prepare(`INSERT OR REPLACE INTO user_sessions (token, user_id, email, created_at, last_used) VALUES ($token, $uid, $email, $now, $now)`),
+  touchUserSession:   db.prepare(`UPDATE user_sessions SET last_used=$now WHERE token=$token`),
+  checkUserSession:   db.prepare(`SELECT user_id, email FROM user_sessions WHERE token=$token`),
+  deleteUserSession:  db.prepare(`DELETE FROM user_sessions WHERE token=$token`),
+  pruneUserSessions:  db.prepare(`DELETE FROM user_sessions WHERE last_used < $cutoff`),
+  upsertUser:    db.prepare(`INSERT OR REPLACE INTO users (id, name, email, description, created_at, role) VALUES ($id, $name, $email, $desc, $ts, $role)`),
+  setUserRole:   db.prepare(`UPDATE users SET role=$role WHERE id=$id`),
   updateUser:    db.prepare(`UPDATE users SET name=$name, description=$desc WHERE id=$id`),
   deleteUser:    db.prepare(`DELETE FROM users WHERE id=$id`),
   linkToken:     db.prepare(`UPDATE tokens SET user_id=$uid WHERE key=$key AND (user_id IS NULL OR user_id='')`),
@@ -264,7 +322,12 @@ export function dbUpdateProvider(key: string, provider: string) {
 }
 
 export function dbUpsertUser(entry: UserEntry) {
-  stmts.upsertUser.run({ $id: entry.id, $name: entry.name, $desc: entry.description, $ts: entry.created_at });
+  stmts.upsertUser.run({ $id: entry.id, $name: entry.name, $email: entry.email || "", $desc: entry.description, $ts: entry.created_at, $role: entry.role || "USER" });
+}
+
+export function dbSetUserRole(id: string, role: import("./types").UserRole) {
+  stmts.setUserRole.run({ $role: role, $id: id });
+  if (users[id]) users[id]!.role = role;
 }
 
 export function dbUpdateUser(id: string, name: string, description: string) {
@@ -410,6 +473,26 @@ export function dbDeleteSession(token: string) {
   stmts.deleteSession.run({ $token: token });
 }
 
+// ── User sessions (Google OAuth login) ─────────────────────────────────────────
+const USER_SESSION_TTL = 30 * 86400 * 1000;
+
+export function dbCreateUserSession(token: string, userId: string, email: string) {
+  const now = Date.now();
+  stmts.insertUserSession.run({ $token: token, $uid: userId, $email: email, $now: now });
+  stmts.pruneUserSessions.run({ $cutoff: now - USER_SESSION_TTL });
+}
+
+export function dbCheckUserSession(token: string): { userId: string; email: string } | null {
+  const row = stmts.checkUserSession.get({ $token: token }) as any;
+  if (!row) return null;
+  stmts.touchUserSession.run({ $token: token, $now: Date.now() });
+  return { userId: row.user_id, email: row.email };
+}
+
+export function dbDeleteUserSession(token: string) {
+  stmts.deleteSession.run({ $token: token });
+}
+
 function rowToLog(r: any): RequestLogEntry {
   const key = r.token_key || "";
   const name = r.name || deriveNameFromKey(key);
@@ -491,7 +574,7 @@ export function loadFromDb() {
   // Load users
   const userRows = db.query("SELECT * FROM users ORDER BY name ASC").all() as any[];
   for (const row of userRows) {
-    users[row.id] = { id: row.id, name: row.name, description: row.description || "", created_at: row.created_at };
+    users[row.id] = { id: row.id, name: row.name, email: row.email || "", description: row.description || "", created_at: row.created_at, role: (row.role as import("./types").UserRole) || "USER" };
   }
 
   const rows = db.query("SELECT * FROM tokens WHERE deleted=0").all() as any[];
@@ -592,9 +675,9 @@ export function backfillUsers() {
       uid = users[base] ? base : ensureUniqueSlug(base, users);
     }
     if (!users[uid]) {
-      const entry: UserEntry = { id: uid, name: tk.name, description: "", created_at: now };
+      const entry: UserEntry = { id: uid, name: tk.name, email: "", description: "", created_at: now, role: "USER" };
       users[uid] = entry;
-      stmts.upsertUser.run({ $id: uid, $name: tk.name, $desc: "", $ts: now });
+      stmts.upsertUser.run({ $id: uid, $name: tk.name, $email: "", $desc: "", $ts: now, $role: "USER" });
     }
     if (!tk.user_id) {
       tk.user_id = uid;
@@ -621,6 +704,14 @@ export function backfillUsers() {
     FROM request_logs GROUP BY uid
   `).all() as { uid: string; total: number }[];
   for (const r of perUserRows) allTimePerUser[r.uid] = r.total ?? 0;
+
+  // Sync SUPER_ADMIN_EMAILS → auto-promote matching users
+  for (const u of Object.values(users)) {
+    if (u.email && config.superAdminEmails.has(u.email.toLowerCase()) && u.role !== "SUPER_ADMIN") {
+      u.role = "SUPER_ADMIN";
+      stmts.setUserRole.run({ $role: "SUPER_ADMIN", $id: u.id });
+    }
+  }
 
   console.log(`Users backfill done: ${Object.keys(users).length} user(s)`);
 }

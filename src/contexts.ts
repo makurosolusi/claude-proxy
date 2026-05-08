@@ -73,6 +73,21 @@ export interface LogEntry {
   turns: number; prompt: string; system_prompt: string;
   messages_json: string; response_text: string;
 }
+
+export interface ProfileToken {
+  key: string; name: string; used: number; limit: number | null;
+  remaining: number | null; pct: number; paused: boolean;
+  provider: string; today: number; alltime: number;
+}
+
+export interface ProfileResponse {
+  authenticated: boolean;
+  userId?:   string;
+  email?:    string;
+  name?:     string;
+  role?:     "SUPER_ADMIN" | "ADMIN" | "USER";
+  tokens?:   Record<string, ProfileToken>;
+}
 export interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
 export interface ChatCtxType { messages: ChatMsg[]; send: (nick: string, text: string) => void; }
 

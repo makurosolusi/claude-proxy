@@ -20,7 +20,7 @@ interface ApiToken {
   provider: string;
 }
 interface ApiUser {
-  id: string; name: string; description: string; created_at: number;
+  id: string; name: string; email: string; description: string; created_at: number;
   tokens: ApiToken[];
 }
 
@@ -58,6 +58,7 @@ function CopyButton({ value }: { value: string }) {
 
 function EditUserModal({ user, onClose, onSaved }: { user: ApiUser; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(user.name);
+  const [email, setEmail] = useState(user.email || "");
   const [desc, setDesc] = useState(user.description);
   const [saving, setSaving] = useState(false);
 
@@ -70,6 +71,13 @@ function EditUserModal({ user, onClose, onSaved }: { user: ApiUser; onClose: () 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), description: desc }),
       });
+      // If email changed, set it separately (unique constraint check on backend)
+      if (email.trim() && email.trim() !== (user.email || "")) {
+        const form = new URLSearchParams();
+        form.set("user_id", user.id);
+        form.set("email", email.trim());
+        await fetch("/admin/user/set-email", { method: "POST", body: form });
+      }
       notifications.show({ color: "teal", message: "User updated", autoClose: 2000 });
       onSaved();
       onClose();
@@ -85,6 +93,9 @@ function EditUserModal({ user, onClose, onSaved }: { user: ApiUser; onClose: () 
       <Stack gap="sm">
         <TextInput label="Display Name" value={name} onChange={e => setName(e.currentTarget.value)}
           onKeyDown={e => { if (e.key === "Enter") save(); }} />
+        <TextInput label="Google Email" value={email} onChange={e => setEmail(e.currentTarget.value)}
+          placeholder="user@gmail.com" type="email"
+          description="Link this user to a Google account for OAuth login" />
         <Textarea label="Description" value={desc} onChange={e => setDesc(e.currentTarget.value)}
           placeholder="Optional notes about this user" rows={3} />
         <Group justify="flex-end" mt="xs">
@@ -735,6 +746,12 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                             <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Today</Text>
                             <Text size="sm" ff="monospace">{nf(agg.todayUsed)}</Text>
                           </Box>
+                          {u.email && (
+                            <Box>
+                              <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Google</Text>
+                              <Text size="sm" c="blue">{u.email}</Text>
+                            </Box>
+                          )}
                           {u.description && (
                             <Box style={{ flex: 1, minWidth: 200 }}>
                               <Group gap={4} mb={2}>

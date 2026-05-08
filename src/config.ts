@@ -1,3 +1,10 @@
+function parseSuperAdminEmails(): Set<string> {
+  const raw = process.env.SUPER_ADMIN_EMAILS || "";
+  const cleaned = raw.trim().replace(/^\[|\]$/g, "");
+  if (!cleaned) return new Set();
+  return new Set(cleaned.split(",").map(e => e.trim().toLowerCase()).filter(Boolean));
+}
+
 function resolvePort(): number {
   const argv = process.argv;
   for (let i = 0; i < argv.length; i++) {
@@ -31,4 +38,10 @@ export const config = {
   openrouterModel:   process.env.OPENROUTER_MODEL     || "anthropic/claude-sonnet-4",
   oauthCallbackPort: parseInt(process.env.OAUTH_CALLBACK_PORT || "54545"),
   hmrPort:           parseInt(process.env.REACT_DEV_HMR_PORT  || "24678"),
+  googleClientId:    process.env.GOOGLE_CLIENT_ID    || "",
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+  betterAuthUrl:     process.env.BETTER_AUTH_URL     || "",
+  betterAuthSecret:  process.env.BETTER_AUTH_SECRET  || "",
+  superAdminEmails:    parseSuperAdminEmails(),
+  defaultTokenLimit:   parseInt(process.env.DEFAULT_TOKEN_LIMIT || "40000"),
 } as const;

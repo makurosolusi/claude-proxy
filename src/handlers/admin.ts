@@ -61,7 +61,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!uid) {
       uid = ensureUniqueSlug(slugify(displayName), users);
       if (!users[uid]) {
-        const userEntry = { id: uid, name: displayName, description: "", created_at: Date.now() };
+        const userEntry = { id: uid, name: displayName, email: "", description: "", created_at: Date.now(), role: "USER" as const };
         users[uid] = userEntry;
         dbUpsertUser(userEntry);
       }
@@ -183,6 +183,21 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
 
     tokens[target].provider = provider;
     dbUpdateProvider(target, provider);
+    return redirect();
+  }
+
+  // Set email on user (for Google OAuth mapping)
+  if (pathname === "/admin/user/set-email" && req.method === "POST") {
+    const uid   = String(form?.get("user_id") || "").trim();
+    const email = String(form?.get("email")   || "").trim();
+    if (!uid || !users[uid]) return new Response("User not found\n", { status: 404 });
+    if (!email || !email.includes("@")) return new Response("Valid email required\n", { status: 400 });
+    // Check no other user has this email
+    for (const [id, u] of Object.entries(users)) {
+      if (u.email === email && id !== uid) return new Response("Email already assigned to another user\n", { status: 409 });
+    }
+    users[uid].email = email;
+    db.query("UPDATE users SET email=? WHERE id=?").run(email, uid);
     return redirect();
   }
 

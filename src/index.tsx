@@ -6,7 +6,7 @@ const APP_VERSION: string = JSON.parse(
   fs.readFileSync(path.join(import.meta.dir, "../package.json"), "utf8")
 ).version;
 import { config }           from "./config";
-import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbCreateSession, dbCheckSession, dbDeleteSession, modelRoutes, settings } from "./state";
+import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, modelRoutes, settings } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
 import { handleApiStatus } from "./handlers/apiStatus";
@@ -24,7 +24,8 @@ import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModelRoutes } from "./handlers/apiModelRoutes";
 import { handleProxy }     from "./handlers/proxy";
-import { _broadcast, _broadcastSystemMsg } from "./broadcast";
+import { auth } from "./auth";
+import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
 
 // ── Provider connection tests ─────────────────────────────────────────────────
 
@@ -293,242 +294,38 @@ function extractKey(req: Request): string {
   return "";
 }
 
-function checkAdmin(req: Request): boolean {
+async function checkAdmin(req: Request): Promise<boolean> {
   if (config.adminKey) {
     const h = req.headers.get("x-admin-key") || "";
     if (h && h === config.adminKey) return true;
   }
-  const token = parseCookie(req, "admin_session");
-  return token !== "" && dbCheckSession(token);
-}
-
-function loginPage(error?: string): Response {
-  return new Response(`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>claude-proxy · Admin</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-
-:root{
-  --bg:#0f1012;
-  --surface:#1a1b1e;
-  --border:#2c2e33;
-  --border-focus:#339af0;
-  --text:#c9cace;
-  --text-dim:#636770;
-  --text-bright:#e9eaec;
-  --blue:#228be6;
-  --blue-hover:#1c7ed6;
-  --red:#fa5252;
-  --red-bg:rgba(250,82,82,.1);
-  --input-bg:#25262b;
-}
-@media(prefers-color-scheme:light){
-  :root{
-    --bg:#f0f2f5;
-    --surface:#fff;
-    --border:#dee2e6;
-    --border-focus:#228be6;
-    --text:#1c1c1e;
-    --text-dim:#868e96;
-    --text-bright:#000;
-    --input-bg:#f8f9fa;
+  try {
+    const session = await auth.api.getSession({ headers: req.headers });
+    if (!session?.user?.email) return false;
+    const email = session.user.email.toLowerCase();
+    if (config.superAdminEmails.has(email)) return true;
+    const u = Object.values(users).find(u => u.email?.toLowerCase() === email);
+    return u?.role === "SUPER_ADMIN" || u?.role === "ADMIN";
+  } catch {
+    return false;
   }
 }
 
-body{
-  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
-  min-height:100vh;
-  background:var(--bg);
-  color:var(--text);
-  display:grid;
-  place-items:center;
-  padding:16px;
+async function checkUser(req: Request): Promise<{ userId: string; email: string } | null> {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers });
+    if (!session) return null;
+    const email = session.user.email;
+    for (const [id, u] of Object.entries(users)) {
+      if (u.email === email) return { userId: id, email };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
-.wrap{width:100%;max-width:400px}
 
-/* ── Brand ── */
-.brand{display:flex;align-items:center;gap:12px;margin-bottom:32px;justify-content:center}
-.logo{
-  width:44px;height:44px;
-  background:var(--blue);
-  border-radius:12px;
-  display:flex;align-items:center;justify-content:center;
-  flex-shrink:0;
-}
-.logo span{color:#fff;font-size:.8rem;font-weight:800;letter-spacing:.02em}
-.brand-text{}
-.brand-name{font-size:1.05rem;font-weight:700;color:var(--text-bright);letter-spacing:.04em}
-.brand-sub{font-size:.72rem;color:var(--text-dim);margin-top:1px}
-
-/* ── Card ── */
-.card{
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:16px;
-  padding:28px 28px 24px;
-  box-shadow:0 4px 24px rgba(0,0,0,.18);
-}
-
-.card-title{font-size:.95rem;font-weight:700;color:var(--text-bright);margin-bottom:4px}
-.card-desc{font-size:.78rem;color:var(--text-dim);margin-bottom:24px;line-height:1.5}
-
-/* ── Error ── */
-.error{
-  display:flex;align-items:center;gap:8px;
-  background:var(--red-bg);
-  border:1px solid rgba(250,82,82,.3);
-  border-radius:8px;
-  padding:10px 12px;
-  margin-bottom:16px;
-  font-size:.8rem;
-  color:var(--red);
-}
-.error-icon{font-size:.9rem;flex-shrink:0}
-
-/* ── Form ── */
-.field{margin-bottom:16px}
-.field:last-of-type{margin-bottom:20px}
-label{
-  display:block;
-  font-size:.7rem;
-  font-weight:700;
-  color:var(--text-dim);
-  text-transform:uppercase;
-  letter-spacing:.07em;
-  margin-bottom:7px;
-}
-input{
-  width:100%;
-  padding:10px 12px;
-  background:var(--input-bg);
-  border:1px solid var(--border);
-  border-radius:8px;
-  font-size:.875rem;
-  font-family:inherit;
-  color:var(--text-bright);
-  outline:none;
-  transition:border-color .15s,box-shadow .15s;
-}
-input::placeholder{color:var(--text-dim);opacity:.7}
-input:focus{border-color:var(--border-focus);box-shadow:0 0 0 3px rgba(51,154,240,.12)}
-
-/* ── Button ── */
-button{
-  width:100%;
-  padding:11px;
-  background:var(--blue);
-  color:#fff;
-  border:none;
-  border-radius:8px;
-  font-size:.875rem;
-  font-weight:600;
-  cursor:pointer;
-  font-family:inherit;
-  letter-spacing:.02em;
-  transition:background .15s,opacity .15s;
-  display:flex;align-items:center;justify-content:center;gap:8px;
-}
-button:hover{background:var(--blue-hover)}
-button:active{opacity:.85}
-button:disabled{opacity:.6;cursor:not-allowed}
-
-/* ── Divider ── */
-.divider{border:none;border-top:1px solid var(--border);margin:20px 0}
-
-/* ── Footer ── */
-.footer{
-  margin-top:16px;
-  display:flex;align-items:center;justify-content:space-between;
-  font-size:.7rem;color:var(--text-dim);
-}
-.footer a{color:var(--text-dim);text-decoration:none}
-.footer a:hover{color:var(--text)}
-.dot{width:5px;height:5px;border-radius:50%;background:var(--text-dim);display:inline-block;margin-right:6px;vertical-align:middle}
-
-/* ── Info strip ── */
-.info{
-  margin-top:12px;
-  font-size:.7rem;
-  color:var(--text-dim);
-  line-height:1.6;
-  display:flex;
-  align-items:flex-start;
-  gap:7px;
-}
-.info-icon{flex-shrink:0;margin-top:1px}
-</style>
-</head>
-<body>
-<div class="wrap">
-
-  <!-- Brand -->
-  <div class="brand">
-    <div class="logo"><span>CP</span></div>
-    <div class="brand-text">
-      <div class="brand-name">claude-proxy</div>
-      <div class="brand-sub">Admin Dashboard</div>
-    </div>
-  </div>
-
-  <!-- Card -->
-  <div class="card">
-    <div class="card-title">Sign in</div>
-    <div class="card-desc">Enter your credentials to access the admin panel.</div>
-
-    ${error ? `
-    <div class="error">
-      <span class="error-icon">⚠</span>
-      <span>${error}</span>
-    </div>` : ""}
-
-    <form method="POST" action="/admin/login" id="form">
-      <div class="field">
-        <label for="u">Username</label>
-        <input id="u" type="text" name="username" autocomplete="username"
-          autofocus required placeholder="admin">
-      </div>
-      <div class="field">
-        <label for="p">Password</label>
-        <input id="p" type="password" name="password" autocomplete="current-password"
-          required placeholder="••••••••">
-      </div>
-      <button type="submit" id="btn">
-        <span id="btn-label">Sign in</span>
-      </button>
-    </form>
-
-    <hr class="divider">
-
-    <div class="info">
-      <span class="info-icon">🔒</span>
-      <span>Session lasts 30 days. Admin key or username/password required.
-      Credentials are set via <code>ADMIN_USERNAME</code> and <code>ADMIN_PASSWORD</code> env vars.</span>
-    </div>
-  </div>
-
-  <!-- Footer -->
-  <div class="footer">
-    <span><span class="dot"></span>claude-proxy</span>
-    <a href="/">← Public view</a>
-  </div>
-
-</div>
-<script>
-  document.getElementById("form").addEventListener("submit", function() {
-    const btn = document.getElementById("btn");
-    const label = document.getElementById("btn-label");
-    btn.disabled = true;
-    label.textContent = "Signing in…";
-  });
-</script>
-</body>
-</html>`, { headers: { "Content-Type": "text/html; charset=utf-8" } });
-}
 
 // ── Server ────────────────────────────────────────────────────────────────────
 let server: ReturnType<typeof serve>;
@@ -569,7 +366,13 @@ server = serve({
     return new Response(`<!doctype html><html><head><title>500</title><style>body{font-family:monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#1a1b1e;color:#c1c2c5}.box{text-align:center}.code{font-size:4rem;font-weight:700;color:#fa5252;margin:0}.msg{color:#868e96;margin-top:8px}</style></head><body><div class="box"><p class="code">500</p><p class="msg">Internal server error</p></div></body></html>`, { status: 500, headers: { "Content-Type": "text/html; charset=utf-8" } });
   },
 
-  fetch: (req) => serveFrontend(req),
+  fetch: async (req) => {
+    // Better Auth handles all /api/auth/** — must be in fetch (not routes) for multi-segment paths
+    if (new URL(req.url).pathname.startsWith("/api/auth")) {
+      return auth.handler(req);
+    }
+    return serveFrontend(req);
+  },
 
   routes: {
     "/__open-in-editor": async req => {
@@ -585,32 +388,90 @@ server = serve({
     },
 
     // WebSocket — real-time status push
-    "/ws": (req) => {
-      const isAdmin = checkAdmin(req);
+    "/ws": async (req) => {
+      const isAdmin = await checkAdmin(req);
       const upgraded = server.upgrade(req, { data: { isAdmin } });
       if (upgraded) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
     },
 
-    // Login / logout
-    "/admin/login": async req => {
-      if (req.method === "GET") return loginPage();
-      const form = await req.formData();
-      const username = String(form.get("username") || "").trim();
-      const password = String(form.get("password") || "").trim();
-      if (config.adminUsername && config.adminPassword && username === config.adminUsername && password === config.adminPassword) {
-        const token = crypto.randomUUID();
-        dbCreateSession(token);
-        return new Response(null, { status: 303, headers: { Location: "/admin", "Set-Cookie": `admin_session=${token}; Path=/; HttpOnly; SameSite=Lax` } });
-      }
-      return loginPage("Invalid username or password.");
+    // Login / logout — now handled by React /login page + Better Auth
+    "/admin/login": () => new Response(null, { status: 301, headers: { Location: "/login" } }),
+
+    "/admin/logout": async req => {
+      const signOutReq = new Request(new URL("/api/auth/sign-out", req.url).href, {
+        method: "POST",
+        headers: req.headers,
+      });
+      const resp = await auth.handler(signOutReq);
+      const headers = new Headers(resp.headers);
+      headers.set("Location", "/login");
+      return new Response(null, { status: 303, headers });
     },
 
-    "/admin/logout": req => {
+    // Google login — initiates OAuth flow via Better Auth, stays GET-friendly
+    "/auth/google/login": async req => {
       if (req.method !== "GET") return new Response("Method not allowed", { status: 405 });
-      const token = parseCookie(req, "admin_session");
-      if (token) dbDeleteSession(token);
-      return new Response(null, { status: 303, headers: { Location: "/admin/login", "Set-Cookie": "admin_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0" } });
+      const callbackURL = new URL(req.url).searchParams.get("callbackURL") || "/profile";
+      const resp = await auth.api.signInSocial({
+        body: { provider: "google", callbackURL },
+        asResponse: true,
+      });
+      // If Better Auth already returns a redirect, forward it directly (preserves Set-Cookie/state)
+      if (resp.status >= 300 && resp.status < 400) return resp;
+      // JSON { url, redirect: true } — copy all headers (including Set-Cookie) into the redirect
+      const data = await resp.json() as any;
+      if (data?.url) {
+        const headers = new Headers(resp.headers);
+        headers.set("Location", data.url);
+        return new Response(null, { status: 302, headers });
+      }
+      return new Response(JSON.stringify(data), { status: resp.status, headers: { "Content-Type": "application/json" } });
+    },
+    "/auth/logout": async req => {
+      if (req.method !== "GET") return new Response("Method not allowed", { status: 405 });
+      const signOutReq = new Request(new URL("/api/auth/sign-out", req.url).href, {
+        method: "POST",
+        headers: req.headers,
+      });
+      const resp = await auth.handler(signOutReq);
+      const headers = new Headers(resp.headers);
+      headers.set("Location", "/login");
+      return new Response(null, { status: 303, headers });
+    },
+
+    // User profile API
+    "/api/profile": async req => {
+      const u = await checkUser(req);
+      if (!u) return Response.json({ authenticated: false }, { status: 401 });
+      const today = todayKey();
+      const userTokens: Record<string, any> = {};
+      for (const [k, tk] of Object.entries(tokens)) {
+        if (tk.user_id === u.userId) {
+          const limit = tk.limit === Infinity ? null : tk.limit;
+          userTokens[k] = {
+            key:       k,
+            name:      tk.name,
+            used:      tk.used,
+            limit,
+            remaining: limit ? Math.max(0, limit - tk.used) : null,
+            pct:       limit ? Math.round((tk.used / limit) * 100) : 0,
+            paused:    tk.paused,
+            provider:  tk.provider || "inherit",
+            today:     (dailyUsage[today] || {})[k] || 0,
+            alltime:   allTimePerUser[u.userId] || 0,
+          };
+        }
+      }
+      const userEntry = users[u.userId];
+      return Response.json({
+        authenticated: true,
+        userId:   u.userId,
+        email:    u.email,
+        name:     userEntry?.name || u.email,
+        role:     userEntry?.role || "USER",
+        tokens:   userTokens,
+      });
     },
 
     // Static built assets
@@ -621,23 +482,23 @@ server = serve({
     },
 
     // API — public
-    "/api/status": req => {
-      const isAdm = checkAdmin(req);
+    "/api/status": async req => {
+      const isAdm = await checkAdmin(req);
       return handleApiStatus(req, new URL(req.url), isAdm);
     },
 
     // API — admin only
-    "/api/logs/*": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/logs/*": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       try { return handleApiLogs(req, new URL(req.url), true); }
       catch (e: any) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
     },
-    "/api/logs": req => {
-      const isAdm = checkAdmin(req);
+    "/api/logs": async req => {
+      const isAdm = await checkAdmin(req);
       try { return handleApiLogs(req, new URL(req.url), isAdm); }
       catch (e: any) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
     },
-    "/api/analytics": req => handleApiAnalytics(checkAdmin(req)),
+    "/api/analytics": async req => handleApiAnalytics(await checkAdmin(req)),
     "/api/sessions/*": req => {
       const user = new URL(req.url).pathname.slice("/api/sessions/".length);
       return handleApiSessions(decodeURIComponent(user));
@@ -646,52 +507,52 @@ server = serve({
     "/api/race":          () => handleApiRace(),
     "/api/version":       () => Response.json({ version: APP_VERSION }),
     "/api/usage/hourly":  () => handleApiUsageHourly(),
-    "/api/admin/test": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/admin/test": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiTest();
     },
-    "/api/admin/test/deepseek": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/admin/test/deepseek": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleDeepSeekTest();
     },
-    "/api/admin/test/openrouter": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/admin/test/openrouter": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleOpenRouterTest();
     },
-    "/api/admin/settings": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/admin/settings": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return Response.json(settings);
     },
-    "/api/admin/credentials": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/admin/credentials": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthStatus();
     },
     "/api/admin/credentials/remove": async req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthRemove(req);
     },
-    "/admin/auth/start": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/admin/auth/start": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthStart(req);
     },
     "/admin/auth/exchange": async req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthExchange(req);
     },
-    "/api/stats": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/stats": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiStats();
     },
     // Chat moderation
-    "/admin/chat/clear": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/admin/chat/clear": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       chatStore.splice(0, chatStore.length);
       broadcastRaw(JSON.stringify({ type: "chat_clear" }));
       broadcastChatMsg({ id: crypto.randomUUID(), type: "system", nick: "system", text: "🗑️ Chat cleared by admin", ts: Date.now() });
       return Response.json({ ok: true });
     },
     "/admin/chat/block": async req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       const { nick } = await req.json() as any;
       const n = String(nick || "").trim();
       if (!n) return Response.json({ error: "Missing nick" }, { status: 400 });
@@ -700,62 +561,82 @@ server = serve({
       return Response.json({ ok: true });
     },
     "/admin/chat/unblock": async req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       const { nick } = await req.json() as any;
       const n = String(nick || "").trim();
       chatBlocklist.delete(n.toLowerCase());
       broadcastChatMsg({ id: crypto.randomUUID(), type: "system", nick: "system", text: `✅ ${n} has been unblocked`, ts: Date.now() });
       return Response.json({ ok: true });
     },
-    "/admin/chat/blocked": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/admin/chat/blocked": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return Response.json({ blocked: [...chatBlocklist] });
     },
 
-    "/api/admin/db/info": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/admin/db/info": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleDbInfo();
     },
-    "/api/admin/db/download": req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    "/api/admin/db/download": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleDbDownload();
     },
     "/api/admin/db/upload": async req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleDbUpload(req);
     },
 
     // Users API (admin only)
     "/api/admin/users": async req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiUsers(req, new URL(req.url), users, tokens, dailyUsage, allTimePerUser);
     },
     "/api/admin/users/*": async req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiUsers(req, new URL(req.url), users, tokens, dailyUsage, allTimePerUser);
+    },
+
+    // Role management (SUPER_ADMIN only)
+    "/api/admin/users/*/role": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (req.method !== "POST") return Response.json({ error: "Method not allowed" }, { status: 405 });
+      const parts = new URL(req.url).pathname.split("/");
+      const userId = decodeURIComponent(parts[4] || "");
+      const { role } = await req.json() as any;
+      if (!["SUPER_ADMIN", "ADMIN", "USER"].includes(role)) return Response.json({ error: "Invalid role" }, { status: 400 });
+      if (!users[userId]) return Response.json({ error: "User not found" }, { status: 404 });
+      // Prevent demoting a SUPER_ADMIN_EMAILS user
+      const u = users[userId];
+      if (u && config.superAdminEmails.has((u.email || "").toLowerCase()) && role !== "SUPER_ADMIN") {
+        return Response.json({ error: "Cannot change role of a SUPER_ADMIN_EMAILS user" }, { status: 403 });
+      }
+      dbSetUserRole(userId, role);
+      triggerBroadcast();
+      return Response.json({ ok: true });
     },
 
     // Model routing (admin only)
     "/api/admin/model-routes": async req => {
-      if (!checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiModelRoutes(req, new URL(req.url));
     },
 
     // Admin actions
-    "/admin/reset":              req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/logs/clear":         req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/add":          req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/edit":         req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/edit-all":     req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/pause":        req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/delete":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/rotate":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/rename":       req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/provider":     req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/user/edit":          req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/users/purge-orphans": req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/settings/deepseek":    req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/settings/openrouter": req => { if (!checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/admin/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/reset":              async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/logs/clear":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/add":          async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/edit":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/edit-all":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/pause":        async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/delete":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/rotate":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/rename":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/provider":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/user/edit":          async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/user/set-email":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/users/purge-orphans": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/settings/deepseek":    async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/settings/openrouter": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
 
     // Proxy endpoints
     "/v1/models": async req => {
@@ -784,7 +665,10 @@ server = serve({
     },
 
     // 404 for unknown API/admin paths
-    "/api/*": () => Response.json({ error: "Not found" }, { status: 404 }),
+    "/api/*": req => {
+      if (new URL(req.url).pathname.startsWith("/api/auth")) return auth.handler(req);
+      return Response.json({ error: "Not found" }, { status: 404 });
+    },
     "/v1/*":  () => Response.json({ error: { type: "not_found_error", message: "Unknown endpoint" } }, { status: 404 }),
   },
 

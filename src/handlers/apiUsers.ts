@@ -31,7 +31,7 @@ export async function handleApiUsers(
           pct:       tk.limit === Infinity ? 0 : Math.round((tk.used / tk.limit) * 100),
           provider:  tk.provider || "inherit",
         }));
-      return { ...u, tokens: userTokens };
+      return { ...u, email: u.email || "", tokens: userTokens };
     }).sort((a, b) => a.name.localeCompare(b.name));
     return Response.json(result);
   }
@@ -43,7 +43,7 @@ export async function handleApiUsers(
     if (!name) return Response.json({ error: "Name required" }, { status: 400 });
     const base = slugify(name);
     const id   = ensureUniqueSlug(base, users);
-    const entry: UserEntry = { id, name, description: String(body.description || ""), created_at: Date.now() };
+    const entry: UserEntry = { id, name, email: "", description: String(body.description || ""), created_at: Date.now(), role: "USER" };
     users[id] = entry;
     dbUpsertUser(entry);
     triggerBroadcast();

@@ -5,11 +5,15 @@ export interface ModelRoute {
   fallback_to: string | null;  // model_id tujuan redirect
 }
 
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "USER";
+
 export interface UserEntry {
   id:          string;   // stable slug, never changes
   name:        string;   // display name (editable)
+  email:       string;   // Google account email (for OAuth login)
   description: string;
   created_at:  number;   // epoch ms
+  role:        UserRole;
 }
 
 export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter";
