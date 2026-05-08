@@ -369,11 +369,9 @@ export async function handleProxy(
   // Strip client-specific fields Anthropic API doesn't accept
   if (bodyJson) {
     delete bodyJson.context_management;
-    if (provider !== "anthropic") {
-      stripThinkingBlocks(bodyJson);
-    } else if (bodyJson.thinking && !hasThinkingBlocks(bodyJson.messages)) {
-      // History has no thinking blocks (previous requests went through non-Anthropic provider)
-      // but thinking is still enabled — Anthropic API akan reject 400
+    if (bodyJson.thinking && !hasThinkingBlocks(bodyJson.messages)) {
+      // History has no thinking blocks (previous requests went through a provider
+      // that stripped them) but thinking is still enabled — API akan reject 400
       delete bodyJson.thinking;
       console.log(`[proxy] Stripped orphaned thinking param (no thinking blocks in history) [${key.slice(-6)}]`);
     }
@@ -409,7 +407,6 @@ export async function handleProxy(
     const pm = toProviderModel(model, provider);
     if (bodyJson) {
       bodyJson.model = pm;
-      stripThinkingBlocks(bodyJson);
       bodyText = JSON.stringify(bodyJson);
     }
     model = pm;
@@ -442,7 +439,7 @@ export async function handleProxy(
     if (provider === "anthropic" && autoFallback && override !== "anthropic") {
       provider = openrouter ? "openrouter" : "deepseek";
       model = toProviderModel(originalModel || model, provider);
-      if (bodyJson) { bodyJson.model = model; stripThinkingBlocks(bodyJson); bodyText = JSON.stringify(bodyJson); }
+      if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
       built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
       console.log(`[proxy] No Anthropic credential → ${provider} [${key.slice(-6)}]`);
     }
@@ -475,7 +472,7 @@ export async function handleProxy(
     if (provider === "anthropic" && resp.status === 429 && autoFallback && override !== "anthropic") {
       provider = openrouter ? "openrouter" : "deepseek";
       model = toProviderModel(originalModel || model, provider);
-      if (bodyJson) { bodyJson.model = model; stripThinkingBlocks(bodyJson); bodyText = JSON.stringify(bodyJson); }
+      if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
       const fbBuilt = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
       if (fbBuilt) {
         upstreamUrl = fbBuilt.url;
