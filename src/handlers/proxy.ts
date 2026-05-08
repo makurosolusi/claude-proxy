@@ -54,13 +54,20 @@ function extractTranscript(messages: any[]): string {
   return JSON.stringify(turns).slice(0, 8000);
 }
 
-function extractResponseText(body: any): string {
-  if (!body?.content || !Array.isArray(body.content)) return "";
-  return body.content
-    .filter((b: any) => b.type === "text")
-    .map((b: any) => b.text || "")
-    .join("")
-    .slice(0, 3000);
+function extractResponseText(body: any, status: number): string {
+  if (!body) return "";
+  if (body?.content && Array.isArray(body.content)) {
+    return body.content
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text || "")
+      .join("")
+      .slice(0, 3000);
+  }
+  if (status >= 400 && body?.error) {
+    const e = body.error;
+    return (e.message || JSON.stringify(e)).slice(0, 3000);
+  }
+  return "";
 }
 
 function extractSystem(body: any): string {
@@ -576,7 +583,7 @@ export async function handleProxy(
       cache_read: cacheRead, cache_creation: cacheCreation, stream: false, status: resp.status,
       stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
       turns, prompt, system_prompt: systemPrompt,
-      messages_json: messagesJson, response_text: extractResponseText(body) });
+      messages_json: messagesJson, response_text: extractResponseText(body, resp.status) });
     if (inputTokens > 80_000)
       pushAlert(`${t.name}: ${(inputTokens/1000).toFixed(0)}k tokens input — jalankan /compact`);
     if (t.limit !== Infinity) {
