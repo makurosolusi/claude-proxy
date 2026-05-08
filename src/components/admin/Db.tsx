@@ -3,8 +3,9 @@ import {
   Stack, Text, Paper, Group, Button, Progress, Modal, Loader, ThemeIcon,
 } from "@mantine/core";
 import {
-  IconDatabase, IconDownload, IconUpload, IconAlertTriangle, IconCircleCheck, IconCircleX,
+  IconDatabase, IconDownload, IconUpload, IconAlertTriangle, IconCircleCheck, IconCircleX, IconTrash,
 } from "@tabler/icons-react";
+import { modals } from "@mantine/modals";
 
 type DbPhase = "idle" | "selected" | "uploading" | "restarting" | "error";
 
@@ -16,6 +17,10 @@ export function AdminDb() {
   const [countdown, setCountdown] = useState(5);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [downloaded, setDownloaded]   = useState(false);
+  const [clearing, setClearing]             = useState(false);
+  const [cleared, setCleared]               = useState(false);
+  const [clearingUsage, setClearingUsage]   = useState(false);
+  const [clearedUsage, setClearedUsage]     = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -73,6 +78,22 @@ export function AdminDb() {
   const onDownload = () => {
     setDownloaded(true);
     setTimeout(() => setDownloaded(false), 3000);
+  };
+
+  const clearLogs = async () => {
+    setClearing(true);
+    await fetch("/admin/logs/clear", { method: "POST" });
+    setClearing(false);
+    setCleared(true);
+    setTimeout(() => setCleared(false), 3000);
+  };
+
+  const clearUsage = async () => {
+    setClearingUsage(true);
+    await fetch("/admin/usage/clear", { method: "POST" });
+    setClearingUsage(false);
+    setClearedUsage(true);
+    setTimeout(() => setClearedUsage(false), 3000);
   };
 
   return (
@@ -149,6 +170,53 @@ export function AdminDb() {
             </Group>
           )}
         </Group>
+      </Paper>
+
+      {/* ── Data Management ────────────────────────────────── */}
+      <Paper withBorder p="md" radius="md">
+        <Group gap="sm" mb="md">
+          <ThemeIcon variant="light" color="red" size="md" radius="md">
+            <IconTrash size={16} />
+          </ThemeIcon>
+          <div>
+            <Text size="sm" fw={600}>Data Management</Text>
+            <Text size="xs" c="dimmed">Hapus data historis. Quota counter tidak terpengaruh.</Text>
+          </div>
+        </Group>
+        <Stack gap="sm" pl={40}>
+          <Group gap="xs">
+            <Button
+              size="sm" color="red" variant="light" radius="md"
+              loading={clearing} leftSection={<IconTrash size={15} />}
+              onClick={() => modals.openConfirmModal({
+                title: "Clear Request Logs",
+                children: <Text size="sm">Hapus semua request logs? Quota counter tidak ikut terhapus. Tindakan ini tidak bisa dibatalkan.</Text>,
+                labels: { confirm: "Clear Logs", cancel: "Cancel" },
+                confirmProps: { color: "red" },
+                onConfirm: clearLogs,
+              })}
+            >
+              Clear Request Logs
+            </Button>
+            {cleared && <Group gap={4}><IconCircleCheck size={15} color="var(--mantine-color-teal-5)" /><Text size="xs" c="teal">Cleared</Text></Group>}
+          </Group>
+          <Group gap="xs">
+            <Button
+              size="sm" color="orange" variant="light" radius="md"
+              loading={clearingUsage} leftSection={<IconTrash size={15} />}
+              onClick={() => modals.openConfirmModal({
+                title: "Clear Daily Usage History",
+                children: <Text size="sm">Hapus semua data daily usage (grafik per-user)? Quota counter window saat ini tidak terpengaruh. Tindakan ini tidak bisa dibatalkan.</Text>,
+                labels: { confirm: "Clear Usage History", cancel: "Cancel" },
+                confirmProps: { color: "orange" },
+                onConfirm: clearUsage,
+              })}
+            >
+              Clear Usage History
+            </Button>
+            {clearedUsage && <Group gap={4}><IconCircleCheck size={15} color="var(--mantine-color-teal-5)" /><Text size="xs" c="teal">Cleared</Text></Group>}
+          </Group>
+        </Stack>
       </Paper>
 
       {/* ── Restore / Upload ───────────────────────────────── */}

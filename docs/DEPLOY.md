@@ -31,7 +31,7 @@ bun start
 ```bash
 # 1. Siapkan .env dari template
 cp .env.example .env
-# Edit .env — isi ADMIN_PASSWORD, TOKENS, dll
+# Edit .env — isi ADMIN_KEY, TOKENS, dll
 
 # 2. Buat direktori untuk volumes
 mkdir -p state credentials

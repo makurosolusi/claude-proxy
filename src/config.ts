@@ -20,8 +20,6 @@ function resolvePort(): number {
 
 export const config = {
   adminKey:        process.env.ADMIN_KEY          || "",
-  adminUsername:   process.env.ADMIN_USERNAME     || "",
-  adminPassword:   process.env.ADMIN_PASSWORD     || "",
   windowMs:        parseInt(process.env.WINDOW_MS              || "18000000"),
   capPct:          parseFloat(process.env.UPSTREAM_HARD_CAP_PCT || "95"),
   pollMs:          parseInt(process.env.UPSTREAM_POLL_MS        || "60000"),

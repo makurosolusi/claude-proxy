@@ -1,8 +1,20 @@
-import { db, recentLogs, dailyUsage, allTimePerUser, tokens, deriveNameFromKey } from "../state";
+import { db, recentLogs, dailyUsage, allTimePerUser, tokens, resolveTokenName, deriveNameFromKey } from "../state";
 import { todayKey } from "../tokens";
 
-function keyToName(key: string): string {
-  return tokens[key]?.name ?? deriveNameFromKey(key);
+function buildKeyToName(): Map<string, string> {
+  const map = new Map<string, string>();
+  const rows = db.query(`
+    SELECT t.key, t.name, t.user_id, u.name as user_name
+    FROM tokens t LEFT JOIN users u ON t.user_id = u.id
+  `).all() as any[];
+  for (const r of rows) {
+    map.set(r.key, r.user_name || r.name || deriveNameFromKey(r.key));
+  }
+  return map;
+}
+
+function keyToName(map: Map<string, string>, key: string): string {
+  return map.get(key) ?? resolveTokenName(key, tokens[key]) ?? deriveNameFromKey(key);
 }
 
 function anomalyScore(inp: number, out: number, toolUse: number, durationMs: number): number {
@@ -24,6 +36,7 @@ function anomalyScore(inp: number, out: number, toolUse: number, durationMs: num
 
 export function handleApiAnalytics(isAdmin: boolean): Response {
   const today = todayKey();
+  const nameMap = buildKeyToName();
 
   try { db.exec("ALTER TABLE request_logs ADD COLUMN name TEXT DEFAULT ''"); } catch {}
   try { db.exec("ALTER TABLE tokens ADD COLUMN name TEXT DEFAULT ''"); } catch {}
@@ -147,7 +160,7 @@ export function handleApiAnalytics(isAdmin: boolean): Response {
   const dailyMap: Record<string, Record<string, number>> = {};
   const userSet = new Set<string>();
   for (const r of dailyRows) {
-    const name = keyToName(r.token_key);
+    const name = keyToName(nameMap, r.token_key);
     if (!dailyMap[r.date]) dailyMap[r.date] = {};
     dailyMap[r.date][name] = (dailyMap[r.date][name] || 0) + r.used;
     userSet.add(name);
@@ -156,17 +169,25 @@ export function handleApiAnalytics(isAdmin: boolean): Response {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, by_user]) => ({ date, by_user }));
 
-  // ── All-time per user from request_logs — reliable source ─────────────────
+  // ── All-time per user from request_logs — resolve via nameMap ────────────
   const allTimeRows = db.query(`
-    SELECT COALESCE(NULLIF(name, ''), token_key) AS display_name,
+    SELECT token_key,
            SUM(input_tokens + output_tokens + cache_read + cache_creation) AS total
     FROM request_logs
     WHERE status < 400
-    GROUP BY display_name
+    GROUP BY token_key
     ORDER BY total DESC
-  `).all() as { display_name: string; total: number }[];
+  `).all() as { token_key: string; total: number }[];
 
-  const allTimeByUser = allTimeRows.map(r => ({ user: r.display_name, total: r.total || 0 }));
+  // Merge rows with same resolved name (old + new token for same person)
+  const allTimeAgg: Record<string, number> = {};
+  for (const r of allTimeRows) {
+    const name = keyToName(nameMap, r.token_key);
+    allTimeAgg[name] = (allTimeAgg[name] || 0) + (r.total || 0);
+  }
+  const allTimeByUser = Object.entries(allTimeAgg)
+    .sort(([, a], [, b]) => b - a)
+    .map(([user, total]) => ({ user, total }));
 
   return Response.json({
     modelDist,

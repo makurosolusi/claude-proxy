@@ -1,12 +1,27 @@
-import { db, tokens, deriveNameFromKey } from "../state";
+import { db, tokens, users, resolveTokenName, deriveNameFromKey } from "../state";
 
-function keyToName(key: string): string {
-  return tokens[key]?.name ?? deriveNameFromKey(key);
+function buildKeyToName(): Map<string, string> {
+  const map = new Map<string, string>();
+  // All tokens including deleted — join with users for real name
+  const rows = db.query(`
+    SELECT t.key, t.name, t.user_id, u.name as user_name
+    FROM tokens t LEFT JOIN users u ON t.user_id = u.id
+  `).all() as any[];
+  for (const r of rows) {
+    const name = r.user_name || r.name || deriveNameFromKey(r.key);
+    map.set(r.key, name);
+  }
+  return map;
+}
+
+function keyToNameFn(map: Map<string, string>, key: string): string {
+  return map.get(key) ?? resolveTokenName(key, tokens[key]) ?? deriveNameFromKey(key);
 }
 
 export function handleApiStats(): Response {
   try {
     const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const nameMap = buildKeyToName();
 
     // Daily token usage per user (from daily_usage table)
     const dailyRows = db.query(`
@@ -16,7 +31,7 @@ export function handleApiStats(): Response {
     const dailyMap: Record<string, Record<string, number>> = {};
     const userSet = new Set<string>();
     for (const r of dailyRows) {
-      const name = keyToName(r.token_key);
+      const name = keyToNameFn(nameMap, r.token_key);
       if (!dailyMap[r.date]) dailyMap[r.date] = {};
       dailyMap[r.date][name] = (dailyMap[r.date][name] || 0) + r.used;
       userSet.add(name);
@@ -89,7 +104,7 @@ export function handleApiStats(): Response {
       })),
       stop_reasons: stopRows.map(r => ({ reason: r.stop_reason || "unknown", count: r.count })),
       per_user: userRows.map(r => ({
-        user: keyToName(r.token_key),
+        user: keyToNameFn(nameMap, r.token_key),
         requests: r.requests,
         input_tokens: r.inp || 0,
         output_tokens: r.out || 0,

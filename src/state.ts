@@ -93,18 +93,6 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_rl_ts  ON request_logs(ts DESC);
   CREATE INDEX IF NOT EXISTS idx_rl_key ON request_logs(token_key, ts DESC);
-  CREATE TABLE IF NOT EXISTS admin_sessions (
-    token      TEXT    PRIMARY KEY,
-    created_at INTEGER NOT NULL,
-    last_used  INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS user_sessions (
-    token      TEXT    PRIMARY KEY,
-    user_id    TEXT    NOT NULL,
-    email      TEXT    NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL,
-    last_used  INTEGER NOT NULL
-  );
   CREATE TABLE IF NOT EXISTS users (
     id          TEXT    PRIMARY KEY,
     name        TEXT    NOT NULL,
@@ -215,16 +203,6 @@ const stmts = {
     VALUES ($ts, $key, $name, $model, $inp, $out, $cr, $cc, $stream, $status, $sr, $tuc, $dur, $turns, $prompt, $sys, $mj, $rt)
   `),
   pruneLog:    db.prepare(`DELETE FROM request_logs WHERE ts < $cutoff`),
-  insertSession: db.prepare(`INSERT OR REPLACE INTO admin_sessions (token, created_at, last_used) VALUES ($token, $now, $now)`),
-  touchSession:  db.prepare(`UPDATE admin_sessions SET last_used=$now WHERE token=$token`),
-  checkSession:  db.prepare(`SELECT 1 FROM admin_sessions WHERE token=$token`),
-  deleteSession: db.prepare(`DELETE FROM admin_sessions WHERE token=$token`),
-  pruneSessions: db.prepare(`DELETE FROM admin_sessions WHERE last_used < $cutoff`),
-  insertUserSession:  db.prepare(`INSERT OR REPLACE INTO user_sessions (token, user_id, email, created_at, last_used) VALUES ($token, $uid, $email, $now, $now)`),
-  touchUserSession:   db.prepare(`UPDATE user_sessions SET last_used=$now WHERE token=$token`),
-  checkUserSession:   db.prepare(`SELECT user_id, email FROM user_sessions WHERE token=$token`),
-  deleteUserSession:  db.prepare(`DELETE FROM user_sessions WHERE token=$token`),
-  pruneUserSessions:  db.prepare(`DELETE FROM user_sessions WHERE last_used < $cutoff`),
   upsertUser:    db.prepare(`INSERT OR REPLACE INTO users (id, name, email, description, created_at, role) VALUES ($id, $name, $email, $desc, $ts, $role)`),
   setUserRole:   db.prepare(`UPDATE users SET role=$role WHERE id=$id`),
   updateUser:    db.prepare(`UPDATE users SET name=$name, description=$desc WHERE id=$id`),
@@ -296,9 +274,16 @@ export function ensureUniqueSlug(base: string, existing: Record<string, unknown>
 
 // ── DB write functions ────────────────────────────────────────────────────────
 export function deriveNameFromKey(key: string): string {
-  // "sk-user-amel" → "amel", "mytoken" → "mytoken"
   const parts = key.split("-");
   return parts[parts.length - 1] || key;
+}
+
+export function resolveTokenName(key: string, tk?: TokenEntry): string {
+  if (tk?.user_id && users[tk.user_id]) {
+    return users[tk.user_id].name || users[tk.user_id].email || tk.user_id;
+  }
+  if (tk?.name) return tk.name;
+  return deriveNameFromKey(key);
 }
 
 export function dbInsertEnvToken(key: string, entry: TokenEntry) {
@@ -452,45 +437,6 @@ export function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
   const full: RequestLogEntry = { id: Number(result.lastInsertRowid), ...entry, user_id: uid };
   recentLogs.unshift(full);
   if (recentLogs.length > 200) recentLogs.pop();
-}
-
-const SESSION_TTL = 30 * 86400 * 1000; // 30 days
-
-export function dbCreateSession(token: string) {
-  stmts.insertSession.run({ $token: token, $now: Date.now() });
-  // prune expired sessions opportunistically
-  stmts.pruneSessions.run({ $cutoff: Date.now() - SESSION_TTL });
-}
-
-export function dbCheckSession(token: string): boolean {
-  const row = stmts.checkSession.get({ $token: token });
-  if (!row) return false;
-  stmts.touchSession.run({ $token: token, $now: Date.now() });
-  return true;
-}
-
-export function dbDeleteSession(token: string) {
-  stmts.deleteSession.run({ $token: token });
-}
-
-// ── User sessions (Google OAuth login) ─────────────────────────────────────────
-const USER_SESSION_TTL = 30 * 86400 * 1000;
-
-export function dbCreateUserSession(token: string, userId: string, email: string) {
-  const now = Date.now();
-  stmts.insertUserSession.run({ $token: token, $uid: userId, $email: email, $now: now });
-  stmts.pruneUserSessions.run({ $cutoff: now - USER_SESSION_TTL });
-}
-
-export function dbCheckUserSession(token: string): { userId: string; email: string } | null {
-  const row = stmts.checkUserSession.get({ $token: token }) as any;
-  if (!row) return null;
-  stmts.touchUserSession.run({ $token: token, $now: Date.now() });
-  return { userId: row.user_id, email: row.email };
-}
-
-export function dbDeleteUserSession(token: string) {
-  stmts.deleteSession.run({ $token: token });
 }
 
 function rowToLog(r: any): RequestLogEntry {

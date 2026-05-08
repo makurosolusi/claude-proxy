@@ -13,8 +13,6 @@ services:
       - ANTHROPIC_API_URL=${ANTHROPIC_API_URL:-https://api.anthropic.com}
       # Admin auth
       - ADMIN_KEY=${ADMIN_KEY}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       # Tokens & quota
       - TOKENS=${TOKENS}
       - WINDOW_MS=${WINDOW_MS:-18000000}

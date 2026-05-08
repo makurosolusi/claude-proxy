@@ -1,4 +1,4 @@
-import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, modelRoutes, settings } from "../state";
+import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, modelRoutes, settings, resolveTokenName } from "../state";
 import type { ContextAlert, ThresholdAlert, UserInsight, UserProfile } from "../contexts";
 import { todayKey } from "../tokens";
 
@@ -120,9 +120,10 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean): Respo
       effectiveProvider === "deepseek"   ? (settings["deepseek_model"]   || "deepseek-v4-pro[1m]") :
       effectiveProvider === "openrouter" ? (settings["openrouter_model"] || "anthropic/claude-sonnet-4") :
       null;
+    const resolvedName = resolveTokenName(k, tk);
     tokenData[k] = {
-      label:           isAdmin ? k : tk.name,
-      name:            tk.name,
+      label:           resolvedName,
+      name:            resolvedName,
       used:            tk.used,
       limit:           tk.limit === Infinity ? null : tk.limit,
       remaining:       tk.limit === Infinity ? null : Math.max(0, tk.limit - tk.used),

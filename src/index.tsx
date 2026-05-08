@@ -6,7 +6,7 @@ const APP_VERSION: string = JSON.parse(
   fs.readFileSync(path.join(import.meta.dir, "../package.json"), "utf8")
 ).version;
 import { config }           from "./config";
-import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, modelRoutes, settings } from "./state";
+import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, modelRoutes, settings, resolveTokenName } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
 import { handleApiStatus } from "./handlers/apiStatus";
@@ -230,8 +230,8 @@ function buildStatusPayload(isAdmin: boolean) {
   for (const [k, tk] of Object.entries(tokens)) {
     const uid = tk.user_id || k;
     tokenData[k] = {
-      label:     isAdmin ? k : tk.name,
-      name:      tk.name,
+      label:     resolveTokenName(k, tk),
+      name:      resolveTokenName(k, tk),
       user_id:   tk.user_id,
       used:      tk.used,
       limit:     tk.limit === Infinity ? null : tk.limit,
@@ -276,16 +276,6 @@ _broadcast.fn = () => {
 _broadcastSystemMsg.fn = (text: string) => {
   broadcastChatMsg({ id: crypto.randomUUID(), type: "system", nick: "system", text, ts: Date.now() });
 };
-
-// ── Auth helpers ──────────────────────────────────────────────────────────────
-function parseCookie(req: Request, name: string): string {
-  const raw = req.headers.get("cookie") || "";
-  for (const part of raw.split(";")) {
-    const [k, v] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(v || "");
-  }
-  return "";
-}
 
 function extractKey(req: Request): string {
   const apiKey = req.headers.get("x-api-key") || "";
@@ -452,7 +442,7 @@ server = serve({
           const limit = tk.limit === Infinity ? null : tk.limit;
           userTokens[k] = {
             key:       k,
-            name:      tk.name,
+            name:      resolveTokenName(k, tk),
             used:      tk.used,
             limit,
             remaining: limit ? Math.max(0, limit - tk.used) : null,
@@ -628,6 +618,7 @@ server = serve({
     // Admin actions
     "/admin/reset":              async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/logs/clear":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/usage/clear":        async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/add":          async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/edit":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/edit-all":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },

@@ -30,7 +30,9 @@ export function neonColor(pct: number): string {
   return "#14d9c4";
 }
 export function maskToken(k: string) {
-  return k.startsWith("sk-user-") ? k.slice("sk-user-".length) : k;
+  if (k.startsWith("sk-user-")) return k.slice("sk-user-".length);
+  if (k.startsWith("sk-cp-"))   return k.slice("sk-cp-".length);
+  return k;
 }
 export function avatarColor(name: string) {
   const palette = ["blue", "teal", "grape", "orange", "cyan", "pink", "lime", "indigo", "violet"];

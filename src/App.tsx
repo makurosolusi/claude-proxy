@@ -206,7 +206,7 @@ function AddTokenInline() {
       <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Add Token</Text>
       <Paper withBorder p="md">
         <Group align="flex-end" gap="sm">
-          <TextInput label="Token Key" placeholder="sk-user-name" size="xs" w={220} value={k} onChange={e => setK(e.currentTarget.value)} />
+          <TextInput label="Token Key" placeholder="sk-cp-…" size="xs" w={220} value={k} onChange={e => setK(e.currentTarget.value)} />
           <TextInput label="Limit" size="xs" w={120} value={l} onChange={e => setL(e.currentTarget.value)} />
           <Button color="teal" size="xs" leftSection={<IconPlus size={13} />}
             onClick={() => { if (k.trim()) { adminPost("/admin/token/add", { token: k.trim(), limit: l }); setK(""); setL("40000"); } }}>
@@ -809,28 +809,6 @@ function LoginRedirect() {
 
 function LoginPage() {
   const isDark = useMantineColorScheme().colorScheme === "dark";
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true); setError("");
-    const r = await fetch("/api/auth/sign-in/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ email: email.trim(), password }),
-    });
-    const d = await r.json() as any;
-    if (r.ok) {
-      window.location.href = await resolveLoginRedirect();
-    } else {
-      setError(d?.message || d?.error || "Invalid credentials");
-      setLoading(false);
-    }
-  };
 
   return (
     <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
@@ -847,31 +825,6 @@ function LoginPage() {
           <Button fullWidth onClick={() => signInWithGoogle()} color="blue" leftSection={<IconLogin size={16} />}>
             Sign in with Google
           </Button>
-
-          <Divider label="or" labelPosition="center" w="100%" />
-
-          <form onSubmit={handleEmail} style={{ width: "100%" }}>
-            <Stack gap="sm">
-              {error && <Text size="sm" c="red" ta="center">{error}</Text>}
-              <div>
-                <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={4} style={{ letterSpacing: ".07em" }}>Email</Text>
-                <input
-                  type="email" required value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${isDark ? "#2c2e33" : "#dee2e6"}`, background: isDark ? "#25262b" : "#f8f9fa", color: isDark ? "#e9eaec" : "#1c1c1e", fontFamily: "inherit", fontSize: "0.875rem", outline: "none" }}
-                />
-              </div>
-              <div>
-                <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={4} style={{ letterSpacing: ".07em" }}>Password</Text>
-                <input
-                  type="password" required value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${isDark ? "#2c2e33" : "#dee2e6"}`, background: isDark ? "#25262b" : "#f8f9fa", color: isDark ? "#e9eaec" : "#1c1c1e", fontFamily: "inherit", fontSize: "0.875rem", outline: "none" }}
-                />
-              </div>
-              <Button type="submit" fullWidth loading={loading} variant="default" mt="xs">Sign in</Button>
-            </Stack>
-          </form>
 
           <Anchor href="/" size="xs" c="dimmed">← Back to dashboard</Anchor>
         </Stack>
@@ -1012,15 +965,10 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
                 {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
               </ActionIcon>
             </Tooltip>
-{(isAdmin || status.isAdmin || (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN"))
-              ? <>
+{(isAdmin || status.isAdmin) &&
                 <Button component="a" href="/admin" variant="light" size="xs" radius="md" leftSection={<IconLogin size={13} />}>Admin</Button>
-                <Button component="a" href="/auth/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
-                </>
-              : <>
-                <Button component="a" href="/auth/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
-                </>
             }
+              <Button component="a" href="/auth/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
           </Group>
         </Group>
       </Paper>
@@ -1936,7 +1884,7 @@ export function App() {
         <Routes>
           <Route path="/" element={
             <RequireAuth profile={profile}>
-              {status ? <Dashboard isAdmin={false} profile={profile as import("./contexts").ProfileResponse} /> : <LoadingScreen />}
+              {status ? <Dashboard isAdmin={profile !== "loading" && (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN")} profile={profile as import("./contexts").ProfileResponse} /> : <LoadingScreen />}
             </RequireAuth>
           } />
           <Route path="/admin" element={

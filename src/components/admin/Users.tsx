@@ -302,7 +302,7 @@ function RotateModal({ token, onClose, onDone }: { token: ApiToken; onClose: () 
 }
 
 function AddTokenModal({ user, onClose, onDone }: { user: ApiUser; onClose: () => void; onDone: () => void }) {
-  const [key, setKey]       = useState(`sk-user-${user.name.toLowerCase().replace(/\s+/g, "-")}`);
+  const [key, setKey]       = useState("");
   const [limit, setLimit]   = useState("40000");
   const [unlimited, setUnlimited] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -323,7 +323,7 @@ function AddTokenModal({ user, onClose, onDone }: { user: ApiUser; onClose: () =
   return (
     <Modal opened onClose={onClose} title={`Add Token to ${user.name}`} size="sm">
       <Stack gap="sm">
-        <TextInput label="Token key" placeholder="sk-user-name" value={key} autoFocus
+        <TextInput label="Token key" placeholder="sk-cp-… (leave blank to auto-generate)" value={key} autoFocus
           onChange={e => setKey(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") save(); }} />
         <Switch label="Unlimited" checked={unlimited} onChange={e => setUnlimited(e.currentTarget.checked)} />
         {!unlimited && (
@@ -374,7 +374,7 @@ function CreateUserModal({ onClose, onDone }: { onClose: () => void; onDone: () 
         <Textarea label="Description" placeholder="Optional notes" value={desc}
           onChange={e => setDesc(e.currentTarget.value)} rows={2} />
         <Divider label="Initial token (optional)" labelPosition="center" />
-        <TextInput label="Token Key" placeholder="sk-user-alice" value={key}
+        <TextInput label="Token Key" placeholder="sk-cp-… (optional)" value={key}
           onChange={e => setKey(e.currentTarget.value)} />
         {key && (
           <TextInput label="Token Limit" value={limit}

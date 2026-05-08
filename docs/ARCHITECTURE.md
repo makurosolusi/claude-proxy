@@ -84,8 +84,6 @@ Admin mutations semua return `{ ok: true }` — tidak ada page reload.
 |---|---|---|
 | `ANTHROPIC_API_URL` | `https://api.anthropic.com` | Override URL Anthropic API |
 | `ADMIN_KEY` | — | `x-admin-key` header untuk programmatic access |
-| `ADMIN_USERNAME` | — | Username login form |
-| `ADMIN_PASSWORD` | — | Password login form |
 | `TOKENS` | — | Newline-separated `key:limit` atau `key:limit:windowMs` |
 | `WINDOW_MS` | `18000000` | Default window per token (ms) |
 | `UPSTREAM_HARD_CAP_PCT` | `95` | Block request kalau 5-hour utilization >= nilai ini |

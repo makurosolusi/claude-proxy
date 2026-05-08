@@ -286,5 +286,11 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return Response.json({ ok: true });
   }
 
+  if (pathname === "/admin/usage/clear" && req.method === "POST") {
+    db.query("DELETE FROM daily_usage").run();
+    triggerBroadcast();
+    return Response.json({ ok: true });
+  }
+
   return new Response("Not found\n", { status: 404 });
 }
