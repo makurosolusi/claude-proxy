@@ -153,6 +153,24 @@ function hasThinkingBlocks(messages: any[]): boolean {
   );
 }
 
+function diagnoseThinking(bodyJson: any): string {
+  if (!bodyJson) return "bodyJson=null";
+  const parts: string[] = [];
+  parts.push(`thinking=${JSON.stringify(bodyJson.thinking)}`);
+  if (Array.isArray(bodyJson.messages)) {
+    const counts: Record<string, number> = {};
+    for (const msg of bodyJson.messages) {
+      if (!Array.isArray(msg.content)) continue;
+      for (const b of msg.content) {
+        counts[b.type] = (counts[b.type] || 0) + 1;
+      }
+    }
+    parts.push(`content_types=${JSON.stringify(counts)}`);
+    parts.push(`msg_count=${bodyJson.messages.length}`);
+  }
+  return parts.join(" ");
+}
+
 function getDeepSeekConfig(): { apiKey: string; baseUrl: string; model: string } | null {
   const apiKey = settings["deepseek_api_key"] || config.deepseekApiKey;
   if (!apiKey) return null;
@@ -558,7 +576,9 @@ export async function handleProxy(
             cache_read: cacheRead, cache_creation: cacheCreation, stream: true, status: httpStatus,
             stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
             turns, prompt, system_prompt: systemPrompt,
-            messages_json: messagesJson, response_text: responseText.slice(0, 3000) });
+            messages_json: messagesJson,
+            response_text: (httpStatus >= 400 && bodyJson ? `[thinkDiag] provider=${provider} ${diagnoseThinking(bodyJson)} | ` : "")
+              + responseText.slice(0, 3000) });
           // Real-time threshold alerts
           if (inputTokens > 80_000)
             pushAlert(`${t.name}: ${(inputTokens/1000).toFixed(0)}k tokens input — context sangat besar, jalankan /compact`);
@@ -592,7 +612,9 @@ export async function handleProxy(
       cache_read: cacheRead, cache_creation: cacheCreation, stream: false, status: resp.status,
       stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
       turns, prompt, system_prompt: systemPrompt,
-      messages_json: messagesJson, response_text: extractResponseText(body, resp.status) });
+      messages_json: messagesJson,
+      response_text: (resp.status >= 400 && bodyJson ? `[thinkDiag] provider=${provider} ${diagnoseThinking(bodyJson)} | ` : "")
+        + extractResponseText(body, resp.status) });
     if (inputTokens > 80_000)
       pushAlert(`${t.name}: ${(inputTokens/1000).toFixed(0)}k tokens input — jalankan /compact`);
     if (t.limit !== Infinity) {
