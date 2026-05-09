@@ -479,9 +479,10 @@ server = serve({
       return handleApiStatus(req, new URL(req.url), isAdm);
     },
 
-    // API — admin only
+    // API — admin only (also accepts MCP secret for explain_log tool)
     "/api/logs/*": async req => {
-      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const mcpOk = config.mcpSecret && (req.headers.get("x-mcp-secret") === config.mcpSecret);
+      if (!mcpOk && !await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       try { return handleApiLogs(req, new URL(req.url), true); }
       catch (e: any) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
     },
