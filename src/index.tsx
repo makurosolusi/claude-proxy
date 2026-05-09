@@ -21,6 +21,7 @@ import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
 import { handleDebugQuery } from "./handlers/apiDebug";
+import { handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure } from "./handlers/apiDebugExtra";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModelRoutes } from "./handlers/apiModelRoutes";
@@ -577,8 +578,11 @@ server = serve({
       return handleDbUpload(req);
     },
 
-    // Debug query — auth via x-mcp-secret (untuk MCP debug-stg)
-    "/api/debug/query": async req => { return handleDebugQuery(req); },
+    // Debug endpoints — auth via x-mcp-secret (untuk MCP debug-stg)
+    "/api/debug/query":            async req => handleDebugQuery(req),
+    "/api/debug/token/*":          async req => handleDebugToken(req, new URL(req.url)),
+    "/api/debug/upstream-history": async req => handleDebugUpstreamHistory(req),
+    "/api/debug/quota-pressure":   async req => handleDebugQuotaPressure(req),
 
     // Users API (admin only)
     "/api/admin/users": async req => {

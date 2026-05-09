@@ -122,6 +122,56 @@ async function toolQueryDb(args: { sql: string }) {
   return apiPost("/api/debug/query", { sql: args.sql });
 }
 
+async function toolTailLogs(args: { minutes?: number; token?: string; model?: string; error_only?: boolean }) {
+  const minutes = args.minutes ?? 5;
+  return toolCheckLogs({
+    limit: 50,
+    since_minutes: minutes,
+    token: args.token,
+    model: args.model,
+    error_only: args.error_only,
+  });
+}
+
+async function toolExplainLog(args: { id: number }) {
+  if (!args.id) return { error: "id is required" };
+  const data = await apiGet(`/api/logs/${args.id}`);
+  if (data.error) return data;
+  return {
+    id:            data.id,
+    ts:            data.ts,
+    age_sec:       Math.round((Date.now() - data.ts) / 1000),
+    name:          data.name,
+    model:         data.model,
+    status:        data.status,
+    stop_reason:   data.stop_reason,
+    input_tokens:  data.input_tokens,
+    output_tokens: data.output_tokens,
+    cache_read:    data.cache_read,
+    cache_creation:data.cache_creation,
+    duration_ms:   data.duration_ms,
+    turns:         data.turns,
+    tool_use_count:data.tool_use_count,
+    stream:        data.stream,
+    prompt:        data.prompt,
+    system_prompt: data.system_prompt,
+    response_text: (data.response_text || "").slice(0, 2000),
+  };
+}
+
+async function toolGetTokenDetail(args: { token: string }) {
+  if (!args.token) return { error: "token (key suffix) is required" };
+  return apiGet(`/api/debug/token/${args.token}`);
+}
+
+async function toolCheckUpstreamHistory() {
+  return apiGet("/api/debug/upstream-history");
+}
+
+async function toolCheckQuotaPressure() {
+  return apiGet("/api/debug/quota-pressure");
+}
+
 // ── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
@@ -176,13 +226,73 @@ const TOOLS = [
     description: "Get the currently deployed version on staging.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "tail_logs",
+    description:
+      "Show recent logs from the last N minutes (default 5). " +
+      "Use for real-time debugging when a user reports an issue right now.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        minutes:    { type: "number",  description: "Look back N minutes (default 5)" },
+        token:      { type: "string",  description: "Filter by last 3-8 chars of token key" },
+        model:      { type: "string",  description: "Filter by model substring" },
+        error_only: { type: "boolean", description: "Only show errors (status >= 400)" },
+      },
+    },
+  },
+  {
+    name: "explain_log",
+    description:
+      "Get full detail of a single request log by ID — includes full prompt, response_text, system_prompt, cache tokens. " +
+      "Use to reproduce a bug from a specific request.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "Request log ID (from check_logs or query_db)" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "get_token_detail",
+    description:
+      "Get full detail for one token: usage, limit, in-flight, 7-day daily usage, and last 20 requests. " +
+      "Pass the last 3-8 chars of the token key.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        token: { type: "string", description: "Last 3-8 chars of token key" },
+      },
+      required: ["token"],
+    },
+  },
+  {
+    name: "check_upstream_history",
+    description:
+      "Get upstream state (utilization, resets_at, poll age, backoff) plus proxy error distribution from last 24h. " +
+      "Use to diagnose why requests failed at a specific time.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_quota_pressure",
+    description:
+      "Show in-flight reservations + quota headroom per token. " +
+      "Use when quota seems exhausted despite low .used values — in-flight may be consuming the remaining quota.",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 async function callTool(name: string, args: Record<string, unknown>) {
-  if (name === "query_db")      return toolQueryDb(args as { sql: string });
-  if (name === "check_logs")    return toolCheckLogs(args);
-  if (name === "check_status")  return toolCheckStatus(args);
-  if (name === "check_version") return toolCheckVersion();
+  if (name === "query_db")               return toolQueryDb(args as { sql: string });
+  if (name === "check_logs")             return toolCheckLogs(args);
+  if (name === "check_status")           return toolCheckStatus(args);
+  if (name === "check_version")          return toolCheckVersion();
+  if (name === "tail_logs")              return toolTailLogs(args);
+  if (name === "explain_log")            return toolExplainLog(args as { id: number });
+  if (name === "get_token_detail")       return toolGetTokenDetail(args as { token: string });
+  if (name === "check_upstream_history") return toolCheckUpstreamHistory();
+  if (name === "check_quota_pressure")   return toolCheckQuotaPressure();
   throw new Error(`Unknown tool: ${name}`);
 }
 
