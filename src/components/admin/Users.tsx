@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, Textarea, Table,
   ThemeIcon, Box, Badge, ActionIcon, Tooltip, Modal, Button, Progress,
-  Accordion, Loader, Alert, Avatar, Select, Switch, Divider, SegmentedControl,
+  Loader, Alert, Avatar, Select, Switch, Divider, SegmentedControl,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconPlayerPlay, IconTrash, IconPencil,
-  IconUserPlus, IconUsers, IconAlertTriangle, IconKey, IconRotate,
-  IconPlus, IconCopy, IconCheck, IconSearch, IconArrowsSort, IconInfoCircle,
+  IconUsers, IconAlertTriangle, IconKey, IconRotate,
+  IconPlus, IconCopy, IconCheck, IconSearch, IconArrowsSort,
+  IconLayoutGrid, IconList,
 } from "@tabler/icons-react";
 import { adminPost, fmtRel, avatarColor } from "../../utils";
 import type { TokenStatus } from "../../contexts";
@@ -340,54 +341,6 @@ function AddTokenModal({ user, onClose, onDone }: { user: ApiUser; onClose: () =
   );
 }
 
-function CreateUserModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [name, setName]   = useState("");
-  const [desc, setDesc]   = useState("");
-  const [key, setKey]     = useState("");
-  const [limit, setLimit] = useState("40000");
-  const [saving, setSaving] = useState(false);
-  const inFlight = { current: false };
-
-  const save = async () => {
-    if (!name.trim() || inFlight.current) return;
-    inFlight.current = true;
-    setSaving(true);
-    const res = await fetch("/api/admin/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), description: desc }),
-    });
-    const data = await res.json() as any;
-    if (data.ok && key.trim()) {
-      await adminPost("/admin/token/add", { token: key.trim(), limit, user_id: data.user.id, name: name.trim() });
-    }
-    setSaving(false);
-    onDone();
-    onClose();
-  };
-
-  return (
-    <Modal opened onClose={onClose} title="Create New User" size="sm">
-      <Stack gap="sm">
-        <TextInput label="Display Name" placeholder="Alice" value={name} autoFocus
-          onChange={e => setName(e.currentTarget.value)} />
-        <Textarea label="Description" placeholder="Optional notes" value={desc}
-          onChange={e => setDesc(e.currentTarget.value)} rows={2} />
-        <Divider label="Initial token (optional)" labelPosition="center" />
-        <TextInput label="Token Key" placeholder="sk-cp-… (optional)" value={key}
-          onChange={e => setKey(e.currentTarget.value)} />
-        {key && (
-          <TextInput label="Token Limit" value={limit}
-            onChange={e => setLimit(e.currentTarget.value.replace(/[^\d]/g, ""))} />
-        )}
-        <Group justify="flex-end" mt="xs">
-          <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
-          <Button color="teal" loading={saving} onClick={save} leftSection={<IconUserPlus size={14} />}>Create</Button>
-        </Group>
-      </Stack>
-    </Modal>
-  );
-}
 
 function EditAllLimitsGlobalModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [unlimited, setUnlimited] = useState(false);
@@ -444,10 +397,13 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [editAllLimits, setEditAllLimits]         = useState<ApiUser | null>(null);
   const [showEditAllGlobal, setShowEditAllGlobal] = useState(false);
   const [addTokenTo, setAddTokenTo]               = useState<ApiUser | null>(null);
-  const [showCreate, setShowCreate]               = useState(false);
   const [search, setSearch]           = useState("");
   const [sort, setSort]               = useState<SortKey>("usage");
   const [filter, setFilter]           = useState<FilterKey>("all");
+  const [viewMode, setViewMode]         = useState<"grid" | "list">(() => {
+    try { return (localStorage.getItem("admin-users-view") as "grid" | "list") || "grid"; }
+    catch { return "grid"; }
+  });
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [rowAction, setRowAction]           = useState<{ key: string; act: string } | null>(null);
   const [bulkAction, setBulkAction]         = useState<"reset" | "pause" | "purge" | "purge-legacy" | null>(null);
@@ -523,7 +479,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
       {editAllLimits     && <EditAllLimitsModal  user={editAllLimits}  onClose={() => setEditAllLimits(null)}        onSaved={reload} />}
       {showEditAllGlobal && <EditAllLimitsGlobalModal onClose={() => setShowEditAllGlobal(false)} onSaved={reload} />}
       {addTokenTo        && <AddTokenModal       user={addTokenTo}     onClose={() => setAddTokenTo(null)}           onDone={reload} />}
-      {showCreate        && <CreateUserModal     onClose={() => setShowCreate(false)}                                onDone={reload} />}
 
       {/* Header */}
       <Paper withBorder p="lg" radius="md">
@@ -634,11 +589,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
       {/* Users list */}
       <Stack gap="sm">
-        <Group justify="space-between" wrap="wrap" gap="sm">
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Users</Text>
-          <Button size="xs" variant="filled" color="teal" leftSection={<IconUserPlus size={13} />}
-            onClick={() => setShowCreate(true)}>Create User</Button>
-        </Group>
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Users</Text>
 
         <Group gap="sm" wrap="wrap">
           <TextInput
@@ -672,6 +623,18 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             allowDeselect={false}
             w={170}
           />
+          <SegmentedControl
+            size="sm"
+            value={viewMode}
+            onChange={v => {
+              setViewMode(v as "grid" | "list");
+              try { localStorage.setItem("admin-users-view", v); } catch {}
+            }}
+            data={[
+              { label: <Group gap={4} wrap="nowrap"><IconLayoutGrid size={14} /><Text span size="xs">Grid</Text></Group>, value: "grid" },
+              { label: <Group gap={4} wrap="nowrap"><IconList size={14} /><Text span size="xs">List</Text></Group>, value: "list" },
+            ]}
+          />
         </Group>
 
         {filteredUsers === null ? (
@@ -679,290 +642,358 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
         ) : filteredUsers.length === 0 ? (
           <Paper withBorder p="lg" radius="md" ta="center">
             <Text c="dimmed" size="sm">
-              {search ? `No users match "${search}".` : "No users yet. Create one to get started."}
+              {search ? `No users match "${search}".` : "No users yet."}
             </Text>
           </Paper>
-        ) : (
-          <Accordion variant="separated" radius="md" multiple>
-            {filteredUsers.map(u => {
-              const agg = userAggregates(u);
-              const limitLabel = agg.totalLimit === null ? "∞" : nf(agg.totalLimit);
-              const barColor = agg.maxPct >= 95 ? "red" : agg.maxPct >= 75 ? "orange" : agg.aggPct >= 50 ? "yellow" : "teal";
+        ) : (() => {
+          const userCards = filteredUsers.map(u => {
+            const agg = userAggregates(u);
+            const limitLabel = agg.totalLimit === null ? "∞" : nf(agg.totalLimit);
+            const barColor = agg.maxPct >= 95 ? "red" : agg.maxPct >= 75 ? "orange" : agg.aggPct >= 50 ? "yellow" : "teal";
 
-              return (
-                <Accordion.Item key={u.id} value={u.id}>
-                  <Accordion.Control>
-                    <Group gap="md" wrap="nowrap" align="center">
-                      <Avatar color={avatarColor(u.name)} radius="xl" size="md">{initials(u.name)}</Avatar>
+            const header = (
+              <Group gap="md" wrap="nowrap" align="center">
+                <Avatar color={avatarColor(u.name)} radius="xl" size="md">{initials(u.name)}</Avatar>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Group gap="xs" wrap="nowrap">
+                    <Text size="sm" fw={700} truncate>{u.name}</Text>
+                    {!u.email && <Badge size="xs" variant="light" color="yellow" leftSection={<IconAlertTriangle size={10} />}>Legacy</Badge>}
+                    <Badge size="xs" variant="light" color="gray">{u.tokens.length} token{u.tokens.length !== 1 ? "s" : ""}</Badge>
+                    {agg.pausedCount > 0 && <Badge size="xs" variant="light" color="orange" leftSection={<IconPlayerPause size={10} />}>{agg.pausedCount} paused</Badge>}
+                    {agg.overCount > 0 && <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>{agg.overCount} over</Badge>}
+                  </Group>
+                  <Group gap="md" wrap="nowrap" mt={4}>
+                    <Text size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: "nowrap" }}>{nf(agg.totalUsed)} / {limitLabel}</Text>
+                    {agg.todayUsed > 0 && <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>today <Text span ff="monospace" c="bright">{nf(agg.todayUsed)}</Text></Text>}
+                  </Group>
+                </div>
+                <Group gap={2} wrap="nowrap" onClick={e => e.stopPropagation()}>
+                  <Tooltip label="Edit user" withArrow>
+                    <Box component="span" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-gray-light-color)" }}
+                      onClick={(e: React.MouseEvent) => { e.stopPropagation(); setEditUser(u); }}
+                      aria-label="Edit user" role="button" tabIndex={0}
+                      onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEditUser(u); } }}>
+                      <IconPencil size={ACT} />
+                    </Box>
+                  </Tooltip>
+                  <Tooltip label="Delete user" withArrow>
+                    <Box component="span" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-red-light-color)" }}
+                      onClick={(e: React.MouseEvent) => { e.stopPropagation(); setDeleteUser(u); }}
+                      aria-label="Delete user" role="button" tabIndex={0}
+                      onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setDeleteUser(u); } }}>
+                      <IconTrash size={ACT} />
+                    </Box>
+                  </Tooltip>
+                </Group>
+              </Group>
+            );
 
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <Group gap="xs" wrap="nowrap">
-                          <Text size="sm" fw={700} truncate>{u.name}</Text>
-                          {!u.email && (
-                            <Badge size="xs" variant="light" color="yellow" leftSection={<IconAlertTriangle size={10} />}>
-                              Legacy
-                            </Badge>
-                          )}
-                          <Badge size="xs" variant="light" color="gray">
-                            {u.tokens.length} token{u.tokens.length !== 1 ? "s" : ""}
-                          </Badge>
-                          {agg.pausedCount > 0 && (
-                            <Badge size="xs" variant="light" color="orange" leftSection={<IconPlayerPause size={10} />}>
-                              {agg.pausedCount} paused
-                            </Badge>
-                          )}
-                          {agg.overCount > 0 && (
-                            <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>
-                              {agg.overCount} over
-                            </Badge>
-                          )}
-                        </Group>
-                        <Group gap="md" wrap="nowrap" mt={4}>
-                          <Text size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: "nowrap" }}>
-                            {nf(agg.totalUsed)} / {limitLabel}
-                          </Text>
-                          {agg.todayUsed > 0 && (
-                            <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-                              today <Text span ff="monospace" c="bright">{nf(agg.todayUsed)}</Text>
-                            </Text>
-                          )}
-                        </Group>
-                      </div>
-
-                      <Box visibleFrom="sm" style={{ width: 140 }}>
-                        <Group gap={6} wrap="nowrap" justify="flex-end">
-                          <Progress
-                            value={Math.min(agg.aggPct || agg.maxPct, 100)}
-                            color={barColor}
-                            size="sm"
-                            style={{ flex: 1 }}
-                          />
-                          <Text size="xs" c="dimmed" ff="monospace" style={{ width: 38, textAlign: "right" }}>
-                            {agg.totalLimit === null ? "—" : `${agg.aggPct}%`}
-                          </Text>
-                        </Group>
-                      </Box>
-
-                      <Group gap={2} wrap="nowrap" onClick={e => e.stopPropagation()}>
-                        <Tooltip label="Edit user" withArrow>
-                          <Box component="span"
-                            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-gray-light-color)" }}
-                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); setEditUser(u); }}
-                            aria-label="Edit user" role="button" tabIndex={0}
-                            onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEditUser(u); } }}>
-                            <IconPencil size={ACT} />
-                          </Box>
-                        </Tooltip>
-                        <Tooltip label="Delete user" withArrow>
-                          <Box component="span"
-                            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-red-light-color)" }}
-                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); setDeleteUser(u); }}
-                            aria-label="Delete user" role="button" tabIndex={0}
-                            onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setDeleteUser(u); } }}>
-                            <IconTrash size={ACT} />
-                          </Box>
-                        </Tooltip>
-                      </Group>
-                    </Group>
-                  </Accordion.Control>
-
-                  <Accordion.Panel>
-                    <Stack gap="sm">
-                      {!u.email && (
-                        <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
-                          <Text size="xs">
-                            <b>Legacy user</b> — no Google account linked. Set an email via Edit to allow migration, or purge once all users have migrated.
-                          </Text>
-                        </Alert>
-                      )}
-
-                      {/* User metadata strip */}
-                      <Paper withBorder={false} bg="var(--mantine-color-default-hover)" p="sm" radius="sm">
-                        <Group gap="lg" wrap="wrap">
-                          <Box>
-                            <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Created</Text>
-                            <Text size="sm">{fmtRel(u.created_at)}</Text>
-                          </Box>
-                          <Box>
-                            <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>All-time</Text>
-                            <Text size="sm" ff="monospace">{nf(agg.alltime)}</Text>
-                          </Box>
-                          <Box>
-                            <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Today</Text>
-                            <Text size="sm" ff="monospace">{nf(agg.todayUsed)}</Text>
-                          </Box>
-                          {u.email && (
-                            <Box>
-                              <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Google</Text>
-                              <Text size="sm" c="blue">{u.email}</Text>
-                            </Box>
-                          )}
-                          {u.description && (
-                            <Box style={{ flex: 1, minWidth: 200 }}>
-                              <Group gap={4} mb={2}>
-                                <IconInfoCircle size={11} color="var(--mantine-color-dimmed)" />
-                                <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Notes</Text>
-                              </Group>
-                              <Text size="sm">{u.description}</Text>
-                            </Box>
-                          )}
-                        </Group>
-                      </Paper>
-
-                      <Group justify="space-between">
-                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
-                        <Group gap="xs">
-                          {u.tokens.length > 0 && (
-                            <Button size="xs" variant="subtle" color="gray" leftSection={<IconPencil size={12} />}
-                              onClick={() => setEditAllLimits(u)}>Edit All Limits</Button>
-                          )}
-                          <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={12} />}
-                            onClick={() => setAddTokenTo(u)}>Add Token</Button>
-                        </Group>
-                      </Group>
-
-                      {u.tokens.length === 0 ? (
-                        <Paper withBorder p="md" radius="sm" ta="center">
-                          <Stack gap="xs" align="center">
-                            <ThemeIcon variant="light" color="gray" size="lg" radius="xl">
-                              <IconKey size={16} />
-                            </ThemeIcon>
-                            <Text size="sm" c="dimmed">This user has no tokens yet.</Text>
-                            <Button size="xs" variant="light" color="teal"
-                              leftSection={<IconPlus size={12} />}
-                              onClick={() => setAddTokenTo(u)}>Create first token</Button>
-                          </Stack>
-                        </Paper>
-                      ) : (
-                        <Box style={{ overflowX: "auto" }}>
-                          <Table withRowBorders withColumnBorders={false} highlightOnHover verticalSpacing="xs">
-                            <Table.Thead>
-                              <Table.Tr>
-                                {["Token Key","Used","Today","Limit","Usage","Provider","Actions"].map(h => (
-                                  <Table.Th key={h} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>{h}</Table.Th>
-                                ))}
-                              </Table.Tr>
-                            </Table.Thead>
-                            <Table.Tbody>
-                              {u.tokens.map(tk => (
-                                <Table.Tr key={tk.key} style={tk.paused ? { opacity: 0.5 } : {}}>
-                                  <Table.Td>
-                                    <Group gap={4} wrap="nowrap">
-                                      <IconKey size={12} color="var(--mantine-color-dimmed)" />
-                                      <Text size="xs" ff="monospace" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{tk.key}</Text>
-                                      <CopyButton value={tk.key} />
-                                      {tk.paused && <Badge size="xs" color="gray">paused</Badge>}
-                                    </Group>
-                                  </Table.Td>
-                                  <Table.Td><Text size="xs" ff="monospace" c="dimmed">{nf(tk.used)}</Text></Table.Td>
-                                  <Table.Td><Text size="xs" ff="monospace">{tk.today ? nf(tk.today) : "—"}</Text></Table.Td>
-                                  <Table.Td><Text size="xs" ff="monospace" c="dimmed">{tk.limit === null ? "∞" : nf(tk.limit)}</Text></Table.Td>
-                                  <Table.Td style={{ minWidth: 120 }}>
-                                    <Group gap="xs" wrap="nowrap">
-                                      <Progress value={Math.min(tk.pct, 100)} color={tk.pct >= 95 ? "red" : tk.pct >= 75 ? "orange" : "teal"}
-                                        size="sm" style={{ flex: 1 }} />
-                                      <Text size="xs" c="dimmed" ff="monospace">{tk.pct}%</Text>
-                                    </Group>
-                                  </Table.Td>
-                                  <Table.Td style={{ minWidth: 220 }}>
-                                    <Group gap="xs" wrap="nowrap" align="center">
-                                      <SegmentedControl
-                                        size="xs"
-                                        value={tk.provider || "inherit"}
-                                        disabled={savingProvider === tk.key}
-                                        onChange={async v => {
-                                          setSavingProvider(tk.key);
-                                          try {
-                                            const r = await fetch("/admin/token/provider", {
-                                              method: "POST",
-                                              headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                                              body: new URLSearchParams({ token: tk.key, provider: v }),
-                                            });
-                                            const d = await r.json() as any;
-                                            if (!d.ok) {
-                                              notifications.show({ color: "red", title: "Cannot switch provider", message: d.error || "Failed", autoClose: 5000 });
-                                              return;
-                                            }
-                                            await reload();
-                                            notifications.show({ color: "teal", message: `Provider set to ${v === "inherit" ? "Auto" : v}`, autoClose: 2000 });
-                                          } catch (e: any) {
-                                            notifications.show({ color: "red", title: "Error", message: e.message || "Failed to update provider", autoClose: 4000 });
-                                          } finally {
-                                            setSavingProvider(null);
-                                          }
-                                        }}
-                                        data={[
-                                          { label: "Auto",       value: "inherit"    },
-                                          { label: "Claude",     value: "anthropic"  },
-                                          { label: "DeepSeek",   value: "deepseek"   },
-                                          { label: "OpenRouter", value: "openrouter" },
-                                        ]}
-                                      />
-                                      {savingProvider === tk.key && <Loader size={12} />}
-                                    </Group>
-                                  </Table.Td>
-                                  <Table.Td>
-                                    <Group gap={4} wrap="nowrap">
-                                      <Tooltip label="Reset usage" withArrow>
-                                        <ActionIcon variant="subtle" color="gray" size="sm"
-                                          loading={rowAction?.key === tk.key && rowAction.act === "reset"}
-                                          onClick={() => modals.openConfirmModal({
-                                            title: "Reset usage",
-                                            children: <Text size="sm">Reset usage counter for <b>{tk.key}</b>?</Text>,
-                                            labels: { confirm: "Reset", cancel: "Cancel" },
-                                            confirmProps: { color: "gray" },
-                                            onConfirm: () => runRowAction(tk.key, "reset", () => adminPost("/admin/reset", { token: tk.key }), "Usage reset"),
-                                          })}>
-                                          <IconRefresh size={ACT} />
-                                        </ActionIcon>
-                                      </Tooltip>
-                                      <Tooltip label="Edit limit" withArrow>
-                                        <ActionIcon variant="subtle" color="gray" size="sm"
-                                          onClick={() => setEditLimit(tk)}>
-                                          <IconPencil size={ACT} />
-                                        </ActionIcon>
-                                      </Tooltip>
-                                      <Tooltip label={tk.paused ? "Resume" : "Pause"} withArrow>
-                                        <ActionIcon variant="subtle" color={tk.paused ? "teal" : "orange"} size="sm"
-                                          loading={rowAction?.key === tk.key && rowAction.act === "pause"}
-                                          onClick={() => runRowAction(tk.key, "pause", () => adminPost("/admin/token/pause", { token: tk.key }), tk.paused ? "Token resumed" : "Token paused")}>
-                                          {tk.paused ? <IconPlayerPlay size={ACT} /> : <IconPlayerPause size={ACT} />}
-                                        </ActionIcon>
-                                      </Tooltip>
-                                      <Tooltip label="Rotate (generate new key)" withArrow>
-                                        <ActionIcon variant="subtle" color="blue" size="sm"
-                                          onClick={() => setRotateToken(tk)}>
-                                          <IconRotate size={ACT} />
-                                        </ActionIcon>
-                                      </Tooltip>
-                                      <Tooltip label="Delete token" withArrow>
-                                        <ActionIcon variant="subtle" color="red" size="sm"
-                                          loading={rowAction?.key === tk.key && rowAction.act === "delete"}
-                                          onClick={() => modals.openConfirmModal({
-                                            title: "Delete token",
-                                            children: <Text size="sm">Delete <b>{tk.key}</b>? Clients using this token will get 401.</Text>,
-                                            labels: { confirm: "Delete", cancel: "Cancel" },
-                                            confirmProps: { color: "red" },
-                                            onConfirm: () => runRowAction(tk.key, "delete", () => adminPost("/admin/token/delete", { token: tk.key }), "Token deleted"),
-                                          })}>
-                                          <IconTrash size={ACT} />
-                                        </ActionIcon>
-                                      </Tooltip>
-                                    </Group>
-                                  </Table.Td>
-                                </Table.Tr>
-                              ))}
-                            </Table.Tbody>
-                          </Table>
-                        </Box>
-                      )}
+            const body = (
+              <Stack gap="sm">
+                {!u.email && (
+                  <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
+                    <Text size="xs"><b>Legacy user</b> — no Google account linked. Set an email via Edit to allow migration, or purge once all users have migrated.</Text>
+                  </Alert>
+                )}
+                <Group justify="space-between">
+                  <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
+                  <Group gap="xs">
+                    {u.tokens.length > 0 && <Button size="xs" variant="subtle" color="gray" leftSection={<IconPencil size={12} />} onClick={() => setEditAllLimits(u)}>Edit All Limits</Button>}
+                    <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={12} />} onClick={() => setAddTokenTo(u)}>Add Token</Button>
+                  </Group>
+                </Group>
+                {u.tokens.length === 0 ? (
+                  <Paper withBorder p="md" radius="sm" ta="center">
+                    <Stack gap="xs" align="center">
+                      <ThemeIcon variant="light" color="gray" size="lg" radius="xl"><IconKey size={16} /></ThemeIcon>
+                      <Text size="sm" c="dimmed">This user has no tokens yet.</Text>
+                      <Button size="xs" variant="light" color="teal" leftSection={<IconPlus size={12} />} onClick={() => setAddTokenTo(u)}>Create first token</Button>
                     </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              );
-            })}
-          </Accordion>
-        )}
+                  </Paper>
+                ) : (
+                  <Box style={{ overflowX: "auto" }}>
+                    <Table withRowBorders withColumnBorders={false} highlightOnHover verticalSpacing="xs">
+                      <Table.Thead>
+                        <Table.Tr>
+                          {["Token Key","Used","Today","Limit","Usage","Provider","Actions"].map(h => (
+                            <Table.Th key={h} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>{h}</Table.Th>
+                          ))}
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {u.tokens.map(tk => (
+                          <Table.Tr key={tk.key} style={tk.paused ? { opacity: 0.5 } : {}}>
+                            <Table.Td>
+                              <Group gap={4} wrap="nowrap">
+                                <IconKey size={12} color="var(--mantine-color-dimmed)" />
+                                <Text size="xs" ff="monospace" c="dimmed" style={{ letterSpacing: "0.1em" }}>••••••••••••••••</Text>
+                                <CopyButton value={tk.key} />
+                                {tk.paused && <Badge size="xs" color="gray">paused</Badge>}
+                              </Group>
+                            </Table.Td>
+                            <Table.Td><Text size="xs" ff="monospace" c="dimmed">{nf(tk.used)}</Text></Table.Td>
+                            <Table.Td><Text size="xs" ff="monospace">{tk.today ? nf(tk.today) : "—"}</Text></Table.Td>
+                            <Table.Td><Text size="xs" ff="monospace" c="dimmed">{tk.limit === null ? "∞" : nf(tk.limit)}</Text></Table.Td>
+                            <Table.Td style={{ minWidth: 120 }}>
+                              <Group gap="xs" wrap="nowrap">
+                                <Progress value={Math.min(tk.pct, 100)} color={tk.pct >= 95 ? "red" : tk.pct >= 75 ? "orange" : "teal"} size="sm" style={{ flex: 1 }} />
+                                <Text size="xs" c="dimmed" ff="monospace">{tk.pct}%</Text>
+                              </Group>
+                            </Table.Td>
+                            <Table.Td style={{ minWidth: 220 }}>
+                              <Group gap="xs" wrap="nowrap" align="center">
+                                <SegmentedControl size="xs" value={tk.provider || "inherit"} disabled={savingProvider === tk.key}
+                                  onChange={async v => {
+                                    setSavingProvider(tk.key);
+                                    try {
+                                      const r = await fetch("/admin/token/provider", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: tk.key, provider: v }) });
+                                      const d = await r.json() as any;
+                                      if (!d.ok) { notifications.show({ color: "red", title: "Cannot switch provider", message: d.error || "Failed", autoClose: 5000 }); return; }
+                                      await reload();
+                                      notifications.show({ color: "teal", message: `Provider set to ${v === "inherit" ? "Auto" : v}`, autoClose: 2000 });
+                                    } catch (e: any) { notifications.show({ color: "red", title: "Error", message: e.message || "Failed to update provider", autoClose: 4000 }); }
+                                    finally { setSavingProvider(null); }
+                                  }}
+                                  data={[
+                                    { label: "Auto", value: "inherit" },
+                                    { label: "Claude", value: "anthropic" },
+                                    { label: "DeepSeek", value: "deepseek" },
+                                    { label: "OpenRouter", value: "openrouter" },
+                                  ]}
+                                />
+                                {savingProvider === tk.key && <Loader size={12} />}
+                              </Group>
+                            </Table.Td>
+                            <Table.Td>
+                              <Group gap={4} wrap="nowrap">
+                                <Tooltip label="Reset usage" withArrow>
+                                  <ActionIcon variant="subtle" color="gray" size="sm"
+                                    loading={rowAction?.key === tk.key && rowAction.act === "reset"}
+                                    onClick={() => modals.openConfirmModal({
+                                      title: "Reset usage", children: <Text size="sm">Reset usage counter for <b>{tk.key}</b>?</Text>,
+                                      labels: { confirm: "Reset", cancel: "Cancel" }, confirmProps: { color: "gray" },
+                                      onConfirm: () => runRowAction(tk.key, "reset", () => adminPost("/admin/reset", { token: tk.key }), "Usage reset"),
+                                    })}>
+                                    <IconRefresh size={ACT} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Tooltip label="Edit limit" withArrow>
+                                  <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => setEditLimit(tk)}>
+                                    <IconPencil size={ACT} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Tooltip label={tk.paused ? "Resume" : "Pause"} withArrow>
+                                  <ActionIcon variant="subtle" color={tk.paused ? "teal" : "orange"} size="sm"
+                                    loading={rowAction?.key === tk.key && rowAction.act === "pause"}
+                                    onClick={() => runRowAction(tk.key, "pause", () => adminPost("/admin/token/pause", { token: tk.key }), tk.paused ? "Token resumed" : "Token paused")}>
+                                    {tk.paused ? <IconPlayerPlay size={ACT} /> : <IconPlayerPause size={ACT} />}
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Tooltip label="Rotate (generate new key)" withArrow>
+                                  <ActionIcon variant="subtle" color="blue" size="sm" onClick={() => setRotateToken(tk)}>
+                                    <IconRotate size={ACT} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Tooltip label="Delete token" withArrow>
+                                  <ActionIcon variant="subtle" color="red" size="sm"
+                                    loading={rowAction?.key === tk.key && rowAction.act === "delete"}
+                                    onClick={() => modals.openConfirmModal({
+                                      title: "Delete token", children: <Text size="sm">Delete <b>{tk.key}</b>? Clients using this token will get 401.</Text>,
+                                      labels: { confirm: "Delete", cancel: "Cancel" }, confirmProps: { color: "red" },
+                                      onConfirm: () => runRowAction(tk.key, "delete", () => adminPost("/admin/token/delete", { token: tk.key }), "Token deleted"),
+                                    })}>
+                                    <IconTrash size={ACT} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Box>
+                )}
+              </Stack>
+            );
+
+            const gridBody = (
+              <Stack gap="sm">
+                {!u.email && (
+                  <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
+                    <Text size="xs"><b>Legacy user</b> — no Google account linked. Set an email via Edit to allow migration.</Text>
+                  </Alert>
+                )}
+                <Paper withBorder={false} bg="var(--mantine-color-default-hover)" p="xs" radius="sm">
+                  <Group gap="xs" wrap="wrap">
+                    <Box><Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Created</Text><Text size="xs">{fmtRel(u.created_at)}</Text></Box>
+                    <Box><Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>All-time</Text><Text size="xs" ff="monospace">{nf(agg.alltime)}</Text></Box>
+                    {u.email && <Box style={{ flex: 1, minWidth: 0 }}><Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em" }}>Google</Text><Text size="xs" c="blue" truncate>{u.email}</Text></Box>}
+                  </Group>
+                  {u.description && <Text size="xs" c="dimmed" mt={4} lineClamp={2}>{u.description}</Text>}
+                </Paper>
+                <Group justify="space-between" align="center">
+                  <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
+                  <Group gap={4}>
+                    {u.tokens.length > 0 && <Button size="xs" variant="subtle" color="gray" leftSection={<IconPencil size={11} />} onClick={() => setEditAllLimits(u)}>Edit All</Button>}
+                    <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={11} />} onClick={() => setAddTokenTo(u)}>Add</Button>
+                  </Group>
+                </Group>
+                {u.tokens.length === 0 ? (
+                  <Paper withBorder p="sm" radius="sm" ta="center">
+                    <Stack gap={6} align="center">
+                      <ThemeIcon variant="light" color="gray" size="sm" radius="xl"><IconKey size={12} /></ThemeIcon>
+                      <Text size="xs" c="dimmed">No tokens yet.</Text>
+                      <Button size="xs" variant="light" color="teal" leftSection={<IconPlus size={12} />} onClick={() => setAddTokenTo(u)}>Create first token</Button>
+                    </Stack>
+                  </Paper>
+                ) : (
+                  <Stack gap={6}>
+                    {u.tokens.map(tk => (
+                      <Paper key={tk.key} withBorder p="xs" radius="sm" style={tk.paused ? { opacity: 0.55 } : {}}>
+                        <Stack gap={5}>
+                          <Group justify="space-between" wrap="nowrap" gap="xs">
+                            <Group gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
+                              <IconKey size={10} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                              <Text size="xs" ff="monospace" c="dimmed" style={{ letterSpacing: "0.06em", flexShrink: 0 }}>••••••••••••</Text>
+                              <CopyButton value={tk.key} />
+                              {tk.paused && <Badge size="xs" color="gray">paused</Badge>}
+                            </Group>
+                            <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
+                              <Tooltip label="Reset usage" withArrow>
+                                <ActionIcon variant="subtle" color="gray" size="xs"
+                                  loading={rowAction?.key === tk.key && rowAction.act === "reset"}
+                                  onClick={() => modals.openConfirmModal({
+                                    title: "Reset usage", children: <Text size="sm">Reset usage counter for <b>{tk.key}</b>?</Text>,
+                                    labels: { confirm: "Reset", cancel: "Cancel" }, confirmProps: { color: "gray" },
+                                    onConfirm: () => runRowAction(tk.key, "reset", () => adminPost("/admin/reset", { token: tk.key }), "Usage reset"),
+                                  })}>
+                                  <IconRefresh size={11} />
+                                </ActionIcon>
+                              </Tooltip>
+                              <Tooltip label="Edit limit" withArrow>
+                                <ActionIcon variant="subtle" color="gray" size="xs" onClick={() => setEditLimit(tk)}>
+                                  <IconPencil size={11} />
+                                </ActionIcon>
+                              </Tooltip>
+                              <Tooltip label={tk.paused ? "Resume" : "Pause"} withArrow>
+                                <ActionIcon variant="subtle" color={tk.paused ? "teal" : "orange"} size="xs"
+                                  loading={rowAction?.key === tk.key && rowAction.act === "pause"}
+                                  onClick={() => runRowAction(tk.key, "pause", () => adminPost("/admin/token/pause", { token: tk.key }), tk.paused ? "Token resumed" : "Token paused")}>
+                                  {tk.paused ? <IconPlayerPlay size={11} /> : <IconPlayerPause size={11} />}
+                                </ActionIcon>
+                              </Tooltip>
+                              <Tooltip label="Rotate key" withArrow>
+                                <ActionIcon variant="subtle" color="blue" size="xs" onClick={() => setRotateToken(tk)}>
+                                  <IconRotate size={11} />
+                                </ActionIcon>
+                              </Tooltip>
+                              <Tooltip label="Delete token" withArrow>
+                                <ActionIcon variant="subtle" color="red" size="xs"
+                                  loading={rowAction?.key === tk.key && rowAction.act === "delete"}
+                                  onClick={() => modals.openConfirmModal({
+                                    title: "Delete token", children: <Text size="sm">Delete <b>{tk.key}</b>? Clients using this token will get 401.</Text>,
+                                    labels: { confirm: "Delete", cancel: "Cancel" }, confirmProps: { color: "red" },
+                                    onConfirm: () => runRowAction(tk.key, "delete", () => adminPost("/admin/token/delete", { token: tk.key }), "Token deleted"),
+                                  })}>
+                                  <IconTrash size={11} />
+                                </ActionIcon>
+                              </Tooltip>
+                            </Group>
+                          </Group>
+                          <Group gap={6} wrap="nowrap">
+                            <Progress value={Math.min(tk.pct, 100)} color={tk.pct >= 95 ? "red" : tk.pct >= 75 ? "orange" : "teal"} size="xs" style={{ flex: 1 }} />
+                            <Text size="xs" c="dimmed" ff="monospace" style={{ minWidth: 32, textAlign: "right" }}>{tk.pct}%</Text>
+                          </Group>
+                          <Group justify="space-between" wrap="nowrap" gap="xs" align="center">
+                            <Text size="xs" ff="monospace" c="dimmed">{nf(tk.used)} / {tk.limit === null ? "∞" : nf(tk.limit)}{tk.today > 0 ? ` · ${nf(tk.today)} today` : ""}</Text>
+                            <Select size="xs" value={tk.provider || "inherit"} disabled={savingProvider === tk.key}
+                              style={{ width: 108 }} comboboxProps={{ withinPortal: true }}
+                              onChange={async v => {
+                                if (!v) return;
+                                setSavingProvider(tk.key);
+                                try {
+                                  const r = await fetch("/admin/token/provider", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: tk.key, provider: v }) });
+                                  const d = await r.json() as any;
+                                  if (!d.ok) { notifications.show({ color: "red", title: "Cannot switch provider", message: d.error || "Failed", autoClose: 5000 }); return; }
+                                  await reload();
+                                  notifications.show({ color: "teal", message: `Provider set to ${v === "inherit" ? "Auto" : v}`, autoClose: 2000 });
+                                } catch (e: any) { notifications.show({ color: "red", title: "Error", message: e.message || "Failed to update provider", autoClose: 4000 }); }
+                                finally { setSavingProvider(null); }
+                              }}
+                              data={[
+                                { label: "Auto", value: "inherit" },
+                                { label: "Claude", value: "anthropic" },
+                                { label: "DeepSeek", value: "deepseek" },
+                                { label: "OpenRouter", value: "openrouter" },
+                              ]}
+                            />
+                          </Group>
+                        </Stack>
+                      </Paper>
+                    ))}
+                  </Stack>
+                )}
+              </Stack>
+            );
+
+            const gridHeader = (
+              <Group gap="sm" wrap="nowrap" align="flex-start">
+                <Avatar color={avatarColor(u.name)} radius="xl" size="md" style={{ flexShrink: 0, marginTop: 2 }}>{initials(u.name)}</Avatar>
+                <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+                  <Group justify="space-between" wrap="nowrap" gap="xs">
+                    <Text size="sm" fw={700} truncate>{u.name}</Text>
+                    <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
+                      <Tooltip label="Edit user" withArrow>
+                        <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => setEditUser(u)}>
+                          <IconPencil size={ACT} />
+                        </ActionIcon>
+                      </Tooltip>
+                      <Tooltip label="Delete user" withArrow>
+                        <ActionIcon variant="subtle" color="red" size="sm" onClick={() => setDeleteUser(u)}>
+                          <IconTrash size={ACT} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
+                  </Group>
+                  <Group gap={4} wrap="wrap">
+                    {!u.email && <Badge size="xs" variant="light" color="yellow" leftSection={<IconAlertTriangle size={10} />}>Legacy</Badge>}
+                    <Badge size="xs" variant="light" color="gray">{u.tokens.length} token{u.tokens.length !== 1 ? "s" : ""}</Badge>
+                    {agg.pausedCount > 0 && <Badge size="xs" variant="light" color="orange" leftSection={<IconPlayerPause size={10} />}>{agg.pausedCount} paused</Badge>}
+                    {agg.overCount > 0 && <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>{agg.overCount} over</Badge>}
+                  </Group>
+                </Stack>
+              </Group>
+            );
+
+            return { u, header, body, gridBody, gridHeader };
+          });
+
+          if (viewMode === "grid") {
+            return (
+              <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing="md">
+                {userCards.map(({ u, gridHeader, gridBody }) => (
+                  <Paper key={u.id} withBorder radius="md" style={{ display: "flex", flexDirection: "column" }}>
+                    <Box px="md" pt="md" pb="sm">{gridHeader}</Box>
+                    <Divider />
+                    <Box px="md" pb="md" pt="sm" style={{ flex: 1 }}>{gridBody}</Box>
+                  </Paper>
+                ))}
+              </SimpleGrid>
+            );
+          }
+
+          return (
+            <Stack gap="sm">
+              {userCards.map(({ u, header, body }) => (
+                <Paper key={u.id} withBorder radius="md">
+                  <Box px="md" pt="md" pb="xs">{header}</Box>
+                  <Divider />
+                  <Box px="md" pb="md" pt="xs">{body}</Box>
+                </Paper>
+              ))}
+            </Stack>
+          );
+        })()}
       </Stack>
     </Stack>
   );

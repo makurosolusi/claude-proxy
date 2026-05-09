@@ -221,7 +221,7 @@ function AddTokenInline() {
 const DAY_ID = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
 const MON_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 
-function ClockPanel({ isDark }: { isDark: boolean }) {
+function ClockInline() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -236,20 +236,17 @@ function ClockPanel({ isDark }: { isDark: boolean }) {
   const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   return (
-    <Paper withBorder radius="md" mb="lg" px="md" py={10}
-      style={{ background: isDark ? "rgba(255,255,255,.02)" : "rgba(0,0,0,.01)" }}>
-      <Group justify="space-between" wrap="nowrap" gap="md">
-        <Group gap="xs" wrap="nowrap">
-          <IconClock size={14} color="var(--mantine-color-dimmed)" />
-          <Text size="sm" c="dimmed">{day}, {date}</Text>
-        </Group>
-        <Group gap={6} align="baseline" wrap="nowrap">
-          <Text fz={22} fw={700} ff="monospace" lh={1} style={{ letterSpacing: "-.02em" }}>{hh}:{mm}</Text>
-          <Text fz={14} fw={400} ff="monospace" lh={1} c="dimmed">:{ss}</Text>
-          <Text size="xs" c="dimmed" ml={6}>{tz}</Text>
-        </Group>
+    <Group justify="space-between" wrap="nowrap" gap="md">
+      <Group gap="xs" wrap="nowrap">
+        <IconClock size={14} color="var(--mantine-color-dimmed)" />
+        <Text size="sm" c="dimmed">{day}, {date}</Text>
       </Group>
-    </Paper>
+      <Group gap={6} align="baseline" wrap="nowrap">
+        <Text fz={22} fw={700} ff="monospace" lh={1} style={{ letterSpacing: "-.02em" }}>{hh}:{mm}</Text>
+        <Text fz={14} fw={400} ff="monospace" lh={1} c="dimmed">:{ss}</Text>
+        <Text size="xs" c="dimmed" ml={6}>{tz}</Text>
+      </Group>
+    </Group>
   );
 }
 
@@ -944,93 +941,6 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
     <Box style={{ minHeight: "100vh", background: pageBg, backgroundAttachment: "fixed", transition: "background 3s ease" }}>
     <Container size="md" py="xl">
       {/* ── Hero ─────────────────────────────────────────────── */}
-      <Paper withBorder p="lg" radius="lg" mb="lg"
-        style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
-        <Group justify="space-between" wrap="wrap">
-          <Group gap="md">
-            <Box style={{ width: 48, height: 48, background: "#228be6", borderRadius: 12,
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Text span fz={16} fw={800} c="white" ff="monospace">CP</Text>
-            </Box>
-            <div>
-              <Title order={3} ff="monospace" lh={1.2}>claude-proxy</Title>
-              <Text size="sm" c="dimmed" mt={2}>
-                Claude Max proxy · multi-user API key with quota management
-              </Text>
-            </div>
-          </Group>
-          <Group gap="xs">
-            <Tooltip label="Toggle theme" position="bottom" withArrow openDelay={400}>
-              <ActionIcon variant="default" size="lg" radius="md" onClick={() => toggleColorScheme()}>
-                {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
-              </ActionIcon>
-            </Tooltip>
-{(isAdmin || status.isAdmin) &&
-                <Button component="a" href="/admin" variant="light" size="xs" radius="md" leftSection={<IconLogin size={13} />}>Admin</Button>
-            }
-              <Button component="a" href="/auth/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
-          </Group>
-        </Group>
-      </Paper>
-
-      {/* ── User profile card ───────────────────────────────── */}
-      {profile?.authenticated && (() => {
-        const roleColor = profile.role === "SUPER_ADMIN" ? "red" : profile.role === "ADMIN" ? "orange" : "blue";
-        const roleLabel = profile.role === "SUPER_ADMIN" ? "Super Admin" : profile.role === "ADMIN" ? "Admin" : "User";
-        const myTokens  = Object.values(profile.tokens || {});
-        const totalUsed = myTokens.reduce((s, t) => s + t.used, 0);
-        const totalLim  = myTokens.reduce((s, t) => s + (t.limit ?? 0), 0);
-        const todayTok  = myTokens.reduce((s, t) => s + t.today, 0);
-        const pct       = totalLim > 0 ? Math.min(100, Math.round((totalUsed / totalLim) * 100)) : 0;
-        const initials  = (profile.name || profile.email || "?").slice(0, 2).toUpperCase();
-        return (
-          <Paper withBorder radius="md" p="md" mb="lg"
-            style={{ background: isDark ? "rgba(255,255,255,.02)" : "rgba(0,0,0,.01)" }}>
-            <Group justify="space-between" wrap="wrap" gap="sm">
-              <Group gap="sm" wrap="nowrap">
-                <Box style={{
-                  width: 38, height: 38, borderRadius: "50%", flexShrink: 0,
-                  background: `var(--mantine-color-${avatarColor(profile.name || profile.email || "")}-5)`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <Text span fz={13} fw={700} c="white">{initials}</Text>
-                </Box>
-                <div>
-                  <Group gap={6} align="center">
-                    <Text size="sm" fw={600}>{profile.name || profile.email}</Text>
-                    <Badge size="xs" color={roleColor} variant="light" radius="sm">{roleLabel}</Badge>
-                  </Group>
-                  <Text size="xs" c="dimmed">{profile.email}</Text>
-                </div>
-              </Group>
-              <Group gap="xl" wrap="nowrap">
-                {totalLim > 0 && (
-                  <div style={{ minWidth: 140 }}>
-                    <Group justify="space-between" mb={4}>
-                      <Text size="xs" c="dimmed">Quota</Text>
-                      <Text size="xs" ff="monospace" c={pct > 80 ? "red" : "dimmed"}>{pct}%</Text>
-                    </Group>
-                    <Progress value={pct} size="xs" radius="xl" color={pct > 80 ? "red" : pct > 50 ? "yellow" : "blue"} />
-                    <Text size="xs" c="dimmed" mt={3}>{nf.format(totalUsed)} / {nf.format(totalLim)} tokens</Text>
-                  </div>
-                )}
-                <div style={{ textAlign: "right" }}>
-                  <Text size="xs" c="dimmed">Today</Text>
-                  <Text size="sm" fw={600} ff="monospace">{nf.format(todayTok)}</Text>
-                </div>
-                <Button component="a" href="/profile" variant="light" size="xs" radius="md" leftSection={<IconUsers size={13} />}>
-                  Profile
-                </Button>
-              </Group>
-            </Group>
-          </Paper>
-        );
-      })()}
-
-      {/* ── Clock ────────────────────────────────────────────── */}
-      <ClockPanel isDark={isDark} />
-
-      {/* ── Active Model Indicator ────────────────────────────── */}
       {(() => {
         const ap = upstream?.activeProvider;
         const isFallback = !!ap;
@@ -1038,27 +948,117 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
         const provColor = ap === "deepseek" ? "violet" : ap === "openrouter" ? "orange"
           : upstream?.ok ? "blue" : "gray";
         const modelLabel = upstream?.activeModel ?? "claude-sonnet-4-6";
+
+        const roleColor = profile?.role === "SUPER_ADMIN" ? "red" : profile?.role === "ADMIN" ? "orange" : "blue";
+        const roleLabel = profile?.role === "SUPER_ADMIN" ? "Super Admin" : profile?.role === "ADMIN" ? "Admin" : "User";
+        const myTokens  = Object.values(profile?.tokens || {});
+        const totalUsed = myTokens.reduce((s, t) => s + t.used, 0);
+        const totalLim  = myTokens.reduce((s, t) => s + (t.limit ?? 0), 0);
+        const todayTok  = myTokens.reduce((s, t) => s + t.today, 0);
+        const pct       = totalLim > 0 ? Math.min(100, Math.round((totalUsed / totalLim) * 100)) : 0;
+        const userInitials = (profile?.name || profile?.email || "?").slice(0, 2).toUpperCase();
+
         return (
-          <Paper withBorder radius="md" mb="lg" px="md" py={10}
-            style={{ background: isDark ? "rgba(255,255,255,.02)" : "rgba(0,0,0,.01)" }}>
+          <Paper withBorder p="lg" radius="lg" mb="lg"
+            style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
+            {/* top row: logo + actions */}
+            <Group justify="space-between" wrap="wrap" mb="md">
+              <Group gap="md">
+                <Box style={{ width: 48, height: 48, background: "#228be6", borderRadius: 12,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Text span fz={16} fw={800} c="white" ff="monospace">CP</Text>
+                </Box>
+                <div>
+                  <Title order={3} ff="monospace" lh={1.2}>claude-proxy</Title>
+                  <Text size="sm" c="dimmed" mt={2}>
+                    Claude Max proxy · multi-user API key with quota management
+                  </Text>
+                </div>
+              </Group>
+              <Group gap="xs">
+                <Tooltip label="Toggle theme" position="bottom" withArrow openDelay={400}>
+                  <ActionIcon variant="default" size="lg" radius="md" onClick={() => toggleColorScheme()}>
+                    {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+                  </ActionIcon>
+                </Tooltip>
+                {(isAdmin || status.isAdmin) &&
+                  <Button component="a" href="/admin" variant="light" size="xs" radius="md" leftSection={<IconLogin size={13} />}>Admin</Button>
+                }
+                <Button component="a" href="/auth/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
+              </Group>
+            </Group>
+
+            <Divider mb="md" opacity={0.5} />
+
+            {/* middle row: user profile + clock */}
+            <Group justify="space-between" wrap="wrap" gap="sm" mb="md">
+              {profile?.authenticated ? (
+                <Group gap="sm" wrap="nowrap">
+                  <Box style={{
+                    width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+                    background: `var(--mantine-color-${avatarColor(profile.name || profile.email || "")}-5)`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <Text span fz={12} fw={700} c="white">{userInitials}</Text>
+                  </Box>
+                  <div>
+                    <Group gap={6} align="center">
+                      <Text size="sm" fw={600}>{profile.name || profile.email}</Text>
+                      <Badge size="xs" color={roleColor} variant="light" radius="sm">{roleLabel}</Badge>
+                    </Group>
+                    <Text size="xs" c="dimmed">{profile.email}</Text>
+                  </div>
+                </Group>
+              ) : <div />}
+              <ClockInline />
+            </Group>
+
+            {/* quota row */}
+            {profile?.authenticated && (
+              <Group justify="space-between" wrap="wrap" gap="sm" mb="md">
+                {totalLim > 0 ? (
+                  <div style={{ flex: 1, minWidth: 180, maxWidth: 320 }}>
+                    <Group justify="space-between" mb={4}>
+                      <Text size="xs" c="dimmed">Quota</Text>
+                      <Text size="xs" ff="monospace" c={pct > 80 ? "red" : "dimmed"}>{pct}%</Text>
+                    </Group>
+                    <Progress value={pct} size="xs" radius="xl" color={pct > 80 ? "red" : pct > 50 ? "yellow" : "blue"} />
+                    <Text size="xs" c="dimmed" mt={3}>{nf.format(totalUsed)} / {nf.format(totalLim)} tokens</Text>
+                  </div>
+                ) : <div />}
+                <Group gap="lg" wrap="nowrap">
+                  <div style={{ textAlign: "right" }}>
+                    <Text size="xs" c="dimmed">Today</Text>
+                    <Text size="sm" fw={600} ff="monospace">{nf.format(todayTok)}</Text>
+                  </div>
+                  <Button component="a" href="/profile" variant="light" size="xs" radius="md" leftSection={<IconUsers size={13} />}>
+                    Profile
+                  </Button>
+                </Group>
+              </Group>
+            )}
+
+            <Divider mb="md" opacity={0.5} />
+
+            {/* bottom row: active model */}
             <Group justify="space-between" wrap="nowrap" gap="md">
               <Group gap="sm" wrap="nowrap">
-                <Box w={8} h={8} style={{ borderRadius: "50%", flexShrink: 0, marginTop: 1,
+                <Box w={8} h={8} style={{ borderRadius: "50%", flexShrink: 0,
                   background: `var(--mantine-color-${provColor}-5)` }} />
                 <Group gap={6} align="baseline" wrap="nowrap">
                   <Text size="sm" fw={600}>{provName}</Text>
                   <Text size="xs" c="dimmed" ff="monospace">{modelLabel}</Text>
                 </Group>
+                {isFallback && (
+                  <Text size="xs" c="dimmed">
+                    — rate-limited, auto-routing until Claude recovers
+                  </Text>
+                )}
               </Group>
               <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: ".08em", flexShrink: 0 }}>
                 {isFallback ? "fallback" : "primary"}
               </Text>
             </Group>
-            {isFallback && (
-              <Text size="xs" c="dimmed" mt={4} style={{ paddingLeft: 20 }}>
-                Claude Max rate-limited — auto-routing to {provName} until Claude recovers.
-              </Text>
-            )}
           </Paper>
         );
       })()}
