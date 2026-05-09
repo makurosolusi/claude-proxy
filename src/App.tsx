@@ -199,24 +199,6 @@ function ContextAlertCard({ alert: a, onDismiss }: { alert: ContextAlert; onDism
   );
 }
 
-function AddTokenInline() {
-  const [k, setK] = useState(""); const [l, setL] = useState("40000");
-  return (
-    <Stack gap="xs" mb="xl">
-      <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Add Token</Text>
-      <Paper withBorder p="md">
-        <Group align="flex-end" gap="sm">
-          <TextInput label="Token Key" placeholder="sk-cp-…" size="xs" w={220} value={k} onChange={e => setK(e.currentTarget.value)} />
-          <TextInput label="Limit" size="xs" w={120} value={l} onChange={e => setL(e.currentTarget.value)} />
-          <Button color="teal" size="xs" leftSection={<IconPlus size={13} />}
-            onClick={() => { if (k.trim()) { adminPost("/admin/token/add", { token: k.trim(), limit: l }); setK(""); setL("40000"); } }}>
-            Add Token
-          </Button>
-        </Group>
-      </Paper>
-    </Stack>
-  );
-}
 
 const DAY_ID = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
 const MON_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
@@ -1811,17 +1793,6 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
       {isAdmin && (
         <>
           <Divider my="lg" />
-
-          <Group gap="xs" mb="lg">
-            <Button variant="light" color="gray" size="xs" leftSection={<IconRefresh size={13} />}
-              onClick={() => { if (confirm("Reset all?")) adminPost("/admin/reset", { all: "true" }); }}>Reset All</Button>
-            <Button variant="light" color="orange" size="xs" leftSection={<IconPlayerPause size={13} />}
-              onClick={() => adminPost("/admin/token/pause", { all: "true" })}>Pause All</Button>
-            <Button variant="light" color="blue" size="xs" leftSection={<IconPencil size={13} />}
-              onClick={() => { const v = prompt("New limit for all:"); if (v) adminPost("/admin/token/edit-all", { limit: v }); }}>Edit All Limits</Button>
-          </Group>
-
-          <AddTokenInline />
 
           <Stack gap="xs" mb="xl">
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Daily History</Text>

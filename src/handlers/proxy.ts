@@ -551,8 +551,14 @@ export async function handleProxy(
         }
       })();
       const outHeaders = new Headers(resp.headers);
+      // fetch() already decoded these — strip to avoid client confusion
+      outHeaders.delete("transfer-encoding");
+      outHeaders.delete("content-encoding");
+      outHeaders.delete("content-length");
+      // Disable buffering in reverse proxies (Traefik, Nginx, etc.)
+      outHeaders.set("x-accel-buffering", "no");
+      outHeaders.set("cache-control", "no-cache");
       for (const [k, v] of Object.entries(rateHeaders)) outHeaders.set(k, v);
-      // Note: reservation released inside the async stream finally above, not here
       return new Response(readable, { status: resp.status, headers: outHeaders });
     }
 

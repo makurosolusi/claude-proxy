@@ -38,6 +38,7 @@ services:
       - "traefik.http.routers.claude-proxy.tls=true"
       - "traefik.http.routers.claude-proxy.tls.certresolver=letsencrypt"
       - "traefik.http.services.claude-proxy.loadbalancer.server.port=8080"
+      - "traefik.http.services.claude-proxy.loadbalancer.responseForwarding.flushInterval=-1"
 
 networks:
   public-net:
