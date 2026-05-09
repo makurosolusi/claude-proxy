@@ -277,63 +277,6 @@ function BackToTop() {
   );
 }
 
-const NAV_SECTIONS = [
-  { id: "stats",     label: "Overview",  Icon: IconActivity },
-  { id: "health",    label: "Upstream",  Icon: IconHeartbeat },
-  { id: "tokens",    label: "Tokens",    Icon: IconKey },
-  { id: "activity",  label: "Activity",  Icon: IconChartHistogram },
-  { id: "users",     label: "Leaderboard", Icon: IconTrophy },
-  { id: "analytics", label: "Analytics", Icon: IconBrain },
-  { id: "logs",      label: "Logs",      Icon: IconList },
-];
-
-function DashboardNav() {
-  const [active, setActive] = useState<string>("stats");
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      entries => {
-        const visible = entries
-          .filter(e => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        if (visible) setActive(visible.target.id);
-      },
-      { rootMargin: "-30% 0px -55% 0px", threshold: [0, 0.25, 0.5, 0.75, 1] }
-    );
-    NAV_SECTIONS.forEach(s => {
-      const el = document.getElementById(s.id);
-      if (el) observer.observe(el);
-    });
-    return () => observer.disconnect();
-  }, []);
-  return (
-    <Box visibleFrom="lg"
-      style={{ position: "fixed", right: 16, top: "50%", transform: "translateY(-50%)", zIndex: 40 }}>
-      <Paper withBorder radius="xl" p={6} style={{ backdropFilter: "blur(8px)", background: "var(--mantine-color-body)" }}>
-        <Stack gap={2}>
-          {NAV_SECTIONS.map(({ id, label, Icon }) => {
-            const isActive = active === id;
-            return (
-              <Tooltip key={id} label={label} position="left" withArrow openDelay={200}>
-                <ActionIcon
-                  variant={isActive ? "filled" : "subtle"}
-                  color={isActive ? "blue" : "gray"}
-                  size="lg" radius="xl"
-                  onClick={() => {
-                    const el = document.getElementById(id);
-                    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  aria-label={`Jump to ${label}`}
-                >
-                  <Icon size={16} />
-                </ActionIcon>
-              </Tooltip>
-            );
-          })}
-        </Stack>
-      </Paper>
-    </Box>
-  );
-}
 
 function SonnetCriticalAlert({ pct }: { pct: number }) {
   const [dismissed, setDismissed] = useState(false);
@@ -1803,9 +1746,9 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
         </>
       )}
     </Container>
-    <DashboardNav />
+
     <BackToTop />
-    <FloatingChat />
+    <FloatingChat userName={profile?.name || profile?.email} />
     </Box>
   );
 }

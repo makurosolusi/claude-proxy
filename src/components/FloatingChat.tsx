@@ -5,7 +5,7 @@ import {
 } from "@mantine/core";
 import {
   IconMessageCircle, IconTrash, IconBan, IconBolt, IconUserOff,
-  IconPencil, IconMinus, IconSend,
+  IconMinus, IconSend,
 } from "@tabler/icons-react";
 import { useStatus, useChat } from "../contexts";
 
@@ -16,16 +16,12 @@ function nickColor(nick: string): string {
   return palette[Math.abs(h) % palette.length];
 }
 
-export function FloatingChat() {
+export function FloatingChat({ userName }: { userName?: string }) {
   const { messages, send } = useChat();
   const isAdmin = useStatus()?.isAdmin ?? false;
   const [open, setOpen]         = useState(false);
   const [unread, setUnread]     = useState(0);
-  const [nick, setNick]         = useState(() => {
-    try { return localStorage.getItem("chat-nick") || ""; } catch { return ""; }
-  });
-  const [editingNick, setEditingNick] = useState(false);
-  const [nickDraft, setNickDraft]     = useState("");
+  const nick = userName || "Anonymous";
   const [text, setText]               = useState("");
   const [hoveredId, setHoveredId]     = useState<string | null>(null);
   const [blocked, setBlocked]         = useState<string[]>([]);
@@ -90,15 +86,6 @@ export function FloatingChat() {
 
   const toggle = () => setOpen(o => { if (!o) setUnread(0); return !o; });
 
-  const saveNick = (draft: string) => {
-    const n = draft.trim().slice(0, 20);
-    if (!n) return;
-    setNick(n);
-    setEditingNick(false);
-    try { localStorage.setItem("chat-nick", n); } catch {}
-    setTimeout(() => inputRef.current?.focus(), 50);
-  };
-
   const onSend = () => {
     const t = text.trim();
     if (!t || !nick) return;
@@ -111,8 +98,6 @@ export function FloatingChat() {
     const d = new Date(ts);
     return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
   };
-
-  const showNickSetup = !nick || editingNick;
 
   return (
     <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -244,45 +229,8 @@ export function FloatingChat() {
             </div>
           )}
 
-          {showNickSetup && (
-            <div style={{ borderTop: "1px solid var(--mantine-color-default-border)", padding: "8px 8px", flexShrink: 0 }}>
-              <Text size="xs" c="dimmed" mb={4}>
-                {editingNick ? "Change your nickname:" : "Set your nickname to start chatting:"}
-              </Text>
-              <Group gap="xs">
-                <TextInput
-                  placeholder="Your name…"
-                  value={nickDraft}
-                  onChange={e => setNickDraft(e.currentTarget.value)}
-                  onKeyDown={e => { if (e.key === "Enter") saveNick(nickDraft); if (e.key === "Escape") { setEditingNick(false); setNickDraft(""); } }}
-                  size="xs"
-                  style={{ flex: 1 }}
-                  maxLength={20}
-                  autoFocus
-                />
-                <Button size="xs" disabled={!nickDraft.trim()} onClick={() => saveNick(nickDraft)}>
-                  {editingNick ? "Save" : "Set"}
-                </Button>
-                {editingNick && (
-                  <Button size="xs" variant="subtle" color="gray" onClick={() => { setEditingNick(false); setNickDraft(""); }}>
-                    Cancel
-                  </Button>
-                )}
-              </Group>
-            </div>
-          )}
-
-          {!showNickSetup && (
-            <div style={{ borderTop: "1px solid var(--mantine-color-default-border)", padding: "6px 8px", flexShrink: 0 }}>
-              <Group gap={4} mb={4} align="center">
-                <Text size="xs" c="dimmed">as <Text span fw={600} c={nickColor(nick)}>{nick}</Text></Text>
-                <Tooltip label="Change nickname" withArrow position="top">
-                  <ActionIcon size="xs" variant="subtle" color="gray"
-                    onClick={() => { setNickDraft(nick); setEditingNick(true); }}>
-                    <IconPencil size={10} />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
+          <div style={{ borderTop: "1px solid var(--mantine-color-default-border)", padding: "6px 8px", flexShrink: 0 }}>
+              <Text size="xs" c="dimmed" mb={4}>as <Text span fw={600} c={nickColor(nick)}>{nick}</Text></Text>
               <Group gap="xs">
                 <TextInput
                   ref={inputRef}
@@ -299,7 +247,6 @@ export function FloatingChat() {
                 </ActionIcon>
               </Group>
             </div>
-          )}
         </Paper>
       )}
 
