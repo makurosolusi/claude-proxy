@@ -1,4 +1,7 @@
-import { db, dbUpsertUser, dbUpdateUser, dbDeleteUser, dbLinkTokenToUser, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
+import { eq } from "drizzle-orm";
+import { db as pgDb } from "../db";
+import { tokens as tokensTable } from "../schema";
+import { dbUpsertUser, dbUpdateUser, dbDeleteUser, dbLinkTokenToUser, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
 import { triggerBroadcast } from "../broadcast";
 import type { UserEntry, TokenEntry, DailyUsage } from "../types";
 import { todayKey } from "../tokens";
@@ -45,7 +48,7 @@ export async function handleApiUsers(
     const id   = ensureUniqueSlug(base, users);
     const entry: UserEntry = { id, name, email: "", description: String(body.description || ""), created_at: Date.now(), role: "USER" };
     users[id] = entry;
-    dbUpsertUser(entry);
+    await dbUpsertUser(entry);
     triggerBroadcast();
     return Response.json({ ok: true, user: entry });
   }
@@ -60,12 +63,12 @@ export async function handleApiUsers(
     if (!newName) return Response.json({ error: "Name required" }, { status: 400 });
     users[id].name = newName;
     users[id].description = newDesc;
-    dbUpdateUser(id, newName, newDesc);
+    await dbUpdateUser(id, newName, newDesc);
     // Update display name on all active tokens for this user
     for (const [key, tk] of Object.entries(tokens)) {
       if (tk.user_id === id) {
         tk.name = newName;
-        db.query("UPDATE tokens SET name=? WHERE key=?").run(newName, key);
+        await pgDb.update(tokensTable).set({ name: newName }).where(eq(tokensTable.key, key));
       }
     }
     triggerBroadcast();
@@ -78,11 +81,11 @@ export async function handleApiUsers(
     if (!users[id]) return Response.json({ error: "User not found" }, { status: 404 });
     for (const [key, tk] of Object.entries(tokens)) {
       if (tk.user_id === id) {
-        db.query("UPDATE tokens SET deleted=1 WHERE key=?").run(key);
+        await pgDb.update(tokensTable).set({ deleted: true }).where(eq(tokensTable.key, key));
         delete tokens[key];
       }
     }
-    dbDeleteUser(id);
+    await dbDeleteUser(id);
     delete users[id];
     triggerBroadcast();
     return Response.json({ ok: true });

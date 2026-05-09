@@ -43,4 +43,5 @@ export const config = {
   superAdminEmails:    parseSuperAdminEmails(),
   defaultTokenLimit:   parseInt(process.env.DEFAULT_TOKEN_LIMIT || "40000"),
   mcpSecret:           process.env.MCP_SECRET              || "",
+  databaseUrl:         process.env.DATABASE_URL            || "",
 } as const;

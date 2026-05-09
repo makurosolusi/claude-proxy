@@ -1,4 +1,7 @@
-import { tokens, users, db, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { eq, sql } from "drizzle-orm";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { tokens as tokensTable, users as usersTable, dailyUsage as dailyUsageTable } from "../schema";
+import { db } from "../db";
 import type { TokenProvider } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
@@ -30,14 +33,14 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (all) {
       for (const [k, tk] of Object.entries(tokens)) {
         tk.used = 0; tk.windowStart = now;
-        dbResetToken(k, now);
-        bumpGeneration(k);  // invalidate all in-flight incrementUsage calls
+        await dbResetToken(k, now);
+        bumpGeneration(k);
       }
       clearInFlight();
     } else if (target && tokens[target]) {
       tokens[target].used = 0; tokens[target].windowStart = now;
-      dbResetToken(target, now);
-      bumpGeneration(target);  // invalidate pre-reset streaming increments
+      await dbResetToken(target, now);
+      bumpGeneration(target);
       clearInFlight(target);
     } else {
       return new Response("Token not found\n", { status: 404 });
@@ -49,21 +52,20 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   if (pathname === "/admin/token/add" && req.method === "POST") {
     const newKey    = String(form?.get("token")   || "").trim();
     const newLimit  = String(form?.get("limit")   || "40000").trim();
-    const userId    = String(form?.get("user_id") || "").trim(); // optional existing user
+    const userId    = String(form?.get("user_id") || "").trim();
     if (!newKey)        return new Response("Key required\n",          { status: 400 });
     if (tokens[newKey]) return new Response("Token already exists\n", { status: 409 });
-    const parsed     = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
-    const customName = String(form?.get("name") || "").trim();
+    const parsed      = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
+    const customName  = String(form?.get("name") || "").trim();
     const displayName = customName || deriveNameFromKey(newKey);
 
-    // Resolve or create user
     let uid = userId && users[userId] ? userId : "";
     if (!uid) {
       uid = ensureUniqueSlug(slugify(displayName), users);
       if (!users[uid]) {
         const userEntry = { id: uid, name: displayName, email: "", description: "", created_at: Date.now(), role: "USER" as const };
         users[uid] = userEntry;
-        dbUpsertUser(userEntry);
+        await dbUpsertUser(userEntry);
       }
     }
 
@@ -74,7 +76,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       user_id: uid,
     };
     tokens[newKey] = entry;
-    dbInsertToken(newKey, entry);
+    await dbInsertToken(newKey, entry);
     return redirect();
   }
 
@@ -86,7 +88,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     const parsed = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
     if (isNaN(parsed) && newLimit !== "unlimited") return new Response("Invalid limit\n", { status: 400 });
     tokens[target].limit = parsed;
-    dbUpdateToken(target, tokens[target]);
+    await dbUpdateToken(target, tokens[target]);
     return redirect();
   }
 
@@ -97,7 +99,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (isNaN(parsed) && newLimit !== "unlimited") return new Response("Invalid limit\n", { status: 400 });
     for (const [k, tk] of Object.entries(tokens)) {
       tk.limit = parsed;
-      dbUpdateToken(k, tk);
+      await dbUpdateToken(k, tk);
     }
     return redirect();
   }
@@ -110,12 +112,12 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       const all = Object.values(tokens).every(tk => tk.paused);
       for (const [k, tk] of Object.entries(tokens)) {
         tk.paused = !all;
-        dbUpdateToken(k, tk);
+        await dbUpdateToken(k, tk);
       }
     } else {
       if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
       tokens[target].paused = !tokens[target].paused;
-      dbUpdateToken(target, tokens[target]);
+      await dbUpdateToken(target, tokens[target]);
     }
     return redirect();
   }
@@ -124,40 +126,34 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   if (pathname === "/admin/token/delete" && req.method === "POST") {
     const target = String(form?.get("token") || "").trim();
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
-    dbSoftDelete(target);
+    await dbSoftDelete(target);
     delete tokens[target];
     return redirect();
   }
 
-  // Rename token display name
+  // Rename token
   if (pathname === "/admin/token/rename" && req.method === "POST") {
     const target  = String(form?.get("token") || "").trim();
     const newName = String(form?.get("name")  || "").trim();
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
     if (!newName)                   return new Response("Name required\n",   { status: 400 });
     tokens[target].name = newName;
-    dbRenameToken(target, newName);
+    await dbRenameToken(target, newName);
     return redirect();
   }
 
-  // Rotate token — create new key, soft-delete old
+  // Rotate token
   if (pathname === "/admin/token/rotate" && req.method === "POST") {
-    const target     = String(form?.get("token")   || "").trim();
-    const newKeyRaw  = String(form?.get("new_key") || "").trim();
+    const target    = String(form?.get("token")   || "").trim();
+    const newKeyRaw = String(form?.get("new_key") || "").trim();
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
-    const old = tokens[target];
-    // Auto-generate if new_key not provided
+    const old    = tokens[target];
     const newKey = newKeyRaw || `${target}-${Math.random().toString(16).slice(2, 6)}`;
     if (tokens[newKey]) return new Response("New key already exists\n", { status: 409 });
-    const entry: TokenEntry = {
-      ...old,
-      used:        0,
-      windowStart: Date.now(),
-      user_id:     old.user_id,
-    };
+    const entry: TokenEntry = { ...old, used: 0, windowStart: Date.now(), user_id: old.user_id };
     tokens[newKey] = entry;
-    dbInsertToken(newKey, entry);
-    dbSoftDelete(target);
+    await dbInsertToken(newKey, entry);
+    await dbSoftDelete(target);
     bumpGeneration(target);
     clearInFlight(target);
     delete tokens[target];
@@ -171,49 +167,46 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
     const valid: TokenProvider[] = ["inherit", "anthropic", "deepseek", "openrouter"];
     if (!valid.includes(provider)) return new Response("Invalid provider\n", { status: 400 });
-
-    // Guard: reject switch to provider that has no API key configured.
-    // Prevents 503 loop when admin switches a token to an unconfigured provider.
     if (provider === "deepseek" && !settings["deepseek_api_key"]) {
-      return Response.json({ ok: false, error: "DeepSeek API key not configured. Set it in Credentials first." }, { status: 400 });
+      return Response.json({ ok: false, error: "DeepSeek API key not configured." }, { status: 400 });
     }
     if (provider === "openrouter" && !settings["openrouter_api_key"]) {
-      return Response.json({ ok: false, error: "OpenRouter API key not configured. Set it in Credentials first." }, { status: 400 });
+      return Response.json({ ok: false, error: "OpenRouter API key not configured." }, { status: 400 });
     }
-
     tokens[target].provider = provider;
-    dbUpdateProvider(target, provider);
+    await dbUpdateProvider(target, provider);
     return redirect();
   }
 
-  // Set email on user (for Google OAuth mapping)
+  // Set email on user
   if (pathname === "/admin/user/set-email" && req.method === "POST") {
     const uid   = String(form?.get("user_id") || "").trim();
     const email = String(form?.get("email")   || "").trim();
     if (!uid || !users[uid]) return new Response("User not found\n", { status: 404 });
     if (!email || !email.includes("@")) return new Response("Valid email required\n", { status: 400 });
-    // Check no other user has this email
     for (const [id, u] of Object.entries(users)) {
-      if (u.email === email && id !== uid) return new Response("Email already assigned to another user\n", { status: 409 });
+      if (u.email === email && id !== uid) return new Response("Email already assigned\n", { status: 409 });
     }
     users[uid].email = email;
-    db.query("UPDATE users SET email=? WHERE id=?").run(email, uid);
+    await db.update(usersTable).set({ email }).where(eq(usersTable.id, uid));
     return redirect();
   }
 
-  // Edit user name / description (via admin panel without going through /api/admin/users)
+  // Edit user name / description
   if (pathname === "/admin/user/edit" && req.method === "POST") {
     const uid     = String(form?.get("user_id")     || "").trim();
     const newName = String(form?.get("name")        || "").trim();
     const newDesc = String(form?.get("description") || "");
     if (!uid || !users[uid]) return new Response("User not found\n", { status: 404 });
     if (!newName)             return new Response("Name required\n",  { status: 400 });
-    users[uid].name = newName;
+    users[uid].name        = newName;
     users[uid].description = newDesc;
-    dbUpdateUser(uid, newName, newDesc);
-    // Update active tokens' display names
+    await dbUpdateUser(uid, newName, newDesc);
     for (const [key, tk] of Object.entries(tokens)) {
-      if (tk.user_id === uid) { tk.name = newName; db.query("UPDATE tokens SET name=? WHERE key=?").run(newName, key); }
+      if (tk.user_id === uid) {
+        tk.name = newName;
+        await db.update(tokensTable).set({ name: newName }).where(eq(tokensTable.key, key));
+      }
     }
     return redirect();
   }
@@ -224,10 +217,10 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     const baseUrl  = String(form?.get("base_url")  || "").trim();
     const model    = String(form?.get("model")     || "").trim();
     const override = String(form?.get("provider_override") || "");
-    if (apiKey)   dbSaveSetting("deepseek_api_key", apiKey);
-    if (baseUrl)  dbSaveSetting("deepseek_base_url", baseUrl);
-    if (model)    dbSaveSetting("deepseek_model", model);
-    dbSaveSetting("provider_override", override);
+    if (apiKey)  await dbSaveSetting("deepseek_api_key", apiKey);
+    if (baseUrl) await dbSaveSetting("deepseek_base_url", baseUrl);
+    if (model)   await dbSaveSetting("deepseek_model", model);
+    await dbSaveSetting("provider_override", override);
     return redirect();
   }
 
@@ -237,26 +230,24 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     const baseUrl  = String(form?.get("base_url")  || "").trim();
     const model    = String(form?.get("model")     || "").trim();
     const override = String(form?.get("provider_override") || "");
-    if (apiKey)   dbSaveSetting("openrouter_api_key", apiKey);
-    if (baseUrl)  dbSaveSetting("openrouter_base_url", baseUrl);
-    if (model)    dbSaveSetting("openrouter_model", model);
-    dbSaveSetting("provider_override", override);
+    if (apiKey)  await dbSaveSetting("openrouter_api_key", apiKey);
+    if (baseUrl) await dbSaveSetting("openrouter_base_url", baseUrl);
+    if (model)   await dbSaveSetting("openrouter_model", model);
+    await dbSaveSetting("provider_override", override);
     return redirect();
   }
 
-  // Purge orphan users — delete users with no tokens and whose id matches a duplicate name slug
-  // Purge legacy users — users with no email (not yet migrated to Google login)
+  // Purge legacy users (no email)
   if (pathname === "/admin/users/purge-legacy" && req.method === "POST") {
     const legacyUsers = Object.values(users).filter(u => !u.email);
     let deleted = 0;
     for (const u of legacyUsers) {
-      // Soft-delete all tokens linked to this user
       const userTokenKeys = Object.keys(tokens).filter(k => tokens[k]!.user_id === u.id);
       for (const key of userTokenKeys) {
-        db.query("UPDATE tokens SET deleted=1 WHERE key=?").run(key);
+        await db.update(tokensTable).set({ deleted: true }).where(eq(tokensTable.key, key));
         delete tokens[key];
       }
-      db.query("DELETE FROM users WHERE id=?").run(u.id);
+      await db.delete(usersTable).where(eq(usersTable.id, u.id));
       delete users[u.id];
       deleted++;
     }
@@ -264,14 +255,13 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return Response.json({ ok: true, deleted });
   }
 
+  // Purge orphan users (no linked tokens)
   if (pathname === "/admin/users/purge-orphans" && req.method === "POST") {
-    // Find users with no linked active tokens
     const tokenUserIds = new Set(Object.values(tokens).map(tk => tk.user_id).filter(Boolean));
     const orphans = Object.values(users).filter(u => !tokenUserIds.has(u.id));
-    // Group orphans by name slug — keep none (they're all orphans), delete all
     let deleted = 0;
     for (const u of orphans) {
-      db.query("DELETE FROM users WHERE id=?").run(u.id);
+      await db.delete(usersTable).where(eq(usersTable.id, u.id));
       delete users[u.id];
       deleted++;
     }
@@ -282,12 +272,13 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   // Clear logs
   if (pathname === "/admin/logs/clear" && req.method === "POST") {
     const user = form ? String(form.get("user") || "").trim() : "";
-    dbClearLogs(user || undefined);
+    await dbClearLogs(user || undefined);
     return Response.json({ ok: true });
   }
 
+  // Clear daily usage
   if (pathname === "/admin/usage/clear" && req.method === "POST") {
-    db.query("DELETE FROM daily_usage").run();
+    await db.delete(dailyUsageTable);
     triggerBroadcast();
     return Response.json({ ok: true });
   }

@@ -1,13 +1,15 @@
-import { db, recentLogs, dailyUsage, allTimePerUser, tokens, resolveTokenName, deriveNameFromKey } from "../state";
+import { sql } from "drizzle-orm";
+import { db } from "../db";
+import { recentLogs, dailyUsage, allTimePerUser, tokens, resolveTokenName, deriveNameFromKey } from "../state";
 import { todayKey } from "../tokens";
 
-function buildKeyToName(): Map<string, string> {
+async function buildKeyToName(): Promise<Map<string, string>> {
   const map = new Map<string, string>();
-  const rows = db.query(`
+  const rows = await db.execute(sql`
     SELECT t.key, t.name, t.user_id, u.name as user_name
     FROM tokens t LEFT JOIN users u ON t.user_id = u.id
-  `).all() as any[];
-  for (const r of rows) {
+  `);
+  for (const r of (rows as any).rows ?? []) {
     map.set(r.key, r.user_name || r.name || deriveNameFromKey(r.key));
   }
   return map;
@@ -34,171 +36,153 @@ function anomalyScore(inp: number, out: number, toolUse: number, durationMs: num
   return Math.min(score, 100);
 }
 
-export function handleApiAnalytics(isAdmin: boolean): Response {
-  const today = todayKey();
-  const nameMap = buildKeyToName();
+export async function handleApiAnalytics(isAdmin: boolean): Promise<Response> {
+  const today   = todayKey();
+  const nameMap = await buildKeyToName();
+  const sevenDaysAgo = Date.now() - 7 * 86400_000;
 
-  try { db.exec("ALTER TABLE request_logs ADD COLUMN name TEXT DEFAULT ''"); } catch {}
-  try { db.exec("ALTER TABLE tokens ADD COLUMN name TEXT DEFAULT ''"); } catch {}
-
-  // ── Model distribution (last 30 days) ────────────────────────────────────
-  const modelRows = db.query(`
+  // Model distribution
+  const modelRows = await db.execute(sql`
     SELECT model,
            COUNT(*) AS requests,
            SUM(input_tokens + output_tokens) AS tokens
     FROM request_logs
     GROUP BY model
     ORDER BY tokens DESC
-  `).all() as { model: string; requests: number; tokens: number }[];
-  const totalModelTok = modelRows.reduce((s, r) => s + r.tokens, 0) || 1;
-  const modelDist = modelRows.map(r => ({
-    model:    r.model.replace(/^claude-/, "").replace(/-\d{8}$/, ""),
-    requests: r.requests,
-    tokens:   r.tokens,
-    pct:      Math.round((r.tokens / totalModelTok) * 100),
+  `);
+  const modelData = (modelRows as any).rows ?? [];
+  const totalModelTok = modelData.reduce((s: number, r: any) => s + Number(r.tokens), 0) || 1;
+  const modelDist = modelData.map((r: any) => ({
+    model:    (r.model as string).replace(/^claude-/, "").replace(/-\d{8}$/, ""),
+    requests: Number(r.requests),
+    tokens:   Number(r.tokens),
+    pct:      Math.round((Number(r.tokens) / totalModelTok) * 100),
   }));
 
-  // ── Cache hit rate per user ────────────────────────────────────────────────
-  const cacheRows = db.query(`
+  // Cache hit rate per user
+  const cacheRows = await db.execute(sql`
     SELECT
       COALESCE(NULLIF(name, ''), token_key) AS display_name,
-      SUM(input_tokens)  AS inp,
-      SUM(cache_read)    AS cr,
-      SUM(cache_creation)AS cc,
-      COUNT(*)           AS reqs
+      SUM(input_tokens)   AS inp,
+      SUM(cache_read)     AS cr,
+      SUM(cache_creation) AS cc,
+      COUNT(*)            AS reqs
     FROM request_logs
     WHERE status < 400
     GROUP BY display_name
-  `).all() as { display_name: string; inp: number; cr: number; cc: number; reqs: number }[];
+  `);
+  const cacheHitRate = ((cacheRows as any).rows ?? []).map((r: any) => {
+    const total   = Number(r.inp) + Number(r.cr);
+    const hitRate = total > 0 ? Math.round((Number(r.cr) / total) * 100) : 0;
+    return {
+      label: r.display_name, hitRate,
+      totalInput: Number(r.inp), totalCached: Number(r.cr), requests: Number(r.reqs),
+    };
+  }).sort((a: any, b: any) => b.requests - a.requests);
 
-  const cacheHitRate = cacheRows.map(r => {
-    const total  = r.inp + r.cr;
-    const hitRate= total > 0 ? Math.round((r.cr / total) * 100) : 0;
-    return { label: r.display_name, hitRate, totalInput: r.inp, totalCached: r.cr, requests: r.reqs };
-  }).sort((a, b) => b.requests - a.requests);
-
-  // ── Peak hours (last 7 days, all users) ────────────────────────────────────
-  const sevenDaysAgo = Date.now() - 7 * 86400_000;
-  const hourRows = db.query(`
-    SELECT CAST(strftime('%H', datetime(ts/1000, 'unixepoch', 'localtime')) AS INTEGER) AS h,
+  // Peak hours (last 7 days) — PostgreSQL EXTRACT
+  const hourRows = await db.execute(sql`
+    SELECT EXTRACT(HOUR FROM to_timestamp(ts / 1000.0))::INTEGER AS h,
            COUNT(*) AS requests,
            SUM(input_tokens + output_tokens) AS tokens
     FROM request_logs
     WHERE ts >= ${sevenDaysAgo} AND status < 400
     GROUP BY h
     ORDER BY h ASC
-  `).all() as { h: number; requests: number; tokens: number }[];
+  `);
   const peakHours = Array.from({ length: 24 }, (_, i) => {
-    const row = hourRows.find(r => r.h === i);
-    return { h: i, requests: row?.requests ?? 0, tokens: row?.tokens ?? 0 };
+    const row = ((hourRows as any).rows ?? []).find((r: any) => Number(r.h) === i);
+    return { h: i, requests: row ? Number(row.requests) : 0, tokens: row ? Number(row.tokens) : 0 };
   });
   const peakHour = peakHours.reduce((m, h) => h.requests > m.requests ? h : m, peakHours[0]!);
 
-  // ── Per-user peak hours ────────────────────────────────────────────────────
-  const userHourRows = db.query(`
+  // Per-user peak hours
+  const userHourRows = await db.execute(sql`
     SELECT
       COALESCE(NULLIF(name, ''), token_key) AS display_name,
-      CAST(strftime('%H', datetime(ts/1000, 'unixepoch', 'localtime')) AS INTEGER) AS h,
+      EXTRACT(HOUR FROM to_timestamp(ts / 1000.0))::INTEGER AS h,
       COUNT(*) AS requests
     FROM request_logs
     WHERE ts >= ${sevenDaysAgo} AND status < 400
     GROUP BY display_name, h
-  `).all() as { display_name: string; h: number; requests: number }[];
-
+  `);
   const userPeakHours: Record<string, { peak: number; peakRequests: number }> = {};
-  for (const r of userHourRows) {
+  for (const r of (userHourRows as any).rows ?? []) {
     const cur = userPeakHours[r.display_name];
-    if (!cur || r.requests > cur.peakRequests) {
-      userPeakHours[r.display_name] = { peak: r.h, peakRequests: r.requests };
+    if (!cur || Number(r.requests) > cur.peakRequests) {
+      userPeakHours[r.display_name] = { peak: Number(r.h), peakRequests: Number(r.requests) };
     }
   }
 
-  // ── Today leaderboard ────────────────────────────────────────────────────
+  // Today leaderboard
   const todayUsage = dailyUsage[today] ?? {};
   const leaderboard = Object.entries(tokens)
     .map(([k, tk]) => {
-      const todayV  = todayUsage[k] ?? 0;
-      const alltimeV= allTimePerUser[k] ?? 0;
-      const peak    = userPeakHours[tk.name];
+      const todayV   = todayUsage[k] ?? 0;
+      const alltimeV = allTimePerUser[k] ?? 0;
+      const peak     = userPeakHours[tk.name];
       return { label: tk.name, today: todayV, alltime: alltimeV, peakHour: peak?.peak ?? null, paused: tk.paused };
     })
     .filter(e => e.alltime > 0)
     .sort((a, b) => b.today - a.today || b.alltime - a.alltime);
 
-  // ── Anomaly scores (recent 100 requests) ─────────────────────────────────
+  // Anomaly scores (recent 100 requests)
   const anomalyRows = recentLogs.slice(0, 100).map(l => {
     const score = anomalyScore(l.input_tokens, l.output_tokens, l.tool_use_count, l.duration_ms);
-    const label = l.name;  // always safe — display name only
     return {
-      id:           l.id,
-      ts:           l.ts,
-      label,
-      input_tokens: l.input_tokens,
-      output_tokens:l.output_tokens,
-      turns:        l.turns,
-      tool_use:     l.tool_use_count,
-      duration_ms:  l.duration_ms,
-      score,
+      id: l.id, ts: l.ts, label: l.name,
+      input_tokens: l.input_tokens, output_tokens: l.output_tokens,
+      turns: l.turns, tool_use: l.tool_use_count, duration_ms: l.duration_ms, score,
     };
   }).filter(r => r.score > 0).sort((a, b) => b.score - a.score).slice(0, 20);
 
-  // ── Stop reason distribution ──────────────────────────────────────────────
-  const stopRows = db.query(`
+  // Stop reason distribution
+  const stopRows = await db.execute(sql`
     SELECT stop_reason, COUNT(*) AS n
     FROM request_logs
     WHERE status < 400 AND stop_reason != ''
     GROUP BY stop_reason
     ORDER BY n DESC
-  `).all() as { stop_reason: string; n: number }[];
+  `);
 
-  // ── Daily usage per user (last 30 days) — public ─────────────────────────
+  // Daily usage per user (last 30 days)
   const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const dailyRows = db.query(`
-    SELECT date, token_key, used FROM daily_usage WHERE date >= ? ORDER BY date ASC
-  `).all(cutoff) as { date: string; token_key: string; used: number }[];
-
+  const dailyRows = await db.execute(sql`
+    SELECT date, token_key, used FROM daily_usage WHERE date >= ${cutoff} ORDER BY date ASC
+  `);
   const dailyMap: Record<string, Record<string, number>> = {};
   const userSet = new Set<string>();
-  for (const r of dailyRows) {
+  for (const r of (dailyRows as any).rows ?? []) {
     const name = keyToName(nameMap, r.token_key);
     if (!dailyMap[r.date]) dailyMap[r.date] = {};
-    dailyMap[r.date][name] = (dailyMap[r.date][name] || 0) + r.used;
+    dailyMap[r.date][name] = (dailyMap[r.date][name] || 0) + Number(r.used);
     userSet.add(name);
   }
   const dailyByUser = Object.entries(dailyMap)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, by_user]) => ({ date, by_user }));
 
-  // ── All-time per user from request_logs — resolve via nameMap ────────────
-  const allTimeRows = db.query(`
+  // All-time per user
+  const allTimeRows = await db.execute(sql`
     SELECT token_key,
            SUM(input_tokens + output_tokens + cache_read + cache_creation) AS total
-    FROM request_logs
-    WHERE status < 400
-    GROUP BY token_key
-    ORDER BY total DESC
-  `).all() as { token_key: string; total: number }[];
-
-  // Merge rows with same resolved name (old + new token for same person)
+    FROM request_logs WHERE status < 400
+    GROUP BY token_key ORDER BY total DESC
+  `);
   const allTimeAgg: Record<string, number> = {};
-  for (const r of allTimeRows) {
+  for (const r of (allTimeRows as any).rows ?? []) {
     const name = keyToName(nameMap, r.token_key);
-    allTimeAgg[name] = (allTimeAgg[name] || 0) + (r.total || 0);
+    allTimeAgg[name] = (allTimeAgg[name] || 0) + Number(r.total || 0);
   }
   const allTimeByUser = Object.entries(allTimeAgg)
     .sort(([, a], [, b]) => b - a)
     .map(([user, total]) => ({ user, total }));
 
   return Response.json({
-    modelDist,
-    cacheHitRate,
-    peakHours,
+    modelDist, cacheHitRate, peakHours,
     peakHour: peakHour.h,
-    leaderboard,
-    anomalyScores: anomalyRows,
-    stopReasonDist: stopRows,
-    dailyByUser,
-    dailyUsers: [...userSet],
-    allTimeByUser,
+    leaderboard, anomalyScores: anomalyRows,
+    stopReasonDist: ((stopRows as any).rows ?? []).map((r: any) => ({ stop_reason: r.stop_reason, n: Number(r.n) })),
+    dailyByUser, dailyUsers: [...userSet], allTimeByUser,
   });
 }

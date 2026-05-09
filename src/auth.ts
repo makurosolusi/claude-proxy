@@ -1,14 +1,18 @@
 import { betterAuth } from "better-auth";
+import { Pool }        from "pg";
 import { randomBytes } from "crypto";
-import { db, users, tokens, dbUpsertUser, dbSetUserRole, dbInsertToken, slugify, ensureUniqueSlug } from "./state";
+import { users, tokens, dbUpsertUser, dbSetUserRole, dbInsertToken, slugify, ensureUniqueSlug } from "./state";
 import { config } from "./config";
+
+// Dedicated pool for better-auth (separate from drizzle pool)
+const authPool = new Pool({ connectionString: config.databaseUrl, max: 5 });
 
 function generateApiKey(): string {
   return "sk-cp-" + randomBytes(24).toString("base64url");
 }
 
 export const auth = betterAuth({
-  database: db,
+  database: authPool,
   basePath: "/api/auth",
   baseURL: config.betterAuthUrl || `http://localhost:${config.port}`,
   ...(config.betterAuthSecret ? { secret: config.betterAuthSecret } : {}),
@@ -18,9 +22,7 @@ export const auth = betterAuth({
       clientSecret: config.googleClientSecret,
     },
   },
-  emailAndPassword: {
-    enabled: false,
-  },
+  emailAndPassword: { enabled: false },
   trustedOrigins: [
     config.betterAuthUrl || `http://localhost:${config.port}`,
   ],
@@ -33,15 +35,14 @@ export const auth = betterAuth({
       create: {
         after: async (baUser) => {
           const email = baUser.email.toLowerCase();
-          const role = config.superAdminEmails.has(email) ? "SUPER_ADMIN" : "USER";
-          // Sync to our custom users table (slug-based IDs, description, role)
+          const role  = config.superAdminEmails.has(email) ? "SUPER_ADMIN" : "USER";
           const existing = Object.values(users).find(u => u.email?.toLowerCase() === email);
           if (existing) {
-            if (existing.role !== role && role === "SUPER_ADMIN") dbSetUserRole(existing.id, "SUPER_ADMIN");
+            if (existing.role !== role && role === "SUPER_ADMIN") await dbSetUserRole(existing.id, "SUPER_ADMIN");
             return;
           }
           const base = slugify((baUser.name as string) || baUser.email.split("@")[0]);
-          const id = ensureUniqueSlug(base, users);
+          const id   = ensureUniqueSlug(base, users);
           const entry = {
             id,
             name: (baUser.name as string) || baUser.email.split("@")[0],
@@ -51,24 +52,18 @@ export const auth = betterAuth({
             role,
           } as const;
           users[id] = entry;
-          dbUpsertUser(entry);
+          await dbUpsertUser(entry);
 
-          // Auto-create one API token for the new user (paused until admin activates)
-          const tokenKey = generateApiKey();
+          const tokenKey    = generateApiKey();
           const tokenEntry: import("./types").TokenEntry = {
             limit: config.defaultTokenLimit,
             window: config.windowMs,
-            used: 0,
-            windowStart: Date.now(),
-            paused: true,
-            dynamic: true,
-            mode: "inherit",
-            provider: "inherit",
-            name: entry.name,
-            user_id: id,
+            used: 0, windowStart: Date.now(),
+            paused: true, dynamic: true, mode: "inherit", provider: "inherit",
+            name: entry.name, user_id: id,
           };
           tokens[tokenKey] = tokenEntry;
-          dbInsertToken(tokenKey, tokenEntry);
+          await dbInsertToken(tokenKey, tokenEntry);
         },
       },
     },

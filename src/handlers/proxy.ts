@@ -539,7 +539,7 @@ export async function handleProxy(
             stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
             turns, prompt, system_prompt: systemPrompt,
             messages_json: messagesJson,
-            response_text: responseText.slice(0, 3000) });
+            response_text: responseText.slice(0, 3000) }).catch(e => console.error("[proxy] dbLogRequest error:", e));
           // Real-time threshold alerts
           if (inputTokens > 80_000)
             pushAlert(`${displayName}: ${(inputTokens/1000).toFixed(0)}k tokens input — context sangat besar, jalankan /compact`);
@@ -581,7 +581,7 @@ export async function handleProxy(
       stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
       turns, prompt, system_prompt: systemPrompt,
       messages_json: messagesJson,
-      response_text: extractResponseText(body, resp.status) });
+      response_text: extractResponseText(body, resp.status) }).catch(e => console.error("[proxy] dbLogRequest error:", e));
     if (inputTokens > 80_000)
       pushAlert(`${displayName}: ${(inputTokens/1000).toFixed(0)}k tokens input — jalankan /compact`);
     if (t.limit !== Infinity) {

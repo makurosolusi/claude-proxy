@@ -4,6 +4,7 @@ import type { TokenEntry } from "./types";
 
 export function initFromEnv() {
   const now = Date.now();
+  const inserts: Promise<void>[] = [];
   for (const line of config.tokensEnv.trim().split("\n")) {
     const [key, limit, win] = line.trim().split(":");
     if (!key) continue;
@@ -18,11 +19,13 @@ export function initFromEnv() {
       mode:        "inherit",
       provider:    "inherit",
       name:        deriveNameFromKey(key),
-      user_id:     "",  // will be set by backfillUsers()
+      user_id:     "",
     };
     tokens[key] = entry;
-    dbInsertEnvToken(key, entry);
+    inserts.push(dbInsertEnvToken(key, entry));
   }
+  // fire-and-forget inserts — startup doesn't need to block on these
+  Promise.all(inserts).catch(e => console.error("[tokens] initFromEnv insert error:", e));
   console.log("Tokens:", Object.keys(tokens));
 }
 
@@ -31,7 +34,7 @@ export function checkReset(t: TokenEntry, key: string) {
     const now = Date.now();
     t.used = 0;
     t.windowStart = now;
-    dbResetToken(key, now);
+    dbResetToken(key, now).catch(e => console.error("[tokens] checkReset error:", e));
   }
 }
 
@@ -44,7 +47,7 @@ export function addDailyUsage(key: string, delta: number) {
   const d = todayKey();
   if (!dailyUsage[d]) dailyUsage[d] = {};
   dailyUsage[d][key] = (dailyUsage[d][key] || 0) + delta;
-  dbUpsertDailyUsage(d, key, delta);
+  dbUpsertDailyUsage(d, key, delta).catch(e => console.error("[tokens] addDailyUsage error:", e));
 }
 
 // ── Generation counter ────────────────────────────────────────────────────────
@@ -65,7 +68,7 @@ export function incrementUsage(key: string, delta: number, gen?: number) {
   if (gen !== undefined && gen !== getGeneration(key)) return;
   tokens[key].used += delta;
   addDailyUsage(key, delta);
-  dbUpdateUsage(key, tokens[key].used);
+  dbUpdateUsage(key, tokens[key].used).catch(e => console.error("[tokens] incrementUsage error:", e));
 }
 
 // ── In-flight reservation system ──────────────────────────────────────────────

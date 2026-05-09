@@ -1,6 +1,7 @@
-import { db } from "../state";
+import { sql } from "drizzle-orm";
+import { db } from "../db";
 
-const SESSION_GAP_MS = 30 * 60 * 1000; // 30 min gap = new session
+const SESSION_GAP_MS = 30 * 60 * 1000;
 
 export interface Exchange {
   ts:           number;
@@ -22,15 +23,15 @@ export interface Session {
   exchanges:     Exchange[];
 }
 
-export function handleApiSessions(user: string): Response {
-  // user param is a display name — query by name (or fallback to token_key for old data)
-  const rows = db.query(`
+export async function handleApiSessions(user: string): Promise<Response> {
+  const result = await db.execute(sql`
     SELECT ts, input_tokens, output_tokens, cache_read, cache_creation,
            model, messages_json, response_text
     FROM request_logs
-    WHERE (name = ? OR (name = '' AND token_key = ?)) AND status < 400
+    WHERE (name = ${user} OR (name = '' AND token_key = ${user})) AND status < 400
     ORDER BY ts ASC
-  `).all(user, user) as {
+  `);
+  const rows = ((result as any).rows ?? []) as {
     ts: number; input_tokens: number; output_tokens: number;
     cache_read: number; cache_creation: number;
     model: string; messages_json: string; response_text: string;
@@ -43,7 +44,7 @@ export function handleApiSessions(user: string): Response {
 
   for (const row of rows) {
     const prev = group[group.length - 1];
-    if (prev && row.ts - prev.ts > SESSION_GAP_MS) {
+    if (prev && Number(row.ts) - Number(prev.ts) > SESSION_GAP_MS) {
       sessions.push(buildSession(group));
       group = [];
     }
@@ -54,8 +55,6 @@ export function handleApiSessions(user: string): Response {
   return Response.json({ sessions: sessions.reverse() });
 }
 
-// Extract the last user message from a request's messages_json.
-// Each request sends the full context; the last user entry is what the user asked THIS turn.
 function lastUserText(messagesJson: string): string {
   if (!messagesJson) return "";
   try {
@@ -74,26 +73,20 @@ function buildSession(rows: {
 }[]): Session {
   const first = rows[0]!;
   const last  = rows[rows.length - 1]!;
-
-  const total_tokens = rows.reduce(
-    (s, r) => s + r.input_tokens + r.output_tokens, 0 // no cache, consistent with quota
-  );
-
-  // Each request = one exchange: user asked something → AI replied
+  const total_tokens = rows.reduce((s, r) => s + Number(r.input_tokens) + Number(r.output_tokens), 0);
   const exchanges: Exchange[] = rows.map(r => ({
-    ts:           r.ts,
-    user:         lastUserText(r.messages_json),
-    assistant:    r.response_text || "",
-    input_tokens: r.input_tokens,
-    output_tokens:r.output_tokens,
-    cache_read:   r.cache_read,
-    total_tokens: r.input_tokens + r.output_tokens, // consistent with quota system (no cache)
+    ts:            Number(r.ts),
+    user:          lastUserText(r.messages_json),
+    assistant:     r.response_text || "",
+    input_tokens:  Number(r.input_tokens),
+    output_tokens: Number(r.output_tokens),
+    cache_read:    Number(r.cache_read),
+    total_tokens:  Number(r.input_tokens) + Number(r.output_tokens),
   }));
-
   return {
     id:            `${first.ts}`,
-    start_ts:      first.ts,
-    end_ts:        last.ts,
+    start_ts:      Number(first.ts),
+    end_ts:        Number(last.ts),
     request_count: rows.length,
     total_tokens,
     model:         last.model,

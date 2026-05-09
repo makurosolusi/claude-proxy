@@ -177,7 +177,7 @@ export async function poll() {
       }
     }
 
-    dbSaveUpstream();
+    dbSaveUpstream().catch(e => console.error("[upstream] dbSaveUpstream error:", e));
     triggerBroadcast();
 
     const newResetsAt = data.five_hour?.resets_at as string | undefined;
@@ -200,8 +200,8 @@ export async function poll() {
         broadcastSystemMsg("🔄 Window reset — usage counters cleared");
         lastUtilAlertPct = 0;
         upstream.lastKnownResetsAt = newResetsAt;
-        dbResetAllTokens(win, resetsAtMs - win);
-        dbSaveUpstream();
+        dbResetAllTokens(win, resetsAtMs - win).catch(e => console.error("[upstream] dbResetAllTokens error:", e));
+        dbSaveUpstream().catch(e => console.error("[upstream] dbSaveUpstream error:", e));
       } else if (prevMs === null) {
         const fh = data.five_hour;
         const untilReset = resetsAtMs - Date.now();
@@ -215,8 +215,8 @@ export async function poll() {
         }
         console.log("[upstream] First poll. Aligned tokens to resets_at:", newResetsAt);
         upstream.lastKnownResetsAt = newResetsAt;
-        dbAlignAllTokens(win, resetsAtMs - win);
-        dbSaveUpstream();
+        dbAlignAllTokens(win, resetsAtMs - win).catch(e => console.error("[upstream] dbAlignAllTokens error:", e));
+        dbSaveUpstream().catch(e => console.error("[upstream] dbSaveUpstream error:", e));
       } else {
         const win = upstream.detectedWindowMs || Object.values(tokens)[0]?.window || config.windowMs;
         for (const tk of Object.values(tokens)) tk.windowStart = resetsAtMs - win;

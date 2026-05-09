@@ -101,9 +101,9 @@ async function handleOpenRouterTest(): Promise<Response> {
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
-loadFromDb();
+await loadFromDb();
 initFromEnv();
-backfillUsers();
+await backfillUsers();
 process.on("SIGTERM", () => onShutdown("SIGTERM"));
 process.on("SIGINT",  () => onShutdown("SIGINT"));
 startPoller();
@@ -499,7 +499,7 @@ server = serve({
     "/api/mind":          () => handleApiMind(),
     "/api/race":          () => handleApiRace(),
     "/api/version":       () => Response.json({ version: APP_VERSION }),
-    "/api/usage/hourly":  () => handleApiUsageHourly(),
+    "/api/usage/hourly":  () => handleApiUsageHourly(),  // already async
     "/api/admin/test": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiTest();
