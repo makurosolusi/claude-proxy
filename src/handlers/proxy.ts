@@ -354,6 +354,11 @@ export async function handleProxy(
       delete bodyJson.thinking;
       console.log(`[proxy] Stripped orphaned thinking param (no thinking blocks in history) [${key.slice(-6)}]`);
     }
+    // Opus 4.7 deprecated `temperature` — upstream returns 400 if present
+    if (bodyJson.model === "claude-opus-4-7" && "temperature" in bodyJson) {
+      delete bodyJson.temperature;
+      console.log(`[proxy] Stripped deprecated temperature param for opus-4-7 [${key.slice(-6)}]`);
+    }
     bodyText = JSON.stringify(bodyJson);
   }
 
