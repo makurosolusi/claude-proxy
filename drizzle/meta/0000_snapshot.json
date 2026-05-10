@@ -1,5 +1,5 @@
 {
-  "id": "3159c3f3-b8d3-4468-97b0-bb1856a7c153",
+  "id": "dc1414e3-cfb1-4184-92e8-953f54d06cca",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -52,13 +52,13 @@
         },
         "accessTokenExpiresAt": {
           "name": "accessTokenExpiresAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
         "refreshTokenExpiresAt": {
           "name": "refreshTokenExpiresAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
@@ -76,13 +76,13 @@
         },
         "createdAt": {
           "name": "createdAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true
         },
         "updatedAt": {
           "name": "updatedAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true
         }
@@ -121,7 +121,7 @@
         },
         "expiresAt": {
           "name": "expiresAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true
         },
@@ -133,13 +133,13 @@
         },
         "createdAt": {
           "name": "createdAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true
         },
         "updatedAt": {
           "name": "updatedAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true
         },
@@ -237,13 +237,13 @@
         },
         "createdAt": {
           "name": "createdAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true
         },
         "updatedAt": {
           "name": "updatedAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true
         },
@@ -303,19 +303,19 @@
         },
         "expiresAt": {
           "name": "expiresAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true
         },
         "createdAt": {
           "name": "createdAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
         "updatedAt": {
           "name": "updatedAt",
-          "type": "bigint",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         }

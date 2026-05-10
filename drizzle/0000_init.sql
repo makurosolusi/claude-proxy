@@ -6,20 +6,20 @@ CREATE TABLE "account" (
 	"accessToken" text,
 	"refreshToken" text,
 	"idToken" text,
-	"accessTokenExpiresAt" bigint,
-	"refreshTokenExpiresAt" bigint,
+	"accessTokenExpiresAt" timestamp,
+	"refreshTokenExpiresAt" timestamp,
 	"scope" text,
 	"password" text,
-	"createdAt" bigint NOT NULL,
-	"updatedAt" bigint NOT NULL
+	"createdAt" timestamp NOT NULL,
+	"updatedAt" timestamp NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "session" (
 	"id" text PRIMARY KEY NOT NULL,
-	"expiresAt" bigint NOT NULL,
+	"expiresAt" timestamp NOT NULL,
 	"token" text NOT NULL,
-	"createdAt" bigint NOT NULL,
-	"updatedAt" bigint NOT NULL,
+	"createdAt" timestamp NOT NULL,
+	"updatedAt" timestamp NOT NULL,
 	"ipAddress" text,
 	"userAgent" text,
 	"userId" text NOT NULL
@@ -31,8 +31,8 @@ CREATE TABLE "user" (
 	"email" text NOT NULL,
 	"emailVerified" boolean DEFAULT false NOT NULL,
 	"image" text,
-	"createdAt" bigint NOT NULL,
-	"updatedAt" bigint NOT NULL,
+	"createdAt" timestamp NOT NULL,
+	"updatedAt" timestamp NOT NULL,
 	"role" text DEFAULT 'USER' NOT NULL
 );
 --> statement-breakpoint
@@ -40,9 +40,9 @@ CREATE TABLE "verification" (
 	"id" text PRIMARY KEY NOT NULL,
 	"identifier" text NOT NULL,
 	"value" text NOT NULL,
-	"expiresAt" bigint NOT NULL,
-	"createdAt" bigint,
-	"updatedAt" bigint
+	"expiresAt" timestamp NOT NULL,
+	"createdAt" timestamp,
+	"updatedAt" timestamp
 );
 --> statement-breakpoint
 CREATE TABLE "daily_usage" (

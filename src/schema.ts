@@ -1,5 +1,5 @@
 import {
-  pgTable, text, integer, bigint, real, boolean, primaryKey, index, uniqueIndex,
+  pgTable, text, integer, bigint, real, boolean, primaryKey, index, uniqueIndex, timestamp,
 } from "drizzle-orm/pg-core";
 
 // ── tokens ────────────────────────────────────────────────────────────────────
@@ -101,8 +101,8 @@ export const baUser = pgTable("user", {
   email:         text("email").notNull(),
   emailVerified: boolean("emailVerified").notNull().default(false),
   image:         text("image"),
-  createdAt:     bigint("createdAt", { mode: "number" }).notNull(),
-  updatedAt:     bigint("updatedAt", { mode: "number" }).notNull(),
+  createdAt:     timestamp("createdAt").notNull(),
+  updatedAt:     timestamp("updatedAt").notNull(),
   role:          text("role").notNull().default("USER"),
 }, t => [
   uniqueIndex("user_email_idx").on(t.email),
@@ -110,10 +110,10 @@ export const baUser = pgTable("user", {
 
 export const baSession = pgTable("session", {
   id:        text("id").primaryKey(),
-  expiresAt: bigint("expiresAt", { mode: "number" }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
   token:     text("token").notNull(),
-  createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-  updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+  createdAt: timestamp("createdAt").notNull(),
+  updatedAt: timestamp("updatedAt").notNull(),
   ipAddress: text("ipAddress"),
   userAgent: text("userAgent"),
   userId:    text("userId").notNull().references(() => baUser.id, { onDelete: "cascade", onUpdate: "cascade" }),
@@ -129,19 +129,19 @@ export const baAccount = pgTable("account", {
   accessToken:           text("accessToken"),
   refreshToken:          text("refreshToken"),
   idToken:               text("idToken"),
-  accessTokenExpiresAt:  bigint("accessTokenExpiresAt", { mode: "number" }),
-  refreshTokenExpiresAt: bigint("refreshTokenExpiresAt", { mode: "number" }),
+  accessTokenExpiresAt:  timestamp("accessTokenExpiresAt"),
+  refreshTokenExpiresAt: timestamp("refreshTokenExpiresAt"),
   scope:                 text("scope"),
   password:              text("password"),
-  createdAt:             bigint("createdAt", { mode: "number" }).notNull(),
-  updatedAt:             bigint("updatedAt", { mode: "number" }).notNull(),
+  createdAt:             timestamp("createdAt").notNull(),
+  updatedAt:             timestamp("updatedAt").notNull(),
 });
 
 export const baVerification = pgTable("verification", {
   id:         text("id").primaryKey(),
   identifier: text("identifier").notNull(),
   value:      text("value").notNull(),
-  expiresAt:  bigint("expiresAt", { mode: "number" }).notNull(),
-  createdAt:  bigint("createdAt", { mode: "number" }),
-  updatedAt:  bigint("updatedAt", { mode: "number" }),
+  expiresAt:  timestamp("expiresAt").notNull(),
+  createdAt:  timestamp("createdAt"),
+  updatedAt:  timestamp("updatedAt"),
 });
