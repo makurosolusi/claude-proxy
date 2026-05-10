@@ -1,28 +1,19 @@
 services:
   proxy:
-    build: .
-    container_name: claude-proxy
+    image: ghcr.io/bipprojectbali/claude-proxy:stg-latest
+    container_name: claude-proxy-stg
     restart: unless-stopped
+    entrypoint: ["sh", "-c", "envman -e claude-proxy:stg -- bun src/index.tsx"]
+    ports:
+      - "54545:54545"    # OAuth PKCE callback — browser must reach localhost:54545
     volumes:
-      - /srv/docker/volumes/apps/claude-proxy/state:/app/state          # SQLite DB
       - /srv/docker/volumes/apps/claude-proxy/credentials:/credentials    # OAuth claude-*.json credentials
     environment:
-      # App
-      - NODE_ENV=production
-      - PORT=8080
-      - ANTHROPIC_API_URL=${ANTHROPIC_API_URL:-https://api.anthropic.com}
-      # Admin auth
-      - ADMIN_KEY=${ADMIN_KEY}
-      # Tokens & quota
-      - TOKENS=${TOKENS}
-      - WINDOW_MS=${WINDOW_MS:-18000000}
-      - UPSTREAM_HARD_CAP_PCT=${UPSTREAM_HARD_CAP_PCT:-95}
-      - UPSTREAM_POLL_MS=${UPSTREAM_POLL_MS:-60000}
-      # Storage
-      - CLIPROXY_AUTH_DIR=/credentials
-      - DB_FILE=/app/state/proxy.db
+      - ENVMAN_SERVER=https://envman.wibudev.com
+      - ENVMAN_TOKEN=${ENVMAN_TOKEN}
     networks:
       - public-net
+      - postgres-net-stg
     mem_limit: 512m
     cpus: "0.5"
     logging:
@@ -38,8 +29,19 @@ services:
       - "traefik.http.routers.claude-proxy.tls=true"
       - "traefik.http.routers.claude-proxy.tls.certresolver=letsencrypt"
       - "traefik.http.services.claude-proxy.loadbalancer.server.port=8080"
-      - "traefik.http.services.claude-proxy.loadbalancer.responseForwarding.flushInterval=-1"
-
+      - "traefik.http.services.claude-proxy.loadbalancer.responseForwarding.flushInterval=-1" 
+  migrate:
+    image: ghcr.io/bipprojectbali/claude-proxy:stg-latest
+    container_name: claude-proxy-stg-migrate
+    restart: "no"
+    entrypoint: ["sh", "-c", "envman -e claude-proxy:stg -- bunx drizzle-kit migrate"]
+    environment:
+      - ENVMAN_SERVER=https://envman.wibudev.com
+      - ENVMAN_TOKEN=${ENVMAN_TOKEN}
+    networks:
+      - postgres-net-stg
 networks:
   public-net:
+    external: true
+  postgres-net-stg:
     external: true
