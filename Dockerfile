@@ -9,7 +9,7 @@ RUN bun install --frozen-lockfile
 # ── Build frontend bundle ─────────────────────────────────────────────────────
 FROM deps AS builder
 COPY . .
-RUN bunx prisma generate
+RUN DATABASE_URL=postgresql://placeholder@localhost:5432/placeholder bunx prisma generate
 RUN bun run build
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
