@@ -34,7 +34,7 @@ services:
     image: ghcr.io/bipprojectbali/claude-proxy:stg-latest
     container_name: claude-proxy-stg-migrate
     restart: "no"
-    entrypoint: ["sh", "-c", "envman -e claude-proxy:stg -- bunx drizzle-kit migrate"]
+    entrypoint: ["sh", "-c", "envman -e claude-proxy:stg -- bunx prisma migrate deploy"]
     environment:
       - ENVMAN_SERVER=https://envman.wibudev.com
       - ENVMAN_TOKEN=${ENVMAN_TOKEN}

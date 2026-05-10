@@ -24,8 +24,8 @@ COPY --from=builder /app/public          ./public
 COPY --from=builder /app/package.json    ./
 COPY --from=builder /app/bunfig.toml     ./
 COPY --from=builder /app/tsconfig.json   ./
-COPY --from=builder /app/drizzle         ./drizzle
-COPY --from=builder /app/drizzle.config.ts ./
+COPY --from=builder /app/prisma          ./prisma
+COPY --from=builder /app/prisma.config.ts ./
 
 # Install envman CLI
 RUN curl -fsSL https://envman.wibudev.com/install | bash
