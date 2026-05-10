@@ -1,6 +1,6 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool }    from "pg";
-import * as schema from "./schema";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -13,8 +13,11 @@ pool.on("error", (err) => {
   console.error("[db] pool error:", err.message);
 });
 
-export const db = drizzle(pool, { schema });
+const adapter = new PrismaPg(pool);
+
+export const prisma = new PrismaClient({ adapter } as any);
 
 export async function closeDb() {
+  await prisma.$disconnect();
   await pool.end();
 }

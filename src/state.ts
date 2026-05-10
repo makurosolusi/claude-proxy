@@ -1,18 +1,8 @@
-import { eq, and, gte, lt, sql, isNull, or, desc, asc, count, sum, avg, ne } from "drizzle-orm";
-import { db } from "./db";
-import {
-  tokens as tokensTable,
-  requestLogs as requestLogsTable,
-  dailyUsage as dailyUsageTable,
-  upstreamState as upstreamStateTable,
-  users as usersTable,
-  modelRoutes as modelRoutesTable,
-  settings as settingsTable,
-} from "./schema";
+import { prisma } from "./prisma";
 import { config } from "./config";
 import type { TokenEntry, UserEntry, UpstreamState, DailyUsage, RequestLogEntry, ModelRoute } from "./types";
 
-// ── Runtime state (in-memory, same as before) ─────────────────────────────────
+// ── Runtime state (in-memory) ─────────────────────────────────────────────────
 export const tokens: Record<string, TokenEntry> = {};
 export const users:  Record<string, UserEntry>  = {};
 export const dailyUsage: DailyUsage = {};
@@ -31,11 +21,11 @@ export const upstream: UpstreamState = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function toLim(limit: number): number | null {
-  return limit === Infinity ? null : limit;
+function toLim(limit: number): bigint | null {
+  return limit === Infinity ? null : BigInt(limit);
 }
-function fromLim(lim: number | null | undefined): number {
-  return lim === null || lim === undefined ? Infinity : lim;
+function fromLim(lim: bigint | null | undefined): number {
+  return lim === null || lim === undefined ? Infinity : Number(lim);
 }
 
 export function slugify(name: string): string {
@@ -93,27 +83,32 @@ function rowToLog(r: any): RequestLogEntry {
 // ── DB write functions ────────────────────────────────────────────────────────
 
 export async function dbInsertEnvToken(key: string, entry: TokenEntry) {
-  await db.insert(tokensTable).values({
-    key, name: entry.name, user_id: entry.user_id || "",
-    lim: toLim(entry.limit), win: entry.window, used: entry.used,
-    window_start: entry.windowStart,
-    paused: entry.paused, dynamic: false, provider: entry.provider || "inherit",
-  }).onConflictDoNothing();
+  await prisma.tokens.upsert({
+    where: { key },
+    create: {
+      key, name: entry.name, user_id: entry.user_id || "",
+      lim: toLim(entry.limit), win: BigInt(entry.window), used: BigInt(entry.used),
+      window_start: BigInt(entry.windowStart),
+      paused: entry.paused, dynamic: false, provider: entry.provider || "inherit",
+    },
+    update: {}, // do nothing on conflict
+  });
 }
 
 export async function dbInsertToken(key: string, entry: TokenEntry) {
-  await db.insert(tokensTable).values({
-    key, name: entry.name, user_id: entry.user_id || "",
-    lim: toLim(entry.limit), win: entry.window, used: entry.used,
-    window_start: entry.windowStart,
-    paused: entry.paused, dynamic: entry.dynamic, deleted: false,
-    provider: entry.provider || "inherit",
-  }).onConflictDoUpdate({
-    target: tokensTable.key,
-    set: {
+  await prisma.tokens.upsert({
+    where: { key },
+    create: {
+      key, name: entry.name, user_id: entry.user_id || "",
+      lim: toLim(entry.limit), win: BigInt(entry.window), used: BigInt(entry.used),
+      window_start: BigInt(entry.windowStart),
+      paused: entry.paused, dynamic: entry.dynamic, deleted: false,
+      provider: entry.provider || "inherit",
+    },
+    update: {
       name: entry.name, user_id: entry.user_id || "",
-      lim: toLim(entry.limit), win: entry.window, used: entry.used,
-      window_start: entry.windowStart,
+      lim: toLim(entry.limit), win: BigInt(entry.window), used: BigInt(entry.used),
+      window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
       provider: entry.provider || "inherit",
     },
@@ -121,99 +116,105 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
 }
 
 export async function dbUpdateProvider(key: string, provider: string) {
-  await db.update(tokensTable).set({ provider }).where(eq(tokensTable.key, key));
+  await prisma.tokens.update({ where: { key }, data: { provider } });
 }
 
 export async function dbUpsertUser(entry: UserEntry) {
-  await db.insert(usersTable).values({
-    id: entry.id, name: entry.name, email: entry.email || "",
-    description: entry.description, created_at: entry.created_at,
-    role: entry.role || "USER",
-  }).onConflictDoUpdate({
-    target: usersTable.id,
-    set: { name: entry.name, email: entry.email || "", description: entry.description, role: entry.role || "USER" },
+  await prisma.users.upsert({
+    where: { id: entry.id },
+    create: {
+      id: entry.id, name: entry.name, email: entry.email || "",
+      description: entry.description, created_at: BigInt(entry.created_at),
+      role: entry.role || "USER",
+    },
+    update: { name: entry.name, email: entry.email || "", description: entry.description, role: entry.role || "USER" },
   });
 }
 
 export async function dbSetUserRole(id: string, role: import("./types").UserRole) {
-  await db.update(usersTable).set({ role }).where(eq(usersTable.id, id));
+  await prisma.users.update({ where: { id }, data: { role } });
   if (users[id]) users[id]!.role = role;
 }
 
 export async function dbUpdateUser(id: string, name: string, description: string) {
-  await db.update(usersTable).set({ name, description }).where(eq(usersTable.id, id));
+  await prisma.users.update({ where: { id }, data: { name, description } });
 }
 
 export async function dbDeleteUser(id: string) {
-  await db.delete(usersTable).where(eq(usersTable.id, id));
+  await prisma.users.delete({ where: { id } });
 }
 
 export async function dbLinkTokenToUser(key: string, userId: string) {
-  await db.update(tokensTable)
-    .set({ user_id: userId })
-    .where(and(eq(tokensTable.key, key), or(isNull(tokensTable.user_id), eq(tokensTable.user_id, ""))));
-  // also unconditional update to handle race
-  await db.update(tokensTable).set({ user_id: userId }).where(eq(tokensTable.key, key));
+  await prisma.tokens.update({ where: { key }, data: { user_id: userId } });
 }
 
 export async function dbRenameToken(key: string, newName: string) {
-  await db.update(tokensTable).set({ name: newName }).where(eq(tokensTable.key, key));
+  await prisma.tokens.update({ where: { key }, data: { name: newName } });
 }
 
 export async function dbUpdateUsage(key: string, used: number) {
-  await db.update(tokensTable).set({ used }).where(eq(tokensTable.key, key));
+  await prisma.tokens.update({ where: { key }, data: { used: BigInt(used) } });
 }
 
 export async function dbUpdateToken(key: string, entry: TokenEntry) {
-  await db.update(tokensTable)
-    .set({ lim: toLim(entry.limit), win: entry.window, paused: entry.paused })
-    .where(eq(tokensTable.key, key));
+  await prisma.tokens.update({
+    where: { key },
+    data: { lim: toLim(entry.limit), win: BigInt(entry.window), paused: entry.paused },
+  });
 }
 
 export async function dbSoftDelete(key: string) {
-  await db.update(tokensTable).set({ deleted: true }).where(eq(tokensTable.key, key));
+  await prisma.tokens.update({ where: { key }, data: { deleted: true } });
 }
 
 export async function dbResetToken(key: string, windowStart: number) {
-  await db.update(tokensTable).set({ used: 0, window_start: windowStart }).where(eq(tokensTable.key, key));
+  await prisma.tokens.update({ where: { key }, data: { used: BigInt(0), window_start: BigInt(windowStart) } });
 }
 
 export async function dbResetAllTokens(win: number, windowStart: number) {
-  await db.update(tokensTable).set({ used: 0, win, window_start: windowStart }).where(eq(tokensTable.deleted, false));
+  await prisma.tokens.updateMany({
+    where: { deleted: false },
+    data: { used: BigInt(0), win: BigInt(win), window_start: BigInt(windowStart) },
+  });
 }
 
 export async function dbAlignAllTokens(win: number, windowStart: number) {
-  await db.update(tokensTable).set({ win, window_start: windowStart }).where(eq(tokensTable.deleted, false));
+  await prisma.tokens.updateMany({
+    where: { deleted: false },
+    data: { win: BigInt(win), window_start: BigInt(windowStart) },
+  });
 }
 
 export async function dbUpsertDailyUsage(date: string, key: string, delta: number) {
-  await db.insert(dailyUsageTable).values({ date, token_key: key, used: delta })
-    .onConflictDoUpdate({
-      target: [dailyUsageTable.date, dailyUsageTable.token_key],
-      set: { used: sql`${dailyUsageTable.used} + ${delta}` },
-    });
+  // Prisma tidak support atomic increment via upsert — pakai raw SQL
+  await prisma.$executeRaw`
+    INSERT INTO daily_usage (date, token_key, used)
+    VALUES (${date}, ${key}, ${delta})
+    ON CONFLICT (date, token_key) DO UPDATE SET used = daily_usage.used + ${delta}
+  `;
 }
 
 export async function dbSaveUpstream() {
-  await db.insert(upstreamStateTable).values({
-    id: 1,
-    last_known_resets_at: upstream.lastKnownResetsAt,
-    detected_window_ms:   upstream.detectedWindowMs,
-    last_poll:            upstream.lastPoll || null,
-    five_hour_util:       upstream.fiveHour?.utilization   ?? null,
-    five_hour_resets_at:  upstream.fiveHour?.resets_at     ?? null,
-    seven_day_util:       upstream.sevenDay?.utilization   ?? null,
-    seven_day_resets_at:  upstream.sevenDay?.resets_at     ?? null,
-    sonnet_util:          upstream.sevenDaySonnet?.utilization ?? null,
-    sonnet_resets_at:     upstream.sevenDaySonnet?.resets_at   ?? null,
-    opus_util:            upstream.sevenDayOpus?.utilization   ?? null,
-    opus_resets_at:       upstream.sevenDayOpus?.resets_at     ?? null,
-  }).onConflictDoUpdate({
-    target: upstreamStateTable.id,
-    set: {
+  await prisma.upstream_state.upsert({
+    where: { id: 1 },
+    create: {
+      id: 1,
       last_known_resets_at: upstream.lastKnownResetsAt,
-      detected_window_ms:   upstream.detectedWindowMs,
-      last_poll:            upstream.lastPoll || null,
+      detected_window_ms:   upstream.detectedWindowMs ? BigInt(upstream.detectedWindowMs) : null,
+      last_poll:            upstream.lastPoll ? BigInt(upstream.lastPoll) : null,
+      five_hour_util:       upstream.fiveHour?.utilization   ?? null,
+      five_hour_resets_at:  upstream.fiveHour?.resets_at     ?? null,
+      seven_day_util:       upstream.sevenDay?.utilization   ?? null,
+      seven_day_resets_at:  upstream.sevenDay?.resets_at     ?? null,
+      sonnet_util:          upstream.sevenDaySonnet?.utilization ?? null,
+      sonnet_resets_at:     upstream.sevenDaySonnet?.resets_at   ?? null,
+      opus_util:            upstream.sevenDayOpus?.utilization   ?? null,
+      opus_resets_at:       upstream.sevenDayOpus?.resets_at     ?? null,
+    },
+    update: {
+      last_known_resets_at: upstream.lastKnownResetsAt,
+      detected_window_ms:   upstream.detectedWindowMs ? BigInt(upstream.detectedWindowMs) : null,
+      last_poll:            upstream.lastPoll ? BigInt(upstream.lastPoll) : null,
       five_hour_util:       upstream.fiveHour?.utilization   ?? null,
       five_hour_resets_at:  upstream.fiveHour?.resets_at     ?? null,
       seven_day_util:       upstream.sevenDay?.utilization   ?? null,
@@ -227,55 +228,58 @@ export async function dbSaveUpstream() {
 }
 
 export async function dbSaveRoutes(routes: ModelRoute[]) {
-  await db.delete(modelRoutesTable);
+  await prisma.model_routes.deleteMany({});
   if (routes.length > 0) {
-    await db.insert(modelRoutesTable).values(routes.map(r => ({
-      model_id: r.model_id, threshold: r.threshold,
-      action: r.action, fallback_to: r.fallback_to,
-    })));
+    await prisma.model_routes.createMany({ data: routes });
   }
   for (const k of Object.keys(modelRoutes)) delete modelRoutes[k];
   for (const r of routes) modelRoutes[r.model_id] = r;
 }
 
 export async function dbSaveSetting(key: string, value: string) {
-  await db.insert(settingsTable).values({ key, value })
-    .onConflictDoUpdate({ target: settingsTable.key, set: { value } });
+  await prisma.settings.upsert({
+    where: { key },
+    create: { key, value },
+    update: { value },
+  });
   settings[key] = value;
 }
 
 export async function dbGetSetting(key: string): Promise<string | null> {
-  const row = await db.select().from(settingsTable).where(eq(settingsTable.key, key)).limit(1);
-  return row[0]?.value ?? null;
+  const row = await prisma.settings.findUnique({ where: { key } });
+  return row?.value ?? null;
 }
 
 export async function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
   const uid = tokens[entry.token_key]?.user_id || entry.user_id || entry.token_key;
-  const [inserted] = await db.insert(requestLogsTable).values({
-    ts:             entry.ts,
-    token_key:      entry.token_key,
-    name:           entry.name || "",
-    user_id:        uid,
-    model:          entry.model,
-    input_tokens:   entry.input_tokens,
-    output_tokens:  entry.output_tokens,
-    cache_read:     entry.cache_read || 0,
-    cache_creation: entry.cache_creation || 0,
-    stream:         entry.stream,
-    status:         entry.status,
-    stop_reason:    entry.stop_reason || "",
-    tool_use_count: entry.tool_use_count || 0,
-    duration_ms:    entry.duration_ms || 0,
-    turns:          entry.turns || 0,
-    prompt:         entry.prompt,
-    system_prompt:  entry.system_prompt || "",
-    messages_json:  entry.messages_json || "",
-    response_text:  entry.response_text || "",
-  }).returning({ id: requestLogsTable.id });
+  const inserted = await prisma.request_logs.create({
+    data: {
+      ts:             BigInt(entry.ts),
+      token_key:      entry.token_key,
+      name:           entry.name || "",
+      user_id:        uid,
+      model:          entry.model,
+      input_tokens:   entry.input_tokens,
+      output_tokens:  entry.output_tokens,
+      cache_read:     entry.cache_read || 0,
+      cache_creation: entry.cache_creation || 0,
+      stream:         entry.stream,
+      status:         entry.status,
+      stop_reason:    entry.stop_reason || "",
+      tool_use_count: entry.tool_use_count || 0,
+      duration_ms:    entry.duration_ms || 0,
+      turns:          entry.turns || 0,
+      prompt:         entry.prompt,
+      system_prompt:  entry.system_prompt || "",
+      messages_json:  entry.messages_json || "",
+      response_text:  entry.response_text || "",
+    },
+    select: { id: true },
+  });
 
   totalTokensAllTime += entry.input_tokens + entry.output_tokens + (entry.cache_read || 0) + (entry.cache_creation || 0);
   allTimePerUser[uid] = (allTimePerUser[uid] || 0) + entry.input_tokens + entry.output_tokens;
-  const full: RequestLogEntry = { id: inserted!.id, ...entry, user_id: uid };
+  const full: RequestLogEntry = { id: inserted.id, ...entry, user_id: uid };
   recentLogs.unshift(full);
   if (recentLogs.length > 200) recentLogs.pop();
 }
@@ -284,69 +288,65 @@ export async function dbQueryLogs(page: number, limit: number, user: string): Pr
   try {
     const offset = (page - 1) * limit;
     const rows = user
-      ? await db.select().from(requestLogsTable)
-          .where(eq(requestLogsTable.token_key, user))
-          .orderBy(desc(requestLogsTable.ts))
-          .limit(limit).offset(offset)
-      : await db.select().from(requestLogsTable)
-          .orderBy(desc(requestLogsTable.ts))
-          .limit(limit).offset(offset);
+      ? await prisma.request_logs.findMany({ where: { token_key: user }, orderBy: { ts: "desc" }, skip: offset, take: limit })
+      : await prisma.request_logs.findMany({ orderBy: { ts: "desc" }, skip: offset, take: limit });
     return rows.map(rowToLog);
   } catch { return []; }
 }
 
 export async function dbCountLogs(user: string): Promise<number> {
   try {
-    const [row] = user
-      ? await db.select({ n: count() }).from(requestLogsTable).where(eq(requestLogsTable.token_key, user))
-      : await db.select({ n: count() }).from(requestLogsTable);
-    return row?.n ?? 0;
+    return user
+      ? await prisma.request_logs.count({ where: { token_key: user } })
+      : await prisma.request_logs.count();
   } catch { return 0; }
 }
 
 export async function dbGetLog(id: number): Promise<RequestLogEntry | null> {
   try {
-    const [row] = await db.select().from(requestLogsTable).where(eq(requestLogsTable.id, id)).limit(1);
+    const row = await prisma.request_logs.findUnique({ where: { id } });
     return row ? rowToLog(row) : null;
   } catch { return null; }
 }
 
 export async function dbClearLogs(user?: string) {
   if (user) {
-    await db.delete(requestLogsTable).where(eq(requestLogsTable.token_key, user));
+    await prisma.request_logs.deleteMany({ where: { token_key: user } });
     let i = recentLogs.findIndex(l => l.token_key === user);
     while (i >= 0) { recentLogs.splice(i, 1); i = recentLogs.findIndex(l => l.token_key === user); }
   } else {
-    await db.delete(requestLogsTable);
+    await prisma.request_logs.deleteMany({});
     recentLogs.splice(0, recentLogs.length);
   }
 }
 
 export async function dbGetTokenKeys(): Promise<string[]> {
   try {
-    const rows = await db.selectDistinct({ token_key: requestLogsTable.token_key })
-      .from(requestLogsTable)
-      .orderBy(asc(requestLogsTable.token_key));
+    const rows = await prisma.request_logs.findMany({
+      select: { token_key: true },
+      distinct: ["token_key"],
+      orderBy: { token_key: "asc" },
+    });
     return rows.map(r => r.token_key).filter(Boolean);
   } catch { return []; }
 }
 
 export async function dbGetTokenNames(): Promise<string[]> {
   try {
-    const rows = await db.execute(sql`
+    const rows = await prisma.$queryRaw<{ n: string }[]>`
       SELECT DISTINCT COALESCE(NULLIF(name, ''), token_key) AS n
       FROM request_logs ORDER BY n
-    `);
-    return (rows.rows as any[]).map(r => r.n).filter(Boolean);
+    `;
+    return rows.map(r => r.n).filter(Boolean);
   } catch { return []; }
 }
 
-// ── Load from DB (async, called once at startup) ───────────────────────────────
+// ── Load from DB (async, called once at startup) ──────────────────────────────
 export async function loadFromDb() {
   const now = Date.now();
 
   // Load users
-  const userRows = await db.select().from(usersTable).orderBy(asc(usersTable.name));
+  const userRows = await prisma.users.findMany({ orderBy: { name: "asc" } });
   for (const row of userRows) {
     users[row.id] = {
       id: row.id, name: row.name, email: row.email || "",
@@ -356,7 +356,7 @@ export async function loadFromDb() {
   }
 
   // Load tokens
-  const tokenRows = await db.select().from(tokensTable).where(eq(tokensTable.deleted, false));
+  const tokenRows = await prisma.tokens.findMany({ where: { deleted: false } });
   for (const row of tokenRows) {
     const win     = Number(row.win);
     const ws      = Number(row.window_start);
@@ -364,7 +364,7 @@ export async function loadFromDb() {
     tokens[row.key] = {
       limit:       fromLim(row.lim),
       window:      win,
-      used:        expired ? 0 : (row.used || 0),
+      used:        expired ? 0 : Number(row.used),
       windowStart: expired ? now : ws,
       paused:      row.paused,
       dynamic:     row.dynamic,
@@ -374,15 +374,15 @@ export async function loadFromDb() {
       user_id:     row.user_id || "",
     };
     if (!row.name) {
-      await db.update(tokensTable).set({ name: tokens[row.key]!.name }).where(eq(tokensTable.key, row.key));
+      await prisma.tokens.update({ where: { key: row.key }, data: { name: tokens[row.key]!.name } });
     }
     if (expired) {
-      await db.update(tokensTable).set({ used: 0, window_start: now }).where(eq(tokensTable.key, row.key));
+      await prisma.tokens.update({ where: { key: row.key }, data: { used: BigInt(0), window_start: BigInt(now) } });
     }
   }
 
   // Load upstream state
-  const [up] = await db.select().from(upstreamStateTable).where(eq(upstreamStateTable.id, 1)).limit(1);
+  const up = await prisma.upstream_state.findUnique({ where: { id: 1 } });
   if (up) {
     if (up.last_known_resets_at) upstream.lastKnownResetsAt = up.last_known_resets_at;
     if (up.detected_window_ms)   upstream.detectedWindowMs  = Number(up.detected_window_ms);
@@ -398,7 +398,7 @@ export async function loadFromDb() {
   }
 
   // Load model routes
-  const routeRows = await db.select().from(modelRoutesTable);
+  const routeRows = await prisma.model_routes.findMany();
   for (const row of routeRows) {
     modelRoutes[row.model_id] = {
       model_id:    row.model_id,
@@ -410,53 +410,56 @@ export async function loadFromDb() {
   if (routeRows.length) console.log(`Model routes loaded: ${routeRows.length} rule(s)`);
 
   // Load settings
-  const settingRows = await db.select().from(settingsTable);
+  const settingRows = await prisma.settings.findMany();
   for (const row of settingRows) settings[row.key] = row.value;
   if (settingRows.length) console.log(`Settings loaded: ${settingRows.length} key(s)`);
 
   // Prune old daily usage (keep 30 days)
   const cutoff = new Date(now - 30 * 86400000).toISOString().slice(0, 10);
-  await db.delete(dailyUsageTable).where(lt(dailyUsageTable.date, cutoff));
+  await prisma.daily_usage.deleteMany({ where: { date: { lt: cutoff } } });
 
   // Load daily usage
-  const usageRows = await db.select().from(dailyUsageTable).where(gte(dailyUsageTable.date, cutoff));
+  const usageRows = await prisma.daily_usage.findMany({ where: { date: { gte: cutoff } } });
   for (const row of usageRows) {
     if (!dailyUsage[row.date]) dailyUsage[row.date] = {};
     dailyUsage[row.date][row.token_key] = row.used;
   }
 
   // Prune old request logs (keep 30 days)
-  const logCutoff = now - 30 * 86400000;
-  await db.delete(requestLogsTable).where(lt(requestLogsTable.ts, logCutoff));
+  const logCutoff = BigInt(now - 30 * 86400000);
+  await prisma.request_logs.deleteMany({ where: { ts: { lt: logCutoff } } });
 
   // Backfill name in request_logs for old rows
-  const allTokenRows = await db.select({ key: tokensTable.key, name: tokensTable.name }).from(tokensTable);
+  const allTokenRows = await prisma.tokens.findMany({ select: { key: true, name: true } });
   for (const r of allTokenRows) {
     const n = r.name || deriveNameFromKey(r.key);
-    await db.update(requestLogsTable)
-      .set({ name: n })
-      .where(and(eq(requestLogsTable.token_key, r.key), or(isNull(requestLogsTable.name as any), eq(requestLogsTable.name, ""))));
+    await prisma.request_logs.updateMany({
+      where: { token_key: r.key, name: "" },
+      data: { name: n },
+    });
   }
 
   // Load recent logs (last 200)
-  const logRows = await db.select().from(requestLogsTable)
-    .orderBy(desc(requestLogsTable.ts)).limit(200);
+  const logRows = await prisma.request_logs.findMany({ orderBy: { ts: "desc" }, take: 200 });
   for (const row of logRows) recentLogs.push(rowToLog(row));
 
   // Total tokens all time
-  const totResult = await db.execute(sql`
-    SELECT SUM(input_tokens + output_tokens + cache_read + cache_creation) as total FROM request_logs
-  `);
-  const totRow = ((totResult as any).rows ?? [])[0];
-  totalTokensAllTime = Number(totRow?.total ?? 0);
+  const totResult = await prisma.request_logs.aggregate({
+    _sum: { input_tokens: true, output_tokens: true, cache_read: true, cache_creation: true },
+  });
+  totalTokensAllTime =
+    (totResult._sum.input_tokens   ?? 0) +
+    (totResult._sum.output_tokens  ?? 0) +
+    (totResult._sum.cache_read     ?? 0) +
+    (totResult._sum.cache_creation ?? 0);
 
   // All time per user
-  const perUserResult = await db.execute(sql`
+  const perUserRows = await prisma.$queryRaw<{ uid: string; total: bigint }[]>`
     SELECT COALESCE(NULLIF(user_id,''), token_key) AS uid,
            SUM(input_tokens + output_tokens) as total
     FROM request_logs GROUP BY uid
-  `);
-  for (const r of (perUserResult as any).rows ?? []) allTimePerUser[r.uid] = Number(r.total) ?? 0;
+  `;
+  for (const r of perUserRows) allTimePerUser[r.uid] = Number(r.total) ?? 0;
 
   console.log(`DB loaded: ${tokenRows.length} token(s), ${logRows.length} log(s)`);
 }
@@ -474,48 +477,57 @@ export async function backfillUsers() {
     if (!users[uid]) {
       const entry: UserEntry = { id: uid, name: tk.name, email: "", description: "", created_at: now, role: "USER" };
       users[uid] = entry;
-      await db.insert(usersTable).values({ id: uid, name: tk.name, email: "", description: "", created_at: now, role: "USER" })
-        .onConflictDoNothing();
+      await prisma.users.upsert({
+        where: { id: uid },
+        create: { id: uid, name: tk.name, email: "", description: "", created_at: BigInt(now), role: "USER" },
+        update: {},
+      });
     }
     if (!tk.user_id) {
       tk.user_id = uid;
-      await db.update(tokensTable).set({ user_id: uid }).where(eq(tokensTable.key, key));
+      await prisma.tokens.update({ where: { key }, data: { user_id: uid } });
     }
-    await db.update(requestLogsTable)
-      .set({ user_id: uid })
-      .where(and(eq(requestLogsTable.token_key, key), or(isNull(requestLogsTable.user_id as any), eq(requestLogsTable.user_id, ""))));
-    await db.update(dailyUsageTable)
-      .set({ user_id: uid })
-      .where(and(eq(dailyUsageTable.token_key, key), or(isNull(dailyUsageTable.user_id as any), eq(dailyUsageTable.user_id, ""))));
+    await prisma.request_logs.updateMany({
+      where: { token_key: key, user_id: "" },
+      data: { user_id: uid },
+    });
+    await prisma.daily_usage.updateMany({
+      where: { token_key: key, user_id: "" },
+      data: { user_id: uid },
+    });
   }
 
-  // Deleted tokens
-  const deletedRows = await db.select({ key: tokensTable.key, name: tokensTable.name, user_id: tokensTable.user_id })
-    .from(tokensTable).where(eq(tokensTable.deleted, true));
+  // Deleted tokens backfill
+  const deletedRows = await prisma.tokens.findMany({
+    where: { deleted: true },
+    select: { key: true, name: true, user_id: true },
+  });
   for (const r of deletedRows) {
     const uid = r.user_id || slugify(r.name || deriveNameFromKey(r.key));
     if (!uid) continue;
-    await db.update(requestLogsTable)
-      .set({ user_id: uid })
-      .where(and(eq(requestLogsTable.token_key, r.key), or(isNull(requestLogsTable.user_id as any), eq(requestLogsTable.user_id, ""))));
-    await db.update(dailyUsageTable)
-      .set({ user_id: uid })
-      .where(and(eq(dailyUsageTable.token_key, r.key), or(isNull(dailyUsageTable.user_id as any), eq(dailyUsageTable.user_id, ""))));
+    await prisma.request_logs.updateMany({
+      where: { token_key: r.key, user_id: "" },
+      data: { user_id: uid },
+    });
+    await prisma.daily_usage.updateMany({
+      where: { token_key: r.key, user_id: "" },
+      data: { user_id: uid },
+    });
   }
 
   // Reload allTimePerUser after backfill
-  const perUserRows = await db.execute(sql`
+  const perUserRows = await prisma.$queryRaw<{ uid: string; total: bigint }[]>`
     SELECT COALESCE(NULLIF(user_id,''), token_key) AS uid,
            SUM(input_tokens + output_tokens) as total
     FROM request_logs GROUP BY uid
-  `);
-  for (const r of (perUserRows as any).rows ?? []) allTimePerUser[r.uid] = Number(r.total) ?? 0;
+  `;
+  for (const r of perUserRows) allTimePerUser[r.uid] = Number(r.total) ?? 0;
 
   // Sync SUPER_ADMIN_EMAILS
   for (const u of Object.values(users)) {
     if (u.email && config.superAdminEmails.has(u.email.toLowerCase()) && u.role !== "SUPER_ADMIN") {
       u.role = "SUPER_ADMIN";
-      await db.update(usersTable).set({ role: "SUPER_ADMIN" }).where(eq(usersTable.id, u.id));
+      await prisma.users.update({ where: { id: u.id }, data: { role: "SUPER_ADMIN" } });
     }
   }
 
@@ -523,8 +535,8 @@ export async function backfillUsers() {
 }
 
 export async function onShutdown(sig: string) {
-  console.log(`Received ${sig}, closing DB pool...`);
-  const { closeDb } = await import("./db");
+  console.log(`Received ${sig}, closing DB...`);
+  const { closeDb } = await import("./prisma");
   await closeDb();
   process.exit(0);
 }

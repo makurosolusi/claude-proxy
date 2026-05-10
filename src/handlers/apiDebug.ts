@@ -1,6 +1,5 @@
-import { sql } from "drizzle-orm";
 import { config } from "../config";
-import { db }     from "../db";
+import { prisma } from "../prisma";
 
 function checkMcpSecret(req: Request): boolean {
   if (!config.mcpSecret) return false;
@@ -19,7 +18,6 @@ export async function handleDebugQuery(req: Request): Promise<Response> {
     catch { querySql = raw.trim(); }
     if (!querySql) return Response.json({ error: "Empty query" }, { status: 400 });
 
-    // Safety: only allow read operations
     const clean = querySql.trim().toUpperCase();
     const dangerous = /^(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|ATTACH|DETACH|REINDEX|VACUUM)/i;
     if (dangerous.test(clean)) {
@@ -27,9 +25,8 @@ export async function handleDebugQuery(req: Request): Promise<Response> {
     }
 
     const start = performance.now();
-    const result = await db.execute(sql.raw(querySql));
+    const rows  = await prisma.$queryRawUnsafe(querySql) as any[];
     const elapsed = Math.round((performance.now() - start) * 100) / 100;
-    const rows = (result as any).rows ?? result;
     return Response.json({ ok: true, elapsed_ms: elapsed, row_count: rows.length, rows });
   } catch (e: any) {
     return Response.json({ ok: false, error: String(e.message ?? e) }, { status: 422 });

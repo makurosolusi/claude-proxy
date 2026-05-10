@@ -1,7 +1,5 @@
-import { eq, sql } from "drizzle-orm";
-import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbLinkTokenToUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
-import { tokens as tokensTable, users as usersTable, dailyUsage as dailyUsageTable } from "../schema";
-import { db } from "../db";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { prisma } from "../prisma";
 import type { TokenProvider } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
@@ -25,7 +23,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   const pathname = url.pathname;
   const form     = await parseForm(req);
 
-  // Reset usage
   if (pathname === "/admin/reset") {
     const target = form ? String(form.get("token") || "") : url.searchParams.get("token");
     const all    = form ? form.get("all") === "true" : url.searchParams.get("all") === "true";
@@ -48,7 +45,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Add token
   if (pathname === "/admin/token/add" && req.method === "POST") {
     const newKey    = String(form?.get("token")   || "").trim();
     const newLimit  = String(form?.get("limit")   || "40000").trim();
@@ -80,7 +76,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Edit single token limit
   if (pathname === "/admin/token/edit" && req.method === "POST") {
     const target   = String(form?.get("token") || "").trim();
     const newLimit = String(form?.get("limit")  || "").trim();
@@ -92,7 +87,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Edit all token limits
   if (pathname === "/admin/token/edit-all" && req.method === "POST") {
     const newLimit = String(form?.get("limit") || "").trim();
     const parsed   = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
@@ -104,7 +98,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Pause / resume
   if (pathname === "/admin/token/pause" && req.method === "POST") {
     const target   = String(form?.get("token") || "").trim();
     const pauseAll = form?.get("all") === "true";
@@ -122,7 +115,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Delete token
   if (pathname === "/admin/token/delete" && req.method === "POST") {
     const target = String(form?.get("token") || "").trim();
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
@@ -131,7 +123,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Rename token
   if (pathname === "/admin/token/rename" && req.method === "POST") {
     const target  = String(form?.get("token") || "").trim();
     const newName = String(form?.get("name")  || "").trim();
@@ -142,7 +133,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Rotate token
   if (pathname === "/admin/token/rotate" && req.method === "POST") {
     const target    = String(form?.get("token")   || "").trim();
     const newKeyRaw = String(form?.get("new_key") || "").trim();
@@ -160,7 +150,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return Response.json({ ok: true, newKey });
   }
 
-  // Set per-token provider
   if (pathname === "/admin/token/provider" && req.method === "POST") {
     const target   = String(form?.get("token")    || "").trim();
     const provider = String(form?.get("provider") || "inherit").trim() as TokenProvider;
@@ -178,7 +167,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Set email on user
   if (pathname === "/admin/user/set-email" && req.method === "POST") {
     const uid   = String(form?.get("user_id") || "").trim();
     const email = String(form?.get("email")   || "").trim();
@@ -188,11 +176,10 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       if (u.email === email && id !== uid) return new Response("Email already assigned\n", { status: 409 });
     }
     users[uid].email = email;
-    await db.update(usersTable).set({ email }).where(eq(usersTable.id, uid));
+    await prisma.users.update({ where: { id: uid }, data: { email } });
     return redirect();
   }
 
-  // Edit user name / description
   if (pathname === "/admin/user/edit" && req.method === "POST") {
     const uid     = String(form?.get("user_id")     || "").trim();
     const newName = String(form?.get("name")        || "").trim();
@@ -205,13 +192,12 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     for (const [key, tk] of Object.entries(tokens)) {
       if (tk.user_id === uid) {
         tk.name = newName;
-        await db.update(tokensTable).set({ name: newName }).where(eq(tokensTable.key, key));
+        await prisma.tokens.update({ where: { key }, data: { name: newName } });
       }
     }
     return redirect();
   }
 
-  // DeepSeek settings
   if (pathname === "/admin/settings/deepseek" && req.method === "POST") {
     const apiKey   = String(form?.get("api_key")   || "").trim();
     const baseUrl  = String(form?.get("base_url")  || "").trim();
@@ -224,7 +210,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // OpenRouter settings
   if (pathname === "/admin/settings/openrouter" && req.method === "POST") {
     const apiKey   = String(form?.get("api_key")   || "").trim();
     const baseUrl  = String(form?.get("base_url")  || "").trim();
@@ -237,17 +222,16 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  // Purge legacy users (no email)
   if (pathname === "/admin/users/purge-legacy" && req.method === "POST") {
     const legacyUsers = Object.values(users).filter(u => !u.email);
     let deleted = 0;
     for (const u of legacyUsers) {
       const userTokenKeys = Object.keys(tokens).filter(k => tokens[k]!.user_id === u.id);
       for (const key of userTokenKeys) {
-        await db.update(tokensTable).set({ deleted: true }).where(eq(tokensTable.key, key));
+        await prisma.tokens.update({ where: { key }, data: { deleted: true } });
         delete tokens[key];
       }
-      await db.delete(usersTable).where(eq(usersTable.id, u.id));
+      await prisma.users.delete({ where: { id: u.id } });
       delete users[u.id];
       deleted++;
     }
@@ -255,13 +239,12 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return Response.json({ ok: true, deleted });
   }
 
-  // Purge orphan users (no linked tokens)
   if (pathname === "/admin/users/purge-orphans" && req.method === "POST") {
     const tokenUserIds = new Set(Object.values(tokens).map(tk => tk.user_id).filter(Boolean));
     const orphans = Object.values(users).filter(u => !tokenUserIds.has(u.id));
     let deleted = 0;
     for (const u of orphans) {
-      await db.delete(usersTable).where(eq(usersTable.id, u.id));
+      await prisma.users.delete({ where: { id: u.id } });
       delete users[u.id];
       deleted++;
     }
@@ -269,16 +252,14 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return Response.json({ ok: true, deleted });
   }
 
-  // Clear logs
   if (pathname === "/admin/logs/clear" && req.method === "POST") {
     const user = form ? String(form.get("user") || "").trim() : "";
     await dbClearLogs(user || undefined);
     return Response.json({ ok: true });
   }
 
-  // Clear daily usage
   if (pathname === "/admin/usage/clear" && req.method === "POST") {
-    await db.delete(dailyUsageTable);
+    await prisma.daily_usage.deleteMany({});
     triggerBroadcast();
     return Response.json({ ok: true });
   }

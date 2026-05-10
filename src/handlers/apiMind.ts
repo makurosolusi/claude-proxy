@@ -1,8 +1,7 @@
-import { sql } from "drizzle-orm";
-import { db } from "../db";
+import { prisma } from "../prisma";
 
 export async function handleApiMind(): Promise<Response> {
-  const result = await db.execute(sql`
+  const logs = await prisma.$queryRaw<any[]>`
     SELECT id, ts,
            COALESCE(NULLIF(name, ''), token_key) AS token_key,
            model,
@@ -11,8 +10,7 @@ export async function handleApiMind(): Promise<Response> {
     FROM request_logs
     ORDER BY ts ASC
     LIMIT 2000
-  `);
-  const logs = (result as any).rows ?? [];
+  `;
 
   const nodes: any[] = [];
   const links: any[] = [];
@@ -20,8 +18,6 @@ export async function handleApiMind(): Promise<Response> {
   const userStats = new Map<string, { requests: number; tokens: number }>();
   const dateStats = new Map<string, { user: string; date: string; requests: number; tokens: number }>();
   const hourStats = new Map<string, { user: string; date: string; hour: number; requests: number; tokens: number }>();
-  const dateLinked = new Set<string>();
-  const hourLinked = new Set<string>();
 
   for (const log of logs) {
     const user = log.token_key as string;
@@ -55,10 +51,7 @@ export async function handleApiMind(): Promise<Response> {
       stream: log.stream ?? false, ts: Number(log.ts), model: modelShort,
       prompt: (log.prompt || "").slice(0, 80),
     });
-
     links.push({ source: hourKey, target: reqId, type: "hr", value: 1, tokens: Number(log.tokens) ?? 0 });
-    if (!dateLinked.has(dateKey)) dateLinked.add(dateKey);
-    if (!hourLinked.has(hourKey)) hourLinked.add(hourKey);
   }
 
   for (const [hourKey, hs] of hourStats.entries()) {

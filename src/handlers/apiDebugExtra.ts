@@ -1,8 +1,6 @@
-import { sql, eq, and, gte, desc, lt } from "drizzle-orm";
-import { config }     from "../config";
-import { db as pgDb } from "../db";
-import { tokens, upstream, dailyUsage } from "../state";
-import { dailyUsage as dailyUsageTable, requestLogs as requestLogsTable, upstreamState as upstreamStateTable } from "../schema";
+import { config }  from "../config";
+import { prisma }  from "../prisma";
+import { tokens, upstream } from "../state";
 import { getInFlight } from "../tokens";
 
 function checkMcpSecret(req: Request): boolean {
@@ -25,20 +23,18 @@ export async function handleDebugToken(req: Request, url: URL): Promise<Response
   const inFlight  = getInFlight(key);
 
   const cutoff    = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-  const dailyRows = await pgDb.select({ date: dailyUsageTable.date, used: dailyUsageTable.used })
-    .from(dailyUsageTable)
-    .where(and(eq(dailyUsageTable.token_key, key), gte(dailyUsageTable.date, cutoff)))
-    .orderBy(desc(dailyUsageTable.date));
+  const dailyRows = await prisma.daily_usage.findMany({
+    where: { token_key: key, date: { gte: cutoff } },
+    select: { date: true, used: true },
+    orderBy: { date: "desc" },
+  });
 
-  const logRows = await pgDb.select({
-    id: requestLogsTable.id, ts: requestLogsTable.ts, model: requestLogsTable.model,
-    input_tokens: requestLogsTable.input_tokens, output_tokens: requestLogsTable.output_tokens,
-    status: requestLogsTable.status, stop_reason: requestLogsTable.stop_reason,
-    duration_ms: requestLogsTable.duration_ms, prompt: requestLogsTable.prompt,
-  }).from(requestLogsTable)
-    .where(eq(requestLogsTable.token_key, key))
-    .orderBy(desc(requestLogsTable.ts))
-    .limit(20);
+  const logRows = await prisma.request_logs.findMany({
+    where: { token_key: key },
+    select: { id: true, ts: true, model: true, input_tokens: true, output_tokens: true, status: true, stop_reason: true, duration_ms: true, prompt: true },
+    orderBy: { ts: "desc" },
+    take: 20,
+  });
 
   return Response.json({
     key_suffix:   key.slice(-8),
@@ -73,26 +69,24 @@ export async function handleDebugToken(req: Request, url: URL): Promise<Response
 export async function handleDebugUpstreamHistory(req: Request): Promise<Response> {
   if (!checkMcpSecret(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [upRow] = await pgDb.select().from(upstreamStateTable).where(eq(upstreamStateTable.id, 1)).limit(1);
+  const upRow  = await prisma.upstream_state.findUnique({ where: { id: 1 } });
+  const since  = BigInt(Date.now() - 24 * 3600000);
 
-  const since    = Date.now() - 24 * 3600000;
-  const errorRows = await pgDb.select({
-    ts: requestLogsTable.ts, status: requestLogsTable.status,
-    model: requestLogsTable.model, name: requestLogsTable.name,
-    duration_ms: requestLogsTable.duration_ms,
-  }).from(requestLogsTable)
-    .where(and(gte(requestLogsTable.ts, since), sql`${requestLogsTable.status} >= 400`))
-    .orderBy(desc(requestLogsTable.ts))
-    .limit(50);
+  const errorRows = await prisma.request_logs.findMany({
+    where: { ts: { gte: since }, status: { gte: 400 } },
+    select: { ts: true, status: true, model: true, name: true, duration_ms: true },
+    orderBy: { ts: "desc" },
+    take: 50,
+  });
 
-  const hourlyErrors = await pgDb.execute(sql`
+  const hourlyErrors = await prisma.$queryRaw<{ hour: number; status: number; count: bigint }[]>`
     SELECT EXTRACT(HOUR FROM to_timestamp(ts / 1000.0))::INTEGER AS hour,
            status, COUNT(*) AS count
     FROM request_logs
     WHERE ts > ${since} AND status >= 400
     GROUP BY hour, status
     ORDER BY hour DESC
-  `);
+  `;
 
   return Response.json({
     current_state: {
@@ -116,9 +110,7 @@ export async function handleDebugUpstreamHistory(req: Request): Promise<Response
     },
     proxy_errors_24h: {
       total: errorRows.length,
-      hourly_distribution: ((hourlyErrors as any).rows ?? []).map((r: any) => ({
-        hour: Number(r.hour), status: Number(r.status), count: Number(r.count),
-      })),
+      hourly_distribution: hourlyErrors.map(r => ({ hour: Number(r.hour), status: Number(r.status), count: Number(r.count) })),
       recent: errorRows.slice(0, 20).map(l => ({
         ts:          Number(l.ts),
         age_sec:     Math.round((Date.now() - Number(l.ts)) / 1000),

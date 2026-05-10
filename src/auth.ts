@@ -1,18 +1,16 @@
 import { betterAuth } from "better-auth";
-import { Pool }        from "pg";
+import { prismaAdapter } from "better-auth/adapters/prisma";
 import { randomBytes } from "crypto";
+import { prisma } from "./prisma";
 import { users, tokens, dbUpsertUser, dbSetUserRole, dbInsertToken, slugify, ensureUniqueSlug } from "./state";
 import { config } from "./config";
-
-// Dedicated pool for better-auth (separate from drizzle pool)
-const authPool = new Pool({ connectionString: config.databaseUrl, max: 5 });
 
 function generateApiKey(): string {
   return "sk-cp-" + randomBytes(24).toString("base64url");
 }
 
 export const auth = betterAuth({
-  database: authPool,
+  database: prismaAdapter(prisma, { provider: "postgresql" }),
   basePath: "/api/auth",
   baseURL: config.betterAuthUrl || `http://localhost:${config.port}`,
   ...(config.betterAuthSecret ? { secret: config.betterAuthSecret } : {}),

@@ -1,5 +1,4 @@
-import { sql } from "drizzle-orm";
-import { db } from "../db";
+import { prisma } from "../prisma";
 
 const SESSION_GAP_MS = 30 * 60 * 1000;
 
@@ -24,23 +23,23 @@ export interface Session {
 }
 
 export async function handleApiSessions(user: string): Promise<Response> {
-  const result = await db.execute(sql`
-    SELECT ts, input_tokens, output_tokens, cache_read, cache_creation,
-           model, messages_json, response_text
-    FROM request_logs
-    WHERE (name = ${user} OR (name = '' AND token_key = ${user})) AND status < 400
-    ORDER BY ts ASC
-  `);
-  const rows = ((result as any).rows ?? []) as {
-    ts: number; input_tokens: number; output_tokens: number;
-    cache_read: number; cache_creation: number;
-    model: string; messages_json: string; response_text: string;
-  }[];
+  const rows = await prisma.request_logs.findMany({
+    where: {
+      status: { lt: 400 },
+      OR: [
+        { name: user },
+        { AND: [{ name: "" }, { token_key: user }] },
+      ],
+    },
+    select: { ts: true, input_tokens: true, output_tokens: true, cache_read: true, cache_creation: true, model: true, messages_json: true, response_text: true },
+    orderBy: { ts: "asc" },
+  });
 
   if (!rows.length) return Response.json({ sessions: [] });
 
+  type Row = typeof rows[number];
   const sessions: Session[] = [];
-  let group: typeof rows = [];
+  let group: Row[] = [];
 
   for (const row of rows) {
     const prev = group[group.length - 1];
@@ -66,11 +65,7 @@ function lastUserText(messagesJson: string): string {
   return "";
 }
 
-function buildSession(rows: {
-  ts: number; input_tokens: number; output_tokens: number;
-  cache_read: number; cache_creation: number;
-  model: string; messages_json: string; response_text: string;
-}[]): Session {
+function buildSession(rows: any[]): Session {
   const first = rows[0]!;
   const last  = rows[rows.length - 1]!;
   const total_tokens = rows.reduce((s, r) => s + Number(r.input_tokens) + Number(r.output_tokens), 0);

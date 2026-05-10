@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Application tables ────────────────────────────────────────────────────────
+
+model tokens {
+  key          String   @id
+  name         String   @default("")
+  user_id      String   @default("")
+  lim          BigInt?
+  win          BigInt
+  used         BigInt   @default(0)
+  window_start BigInt
+  paused       Boolean  @default(false)
+  dynamic      Boolean  @default(false)
+  deleted      Boolean  @default(false)
+  provider     String   @default("inherit")
+}
+
+model request_logs {
+  id              Int     @id @default(autoincrement())
+  ts              BigInt
+  token_key       String
+  name            String  @default("")
+  user_id         String  @default("")
+  model           String  @default("")
+  input_tokens    Int     @default(0)
+  output_tokens   Int     @default(0)
+  cache_read      Int     @default(0)
+  cache_creation  Int     @default(0)
+  stream          Boolean @default(false)
+  status          Int     @default(200)
+  stop_reason     String  @default("")
+  tool_use_count  Int     @default(0)
+  duration_ms     Int     @default(0)
+  turns           Int     @default(0)
+  prompt          String  @default("")
+  system_prompt   String  @default("")
+  messages_json   String  @default("")
+  response_text   String  @default("")
+
+  @@index([ts(sort: Desc)], name: "idx_rl_ts")
+  @@index([token_key, ts(sort: Desc)], name: "idx_rl_key")
+}
+
+model daily_usage {
+  date      String
+  token_key String
+  user_id   String @default("")
+  used      Int    @default(0)
+
+  @@id([date, token_key])
+}
+
+model upstream_state {
+  id                   Int     @id @default(1)
+  last_known_resets_at String?
+  detected_window_ms   BigInt?
+  last_poll            BigInt?
+  five_hour_util       Float?
+  five_hour_resets_at  String?
+  seven_day_util       Float?
+  seven_day_resets_at  String?
+  sonnet_util          Float?
+  sonnet_resets_at     String?
+  opus_util            Float?
+  opus_resets_at       String?
+}
+
+model users {
+  id          String @id
+  name        String
+  email       String @default("")
+  description String @default("")
+  created_at  BigInt
+  role        String @default("USER")
+}
+
+model model_routes {
+  model_id    String  @id
+  threshold   Float   @default(0.90)
+  action      String  @default("block")
+  fallback_to String?
+}
+
+model settings {
+  key   String @id
+  value String
+}
+
+// ── Better Auth tables ────────────────────────────────────────────────────────
+
+model user {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime
+  updatedAt     DateTime
+  role          String    @default("USER")
+  sessions      session[]
+  accounts      account[]
+}
+
+model session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+}
+
+model account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  user      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+}
+
+model verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+}

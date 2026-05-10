@@ -21,7 +21,6 @@ function maskLog(log: any, isAdmin: boolean) {
 export async function handleApiLogs(req: Request, url: URL, isAdmin = false): Promise<Response> {
   const parts = url.pathname.split("/").filter(Boolean);
 
-  // GET /api/logs/:id
   if (parts.length === 3 && parts[2] !== "") {
     const id = parseInt(parts[2]);
     if (isNaN(id)) return Response.json({ error: "Invalid id" }, { status: 400 });
@@ -30,7 +29,6 @@ export async function handleApiLogs(req: Request, url: URL, isAdmin = false): Pr
     return Response.json(maskLog(log, isAdmin), { headers: { "Cache-Control": "no-store" } });
   }
 
-  // GET /api/logs
   const page       = Math.max(1, parseInt(url.searchParams.get("page")  || "1"));
   const limit      = Math.min(100, Math.max(10, parseInt(url.searchParams.get("limit") || "25")));
   const nameFilter = url.searchParams.get("user") || "";
