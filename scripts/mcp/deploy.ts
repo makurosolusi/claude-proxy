@@ -78,11 +78,18 @@ function scanCredentials(diff: string): CredIssue[] {
   });
 }
 
+const SENSITIVE_FILE_WHITELIST: RegExp[] = [
+  /^\.env\.example$/i,
+  /^\.env\.sample$/i,
+  /^\.env\.template$/i,
+];
+
 function scanSensitiveFiles(): string[] {
   try {
     const files = run(`git diff --name-only origin/${BRANCH}..HEAD`).trim().split("\n").filter(Boolean);
     return files.filter(f => {
       const base = f.split("/").pop() ?? f;
+      if (SENSITIVE_FILE_WHITELIST.some(re => re.test(base))) return false;
       return SENSITIVE_FILE_PATTERNS.some(re => re.test(base));
     });
   } catch { return []; }
