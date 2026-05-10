@@ -98,7 +98,7 @@ export function AdminOverview({ tokens, upstream }: {
         </Group>
       </Paper>
 
-      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
+      <SimpleGrid cols={{ base: 1, xs: 2, sm: 4 }} spacing="md">
         <StatCard label="Tokens today" value={totalToday} sub="across all users"
           color={totalToday > 50000 ? "red" : totalToday > 20000 ? "orange" : "teal"} icon={<IconActivity size={16} />} />
         <StatCard label="Upstream 5h" value={utilPct !== null ? `${utilPct.toFixed(0)}` : "—"} suffix="%"

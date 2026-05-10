@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Stack, Table, Badge, Progress, Group, Text, ActionIcon, Pagination, Tooltip,
+  Stack, Table, Badge, Progress, Group, Text, ActionIcon, Pagination, Tooltip, Box,
 } from "@mantine/core";
 import {
   IconRefresh, IconPencil, IconPlayerPause, IconPlayerPlay, IconTrash,
@@ -19,11 +19,13 @@ export function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenSt
 
   return (
     <Stack gap={0}>
-    <Table className="users-table" highlightOnHover withColumnBorders={false} withRowBorders>
+    {/* Wrap table in scrollable container for mobile */}
+    <Box style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+    <Table className="users-table" highlightOnHover withColumnBorders={false} withRowBorders style={{ minWidth: 480 }}>
       <Table.Thead>
         <Table.Tr>
           {["Token","Used","Today","Limit","Remaining","Usage",...(isAdmin?["Actions"]:[])].map(h => (
-            <Table.Th key={h} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>{h}</Table.Th>
+            <Table.Th key={h} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>{h}</Table.Th>
           ))}
         </Table.Tr>
       </Table.Thead>
@@ -37,28 +39,28 @@ export function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenSt
           return (
             <Table.Tr key={k} id={`row-${k}`} className={cls} style={tk.paused ? { opacity: 0.45 } : {}}>
               <Table.Td data-label="Token" pl="md">
-                <Group gap="xs">
-                  <Text size="sm" ff="monospace" id={`lbl-${k}`}>{label}</Text>
+                <Group gap="xs" wrap="nowrap">
+                  <Text size="sm" ff="monospace" id={`lbl-${k}`} style={{ whiteSpace: "nowrap" }}>{label}</Text>
                   {tk.paused && <Badge color="gray" size="xs">paused</Badge>}
                 </Group>
               </Table.Td>
               <Table.Td data-label="Used">
-                <Text size="sm" ff="monospace" c="dimmed">{tk.used.toLocaleString()}</Text>
+                <Text size="sm" ff="monospace" c="dimmed" style={{ whiteSpace: "nowrap" }}>{tk.used.toLocaleString()}</Text>
               </Table.Td>
               <Table.Td data-label="Today">
-                <Text size="sm" ff="monospace" fw={600} className={todayCls}>
+                <Text size="sm" ff="monospace" fw={600} className={todayCls} style={{ whiteSpace: "nowrap" }}>
                   {tk.today ? tk.today.toLocaleString() : <Text span c="dimmed">—</Text>}
                 </Text>
               </Table.Td>
               <Table.Td data-label="Limit">
-                <Text size="sm" ff="monospace" c="dimmed">{tk.limit === null ? "∞" : tk.limit.toLocaleString()}</Text>
+                <Text size="sm" ff="monospace" c="dimmed" style={{ whiteSpace: "nowrap" }}>{tk.limit === null ? "∞" : tk.limit.toLocaleString()}</Text>
               </Table.Td>
               <Table.Td data-label="Remaining">
-                <Text size="sm" ff="monospace" c="dimmed">{tk.remaining === null ? "∞" : tk.remaining.toLocaleString()}</Text>
+                <Text size="sm" ff="monospace" c="dimmed" style={{ whiteSpace: "nowrap" }}>{tk.remaining === null ? "∞" : tk.remaining.toLocaleString()}</Text>
               </Table.Td>
-              <Table.Td data-label="Usage" style={{ minWidth: 140 }}>
-                <Group gap="xs" className="bar-cell">
-                  <Progress value={Math.min(pct, 100)} color={pctColor(pct)} size="sm" style={{ flex: 1 }} animated={false} />
+              <Table.Td data-label="Usage" style={{ minWidth: 120 }}>
+                <Group gap="xs" className="bar-cell" wrap="nowrap">
+                  <Progress value={Math.min(pct, 100)} color={pctColor(pct)} size="sm" style={{ flex: 1, minWidth: 60 }} animated={false} />
                   <Group gap={3} wrap="nowrap">
                     <Text component="span" size="xs" className={`pct-${usageCls(pct)}`}>{pct}%</Text>
                     {pct > 100 && <Badge size="xs" color="red" variant="filled" p="2px 4px">OVER</Badge>}
@@ -67,7 +69,7 @@ export function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenSt
               </Table.Td>
               {isAdmin && (
                 <Table.Td data-label="Actions">
-                  <Group gap={4}>
+                  <Group gap={4} wrap="nowrap">
                     <Tooltip label="Reset usage" withArrow>
                       <ActionIcon variant="subtle" color="gray" size="sm"
                         onClick={() => adminPost("/admin/reset", { token: k })}>
@@ -100,9 +102,10 @@ export function UsersTable({ tokens, isAdmin }: { tokens: Record<string, TokenSt
         })}
       </Table.Tbody>
     </Table>
+    </Box>
 
     {pages > 1 && (
-      <Group justify="space-between" p="sm" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
+      <Group justify="space-between" p="sm" wrap="wrap" gap="xs" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
         <Pagination total={pages} value={page} onChange={setPage} size="sm" />
         <Text size="xs" c="dimmed">
           {`${(page - 1) * USERS_PER_PAGE + 1}–${Math.min(page * USERS_PER_PAGE, entries.length)} of ${entries.length} tokens`}

@@ -599,7 +599,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             onChange={e => setSearch(e.currentTarget.value)}
             leftSection={<IconSearch size={14} />}
             size="sm"
-            style={{ flex: 1, minWidth: 220 }}
+            style={{ flex: 1, minWidth: "clamp(140px, 40vw, 220px)" }}
           />
           <SegmentedControl
             size="sm"
@@ -622,7 +622,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             leftSection={<IconArrowsSort size={14} />}
             size="sm"
             allowDeselect={false}
-            w={170}
+            w={{ base: 140, sm: 170 }}
           />
           <SegmentedControl
             size="sm"
@@ -735,13 +735,13 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                             <Table.Td><Text size="xs" ff="monospace" c="dimmed">{nf(tk.used)}</Text></Table.Td>
                             <Table.Td><Text size="xs" ff="monospace">{tk.today ? nf(tk.today) : "—"}</Text></Table.Td>
                             <Table.Td><Text size="xs" ff="monospace" c="dimmed">{tk.limit === null ? "∞" : nf(tk.limit)}</Text></Table.Td>
-                            <Table.Td style={{ minWidth: 120 }}>
+                            <Table.Td style={{ minWidth: 100 }}>
                               <Group gap="xs" wrap="nowrap">
                                 <Progress value={Math.min(tk.pct, 100)} color={tk.pct >= 95 ? "red" : tk.pct >= 75 ? "orange" : "teal"} size="sm" style={{ flex: 1 }} />
                                 <Text size="xs" c="dimmed" ff="monospace">{tk.pct}%</Text>
                               </Group>
                             </Table.Td>
-                            <Table.Td style={{ minWidth: 220 }}>
+                            <Table.Td style={{ minWidth: 160 }}>
                               <Group gap="xs" wrap="nowrap" align="center">
                                 <SegmentedControl size="xs" value={tk.provider || "inherit"} disabled={savingProvider === tk.key}
                                   onChange={async v => {
@@ -908,7 +908,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                           <Group justify="space-between" wrap="nowrap" gap="xs" align="center">
                             <Text size="xs" ff="monospace" c="dimmed">{nf(tk.used)} / {tk.limit === null ? "∞" : nf(tk.limit)}{tk.today > 0 ? ` · ${nf(tk.today)} today` : ""}</Text>
                             <Select size="xs" value={tk.provider || "inherit"} disabled={savingProvider === tk.key}
-                              style={{ width: 108 }} comboboxProps={{ withinPortal: true }}
+                              style={{ width: "clamp(80px, 20vw, 108px)" }} comboboxProps={{ withinPortal: true }}
                               onChange={async v => {
                                 if (!v) return;
                                 setSavingProvider(tk.key);

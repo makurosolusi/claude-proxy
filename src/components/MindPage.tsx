@@ -363,7 +363,7 @@ export function MindPage() {
           Request Mind Map
         </Text>
 
-        <Box style={{ width: 60 }} />
+        <Box style={{ width: 36, flexShrink: 0 }} />
       </Box>
 
       {/* ── Legend overlay ───────────────────────────────── */}
@@ -372,7 +372,7 @@ export function MindPage() {
           position: "absolute", bottom: 52, left: "50%", transform: "translateX(-50%)", zIndex: 10,
           textAlign: "center", pointerEvents: "none",
         }}>
-          <Group gap="lg">
+          <Group gap="sm">
             {CAT_NAMES.map((name, i) => (
               <Group key={name} gap={6}>
                 <Box w={8} h={8} style={{ borderRadius: "50%", background: CAT_COLORS[i] }} />
@@ -385,7 +385,7 @@ export function MindPage() {
 
       {/* ── Stats corner ─────────────────────────────────── */}
       {data && !isEmpty && (
-        <Box style={{ position: "absolute", top: 56, right: 20, zIndex: 10, textAlign: "right" }}>
+        <Box style={{ position: "absolute", top: 56, right: "max(8px, env(safe-area-inset-right, 8px))", zIndex: 10, textAlign: "right", maxWidth: "60vw" }}>
           <Text size="xs" ff="monospace" style={{ color: dark ? "#909296" : "#555" }}>
             {userCount} users · {dateCount} dates · {hourCount} hours · {reqCount} requests
           </Text>

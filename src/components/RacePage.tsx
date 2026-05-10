@@ -223,7 +223,7 @@ export function RacePage() {
         z: 0,
         style: {
           text: fmtTime(f.time, data.granularity),
-          font: `bold 52px monospace`,
+          font: `bold clamp(24px, 8vw, 52px) monospace`,
           fill: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
           textAlign: "right",
         },
@@ -285,7 +285,7 @@ export function RacePage() {
         </Group>
 
         {/* right spacer matches left icon */}
-        <Box style={{ width: 32 }} />
+        <Box style={{ width: 36, flexShrink: 0 }} />
       </Box>
 
       {/* ── States ──────────────────────────────────────────────────── */}
@@ -370,7 +370,7 @@ export function RacePage() {
 
             <Group justify="space-between" align="center" wrap="nowrap">
               {/* Current time */}
-              <Text ff="monospace" size="xs" fw={600} style={{ color: sub, minWidth: 90 }}>
+              <Text ff="monospace" size="xs" fw={600} style={{ color: sub, minWidth: "clamp(60px, 15vw, 90px)" }}>
                 {data.frames[frameIdx] ? fmtTime(data.frames[frameIdx].time, data.granularity) : ""}
               </Text>
 
@@ -425,7 +425,7 @@ export function RacePage() {
               </Group>
 
               {/* Frame counter */}
-              <Text ff="monospace" size="xs" style={{ color: dim, minWidth: 90, textAlign: "right" }}>
+              <Text ff="monospace" size="xs" style={{ color: dim, minWidth: "clamp(60px, 15vw, 90px)", textAlign: "right" }}>
                 {frameIdx + 1} / {total}
               </Text>
             </Group>

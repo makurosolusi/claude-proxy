@@ -77,7 +77,7 @@ function ExchangeBlock({ ex, dark }: { ex: Exchange; dark: boolean }) {
               <ThemeIcon size="xs" variant="light" color="blue" radius="xl"><IconUser size={9} /></ThemeIcon>
             </Group>
             <Box style={{
-              maxWidth: "88%", padding: "8px 12px",
+              maxWidth: "92%", padding: "8px 12px",
               borderRadius: "12px 12px 2px 12px",
               background: dark ? "#1864ab" : "#228be6",
               color: "#fff", fontSize: 13, lineHeight: 1.6,
@@ -96,7 +96,7 @@ function ExchangeBlock({ ex, dark }: { ex: Exchange; dark: boolean }) {
               <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Claude</Text>
             </Group>
             <Box style={{
-              maxWidth: "88%", padding: "8px 12px",
+              maxWidth: "92%", padding: "8px 12px",
               borderRadius: "12px 12px 12px 2px",
               background: dark ? "#2c2e33" : "#f1f3f5",
               color: dark ? "#c1c2c5" : "#212529",
@@ -163,7 +163,7 @@ function SessionCard({ session, dark }: { session: Session; dark: boolean }) {
             No conversation captured — request predates session history feature.
           </Text>
         ) : (
-          <ScrollArea.Autosize mah={640} offsetScrollbars>
+          <ScrollArea.Autosize mah={{ base: 380, sm: 520, md: 640 }} offsetScrollbars>
             <Stack gap={16} p="xs">
               {session.exchanges.map((ex, i) => (
                 <ExchangeBlock key={i} ex={ex} dark={dark} />
@@ -196,7 +196,7 @@ export function SessionHistory() {
   const grandTotal    = sessions.reduce((s, se) => s + se.total_tokens, 0);
 
   return (
-    <Stack gap="xl" p="md" maw={860} mx="auto">
+    <Stack gap="xl" p={{ base: "xs", sm: "md" }} maw={860} mx="auto">
       <Paper withBorder p="lg" radius="md">
         <Group justify="space-between" wrap="wrap">
           <Box>

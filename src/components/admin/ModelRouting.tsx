@@ -123,6 +123,8 @@ export function AdminModelRouting() {
         </Paper>
       ) : (
         <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+          <Box style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          <Box style={{ minWidth: 480 }}>
           <Group gap={0} px="md" py={10}
             style={{ borderBottom: "1px solid var(--mantine-color-default-border)",
               background: "var(--mantine-color-dark-6)", fontSize: 11, fontWeight: 600,
@@ -192,6 +194,8 @@ export function AdminModelRouting() {
               </ActionIcon>
             </Group>
           ))}
+          </Box>
+          </Box>
         </Paper>
       )}
     </Stack>

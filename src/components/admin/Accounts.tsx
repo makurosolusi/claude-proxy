@@ -339,7 +339,7 @@ export function AdminAccounts() {
   const activeCount = creds?.filter(c => c.active).length ?? 0;
 
   return (
-    <Stack gap="xl" maw={780}>
+    <Stack gap="xl" maw={780} px={{ base: "xs", sm: 0 }}>
       {/* ── Page Header ───────────────────────────────────── */}
       <Paper withBorder p="lg" radius="md">
         <Group justify="space-between" wrap="wrap">
@@ -406,7 +406,7 @@ export function AdminAccounts() {
                 <Text size="sm" fw={600}>Paste the callback URL</Text>
                 <Text size="xs" c="dimmed" mt={2}>
                   After authorizing, your browser will try to load{" "}
-                  <Code>localhost:54545/callback?code=…</Code> and show an error — that's expected.
+                  <Code style={{ wordBreak: "break-all" }}>localhost:54545/callback?code=…</Code> and show an error — that's expected.
                   Copy that URL from the address bar and paste it below.
                 </Text>
                 <TextInput

@@ -68,7 +68,7 @@ export function AdminProviders() {
     : "gray";
 
   return (
-    <Stack gap="xl" maw={780}>
+    <Stack gap="xl" maw={780} px={{ base: "xs", sm: 0 }}>
       {/* Header — active provider indicator */}
       <Paper withBorder p="lg" radius="md">
         <Group justify="space-between" wrap="wrap">

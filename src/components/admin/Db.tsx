@@ -97,7 +97,7 @@ export function AdminDb() {
   };
 
   return (
-    <Stack gap="xl" maw={600}>
+    <Stack gap="xl" maw={600} px={{ base: "xs", sm: 0 }}>
       {/* ── Page Header ───────────────────────────────────── */}
       <Paper withBorder p="lg" radius="md">
         <Group justify="space-between" wrap="wrap">
@@ -120,7 +120,7 @@ export function AdminDb() {
           <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".07em" }}>Current Database</Text>
         </Group>
         {info ? (
-          <Group gap="xl" pl={40}>
+          <Group gap="xl" pl={{ base: 16, sm: 40 }}>
             <div>
               <Text size="xs" c="dimmed">Path</Text>
               <Text size="sm" ff="monospace">{info.path}</Text>
@@ -135,7 +135,7 @@ export function AdminDb() {
             </div>
           </Group>
         ) : (
-          <Group gap="xs" pl={40}><Loader size="xs" /><Text size="sm" c="dimmed">Loading...</Text></Group>
+          <Group gap="xs" pl={{ base: 16, sm: 40 }}><Loader size="xs" /><Text size="sm" c="dimmed">Loading...</Text></Group>
         )}
       </Paper>
 
@@ -150,7 +150,7 @@ export function AdminDb() {
             <Text size="xs" c="dimmed">Download a copy of the database before making changes.</Text>
           </div>
         </Group>
-        <Group gap="xs" pl={40}>
+        <Group gap="xs" pl={{ base: 16, sm: 40 }}>
           <Button
             component="a"
             href="/api/admin/db/download"
@@ -183,7 +183,7 @@ export function AdminDb() {
             <Text size="xs" c="dimmed">Hapus data historis. Quota counter tidak terpengaruh.</Text>
           </div>
         </Group>
-        <Stack gap="sm" pl={40}>
+        <Stack gap="sm" pl={{ base: 16, sm: 40 }}>
           <Group gap="xs">
             <Button
               size="sm" color="red" variant="light" radius="md"
@@ -236,7 +236,7 @@ export function AdminDb() {
           </div>
         </Group>
 
-        <div style={{ paddingLeft: 40 }}>
+        <div style={{ paddingLeft: "clamp(16px, 5vw, 40px)" }}>
           {(phase === "idle" || phase === "selected") && (
             <Stack gap="sm">
               <Paper p="xs" radius="sm" style={{ background: "var(--mantine-color-orange-light)" }}>

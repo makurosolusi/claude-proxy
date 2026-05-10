@@ -110,7 +110,7 @@ export function AdminTest() {
   const loadingAny  = loading !== null;
 
   return (
-    <Stack gap="xl" maw={780}>
+    <Stack gap="xl" maw={780} px={{ base: "xs", sm: 0 }}>
       {/* Page Header */}
       <Paper withBorder p="lg" radius="md">
         <Group justify="space-between" wrap="wrap">
@@ -143,7 +143,7 @@ export function AdminTest() {
         </Paper>
       )}
 
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
         {/* Claude Max */}
         <Paper withBorder p="lg" radius="md">
           <Group gap="sm" mb="lg">
