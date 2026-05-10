@@ -1,4 +1,39 @@
-/* Row color indicators — targeted via JS className */
+/* ── Mobile-first global resets ──────────────────────────────────────────── */
+
+/* Prevent horizontal overflow at root */
+html, body, #root {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Safe area padding for notched phones */
+.mantine-AppShell-main {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+}
+
+/* Make tables scroll cleanly on mobile */
+.mantine-Table-scrollContainer {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+/* Prevent modal overflow on tiny screens */
+.mantine-Modal-content {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+/* Fluid images/media */
+img, svg, canvas {
+  max-width: 100%;
+}
+
+/* Better touch scrolling in ScrollArea */
+.mantine-ScrollArea-viewport {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Row color indicators — targeted via JS className ─────────────────────── */
 .u-ok   td:first-child { border-left: 3px solid #10b981; }
 .u-warn td:first-child { border-left: 3px solid #f59e0b; }
 .u-high td:first-child { border-left: 3px solid #f97316; }
@@ -11,7 +46,7 @@
 .pct-over { color: #dc2626; font-weight: 700; }
 
 /* Bar cell flex layout */
-.bar-cell { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+.bar-cell { display: flex; align-items: center; gap: 8px; min-width: 80px; }
 .bar-cell span { white-space: nowrap; font-size: .8rem; font-weight: 700; min-width: 36px; text-align: right; }
 
 /* Mobile responsive table cards */
@@ -41,4 +76,3 @@
     letter-spacing: .05em;
   }
 }
-

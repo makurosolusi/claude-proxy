@@ -268,7 +268,7 @@ function BackToTop() {
           variant="filled" color="blue" size="lg" radius="xl"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           aria-label="Back to top"
-          style={{ ...styles, position: "fixed", right: 16, bottom: 88, zIndex: 50, boxShadow: "0 4px 12px rgba(0,0,0,.25)" }}
+          style={{ ...styles, position: "fixed", right: 16, bottom: "max(80px, calc(env(safe-area-inset-bottom, 0px) + 80px))", zIndex: 50, boxShadow: "0 4px 12px rgba(0,0,0,.25)" }}
         >
           <IconArrowUp size={18} />
         </ActionIcon>
@@ -512,7 +512,7 @@ function ProfilePage() {
 
   if (loading) return (
     <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5" }}>
-      <Container size="sm" py="xl">
+      <Container size="sm" py={{ base: "md", sm: "xl" }} px={{ base: "sm", sm: "md" }}>
         <Group justify="center" py="xl"><Loader size="md" /></Group>
       </Container>
     </Box>
@@ -520,7 +520,7 @@ function ProfilePage() {
 
   if (!profile?.authenticated) return (
     <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5" }}>
-      <Container size="sm" py="xl">
+      <Container size="sm" py={{ base: "md", sm: "xl" }} px={{ base: "sm", sm: "md" }}>
         <Paper withBorder p="lg" radius="md" ta="center">
           <Stack gap="md" align="center">
             <ThemeIcon variant="light" color="gray" size="xl" radius="xl"><IconKey size={22} /></ThemeIcon>
@@ -547,7 +547,7 @@ function ProfilePage() {
 
   return (
     <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5" }}>
-      <Container size="sm" py="xl">
+      <Container size="sm" py={{ base: "md", sm: "xl" }} px={{ base: "sm", sm: "md" }}>
         <Stack gap="lg">
 
           {/* ── Header ───────────────────────────────────────────── */}
@@ -864,7 +864,7 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
 
   return (
     <Box style={{ minHeight: "100vh", background: pageBg, backgroundAttachment: "fixed", transition: "background 3s ease" }}>
-    <Container size="md" py="xl">
+    <Container size="md" py={{ base: "md", sm: "xl" }} px={{ base: "sm", sm: "md" }}>
       {/* ── Hero ─────────────────────────────────────────────── */}
       {(() => {
         const ap = upstream?.activeProvider;
@@ -884,10 +884,10 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
         const userInitials = (profile?.name || profile?.email || "?").slice(0, 2).toUpperCase();
 
         return (
-          <Paper withBorder p="lg" radius="lg" mb="lg"
+          <Paper withBorder p={{ base: "sm", sm: "lg" }} radius="lg" mb="lg"
             style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
             {/* top row: logo + actions */}
-            <Group justify="space-between" wrap="wrap" mb="md">
+            <Group justify="space-between" wrap="wrap" mb="md" gap="xs">
               <Group gap="md">
                 <Box style={{ width: 48, height: 48, background: "#228be6", borderRadius: 12,
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -994,7 +994,7 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
       )}
 
       {/* ── Quick Stats ──────────────────────────────────────── */}
-      <SimpleGrid cols={{ base: 2, xs: 4 }} mb="lg" id="stats" style={{ scrollMarginTop: 16 }}>
+      <SimpleGrid cols={{ base: 2, sm: 4 }} mb="lg" id="stats" style={{ scrollMarginTop: 16 }}>
         <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
           <Group gap="sm" mb={6}>
             <ThemeIcon variant="light" color="blue" size="md" radius="md">
@@ -1144,7 +1144,7 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
                 return (
                   <Box key={key} style={{ cursor: "pointer" }} onClick={() => setSelectedToken({ key, tk })}>
                     <Group gap="sm" wrap="nowrap" mb={4}>
-                      <Group gap={6} style={{ minWidth: isAdmin ? 140 : 90, maxWidth: isAdmin ? 180 : 110 }} wrap="nowrap">
+                      <Group gap={6} style={{ minWidth: isAdmin ? 100 : 72, maxWidth: isAdmin ? 160 : 100, flexShrink: 0 }} wrap="nowrap">
                         <Box w={6} h={6} style={{ borderRadius: "50%", background: `var(--mantine-color-${dotColor}-5)`, flexShrink: 0 }} />
                         <Tooltip label={tk.label} withArrow openDelay={400} disabled={display === tk.label}>
                           <Text size="xs" ff="monospace" truncate>{display}</Text>
@@ -1152,7 +1152,7 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
                         {ins && <Badge size="xs" variant="light" color={profColor[prof]}>{profLabel[prof]}</Badge>}
                       </Group>
                       <Progress value={pct} color={color} size="md" radius="sm" style={{ flex: 1 }} />
-                      <Group gap={4} style={{ minWidth: 100, justifyContent: "flex-end" }} wrap="nowrap">
+                      <Group gap={4} style={{ minWidth: 72, justifyContent: "flex-end", flexShrink: 0 }} wrap="nowrap">
                         {spike && <Tooltip label="Spike hari ini >2× rata-rata" withArrow><IconAlertTriangle size={12} color="var(--mantine-color-orange-5)" /></Tooltip>}
                         {tk.activeProvider && tk.activeProvider !== "anthropic" && (
                           <Text size="10px" ff="monospace"
@@ -1168,7 +1168,7 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
                     </Group>
                     {/* Sparkline + burn rate */}
                     {spark.length === 7 && (
-                      <Group gap="sm" wrap="nowrap" pl={isAdmin ? 148 : 98}>
+                      <Group gap="sm" wrap="nowrap" pl={isAdmin ? 108 : 80}>
                         <Tooltip label={spark.map((v, i) => `${i === 6 ? "Today" : `-${6-i}d`}: ${nf.format(v)}`).join("\n")} multiline withArrow>
                           <Box style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 20, cursor: "default" }}>
                             {spark.map((v, i) => (
@@ -1310,7 +1310,7 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
                 <Text size="sm" fw={700}>Leaderboard</Text>
                 <Text size="xs" c="dimmed">— ranked by all-time token usage</Text>
               </Group>
-              <Table.ScrollContainer minWidth={500}>
+              <Table.ScrollContainer minWidth={360}>
                 <Table highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
@@ -1646,7 +1646,7 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
                   <Text size="xs" c="dimmed">— heaviest requests, scored 0–100 from input tokens, ratio, tool use, duration</Text>
                   <Badge size="xs" variant="light" color="red" ml="auto">{analytics.anomalyScores.length} entries</Badge>
                 </Group>
-                <Table.ScrollContainer minWidth={600}>
+                <Table.ScrollContainer minWidth={380}>
                   <Table highlightOnHover>
                     <Table.Thead>
                       <Table.Tr>

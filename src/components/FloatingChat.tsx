@@ -100,11 +100,11 @@ export function FloatingChat({ userName }: { userName?: string }) {
   };
 
   return (
-    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+    <div style={{ position: "fixed", bottom: "max(16px, env(safe-area-inset-bottom, 16px))", right: 16, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
 
       {open && (
         <Paper withBorder shadow="xl" mb={10}
-          style={{ width: 320, height: 420, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          style={{ width: "min(320px, calc(100vw - 32px))", height: "min(420px, calc(100dvh - 140px))", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
           <Group justify="space-between" px="sm" py={8}
             style={{ borderBottom: "1px solid var(--mantine-color-default-border)", flexShrink: 0 }}>

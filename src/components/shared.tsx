@@ -155,7 +155,7 @@ function SingleGauge({
       </Tooltip>
       <ReactECharts
         option={option}
-        style={{ height: 240, width: "100%" }}
+        style={{ height: "min(240px, 45vw)", width: "100%" }}
         opts={{ renderer: "canvas" }}
       />
     </Box>
@@ -181,7 +181,7 @@ function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
   ];
 
   return (
-    <SimpleGrid cols={{ base: 1, xs: entries.length === 1 ? 1 : entries.length === 2 ? 2 : 3 }} spacing="xs">
+    <SimpleGrid cols={{ base: 1, xs: entries.length === 1 ? 1 : 2, md: entries.length === 1 ? 1 : entries.length === 2 ? 2 : 3 }} spacing="xs">
       {entries.map(e => (
         <SingleGauge key={e.label} label={e.label} data={e.data} dark={dark} arcColors={arcColors} />
       ))}

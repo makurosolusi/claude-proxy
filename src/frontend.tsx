@@ -24,7 +24,7 @@ function Root() {
     <BrowserRouter>
       <MantineProvider theme={theme} defaultColorScheme="auto">
         <ModalsProvider>
-          <Notifications position="top-right" />
+          <Notifications position="top-center" containerWidth="min(400px, calc(100vw - 32px))" />
           <Inspector>
             <App />
           </Inspector>

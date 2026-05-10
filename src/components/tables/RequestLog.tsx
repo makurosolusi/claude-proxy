@@ -144,7 +144,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
     <>
       <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
         {/* ── Header ──────────────────────────────────────────── */}
-        <Box p="lg">
+        <Box p={{ base: "sm", sm: "lg" }}>
           <Group justify="space-between" wrap="wrap" align="flex-start">
             <div>
               <Text size="sm" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }} mb={4}>Request Logs</Text>
@@ -191,7 +191,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                   <IconFilter size={12} />
                 </ThemeIcon>
                 <Select
-                  size="xs" w={150}
+                  size="xs" w={{ base: 130, xs: 150 }}
                   data={["All users", ...users.map(u => ({ value: u, label: u }))]}
                   value={user || "All users"}
                   onChange={v => { const u = v === "All users" ? null : v; setUser(u); fetchLogs(1, u); }}
@@ -212,7 +212,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
 
             <Divider />
 
-            <Group gap={6}>
+            <Group gap={4} wrap="wrap">
               <ThemeIcon variant="light" color="gray" size="sm" radius="sm">
                 <IconStack2 size={12} />
               </ThemeIcon>
@@ -252,7 +252,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
         <Divider />
 
         {/* ── Table ────────────────────────────────────────────── */}
-        <Table.ScrollContainer minWidth={860}>
+        <Table.ScrollContainer minWidth={420}>
           <Table highlightOnHover>
             <Table.Thead>
               <Table.Tr>
@@ -296,7 +296,7 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                   total: <Table.Td key="total"><Text size="xs" ff="monospace" fw={700} className={totCls(tot)}>{tot.toLocaleString()}</Text></Table.Td>,
                   type:  <Table.Td key="type">{l.stream ? <Badge color="blue" size="xs">stream</Badge> : <Text size="xs" c="dimmed">sync</Text>}</Table.Td>,
                   prompt: (
-                    <Table.Td key="prompt" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <Table.Td key="prompt" style={{ maxWidth: "min(260px, 40vw)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       <Text size="xs" c="dimmed" truncate title={l.prompt}>{l.prompt || "—"}</Text>
                     </Table.Td>
                   ),

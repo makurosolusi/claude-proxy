@@ -29,7 +29,7 @@ export function DailyHistory({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <Stack gap={0}>
-      <Table.ScrollContainer minWidth={400}>
+      <Table.ScrollContainer minWidth={280}>
         <Table highlightOnHover>
           <Table.Thead>
             <Table.Tr>

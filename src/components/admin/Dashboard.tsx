@@ -238,7 +238,7 @@ export function AdminDashboard() {
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <Box p="lg">
+        <Box p={{ base: "xs", sm: "md", md: "lg" }}>
           {section === "overview"  && <AdminOverview tokens={tokens} upstream={upstream} />}
           {section === "users"     && <AdminUsers tokens={tokens} />}
           {section === "logs"      && <RequestLog isAdmin={true} />}
