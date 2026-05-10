@@ -222,23 +222,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
-  if (pathname === "/admin/users/purge-legacy" && req.method === "POST") {
-    const legacyUsers = Object.values(users).filter(u => !u.email);
-    let deleted = 0;
-    for (const u of legacyUsers) {
-      const userTokenKeys = Object.keys(tokens).filter(k => tokens[k]!.user_id === u.id);
-      for (const key of userTokenKeys) {
-        await prisma.tokens.update({ where: { key }, data: { deleted: true } });
-        delete tokens[key];
-      }
-      await prisma.users.delete({ where: { id: u.id } });
-      delete users[u.id];
-      deleted++;
-    }
-    triggerBroadcast();
-    return Response.json({ ok: true, deleted });
-  }
-
   if (pathname === "/admin/users/purge-orphans" && req.method === "POST") {
     const tokenUserIds = new Set(Object.values(tokens).map(tk => tk.user_id).filter(Boolean));
     const orphans = Object.values(users).filter(u => !tokenUserIds.has(u.id));

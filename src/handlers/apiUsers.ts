@@ -18,7 +18,7 @@ export async function handleApiUsers(
       const userTokens = Object.entries(tokens)
         .filter(([, tk]) => tk.user_id === u.id)
         .map(([key, tk]) => ({
-          key: key.slice(-8), fullKey: key,
+          key,
           name: tk.name, used: tk.used, limit: tk.limit === Infinity ? null : tk.limit,
           paused: tk.paused, provider: tk.provider,
         }));

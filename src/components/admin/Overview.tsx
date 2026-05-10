@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Stack, SimpleGrid, Paper, Text, Group, ThemeIcon, NumberFormatter, Box, Loader } from "@mantine/core";
-import { IconRefresh, IconPlayerPause, IconPencil, IconLogout, IconActivity, IconUsers, IconGauge, IconChartBar, IconClock } from "@tabler/icons-react";
+import { IconRefresh, IconPlayerPause, IconPencil, IconLogout, IconActivity, IconUsers, IconGauge, IconChartBar, IconClock, IconTrash } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { pctColor, fmtResetAt, adminPost } from "../../utils";
@@ -28,7 +28,7 @@ function StatCard({ label, value, sub, color, suffix, icon }: {
   );
 }
 
-type ActionId = "reset" | "pause" | "edit";
+type ActionId = "reset" | "pause" | "edit" | "clearLogs" | "clearUsage";
 
 function ActionCard({ icon, label, desc, color, loading, onClick }: {
   icon: React.ReactNode; label: string; desc: string; color: string;
@@ -143,6 +143,30 @@ export function AdminOverview({ tokens, upstream }: {
               const v = prompt("New limit for all tokens:");
               if (v) run("edit", () => adminPost("/admin/token/edit-all", { limit: v }), `All limits set to ${v}`);
             }}
+          />
+          <ActionCard
+            icon={<IconTrash size={18} />} label="Clear Request Logs"
+            desc="Delete all request log history. Quota counters unaffected." color="red"
+            loading={loading === "clearLogs"}
+            onClick={() => modals.openConfirmModal({
+              title: "Clear Request Logs",
+              children: <Text size="sm">Hapus semua request logs? Quota counter tidak ikut terhapus. Tindakan ini tidak bisa dibatalkan.</Text>,
+              labels: { confirm: "Clear Logs", cancel: "Cancel" },
+              confirmProps: { color: "red" },
+              onConfirm: () => run("clearLogs", async () => { await fetch("/admin/logs/clear", { method: "POST" }); }, "Request logs cleared"),
+            })}
+          />
+          <ActionCard
+            icon={<IconTrash size={18} />} label="Clear Usage History"
+            desc="Delete daily usage history. Current window unaffected." color="orange"
+            loading={loading === "clearUsage"}
+            onClick={() => modals.openConfirmModal({
+              title: "Clear Daily Usage History",
+              children: <Text size="sm">Hapus semua data daily usage (grafik per-user)? Quota counter window saat ini tidak terpengaruh. Tindakan ini tidak bisa dibatalkan.</Text>,
+              labels: { confirm: "Clear Usage History", cancel: "Cancel" },
+              confirmProps: { color: "orange" },
+              onConfirm: () => run("clearUsage", async () => { await fetch("/admin/usage/clear", { method: "POST" }); }, "Usage history cleared"),
+            })}
           />
           <ActionCard
             icon={<IconLogout size={18} />} label="Sign Out"

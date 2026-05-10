@@ -19,7 +19,6 @@ import { handleApiSessions }     from "./handlers/apiSessions";
 import { handleApiAnalytics }    from "./handlers/apiAnalytics";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
-import { handleDbDownload, handleDbUpload, handleDbInfo } from "./handlers/apiDb";
 import { handleDebugQuery } from "./handlers/apiDebug";
 import { handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure } from "./handlers/apiDebugExtra";
 import { handleAdmin }     from "./handlers/admin";
@@ -566,19 +565,6 @@ server = serve({
       return Response.json({ blocked: [...chatBlocklist] });
     },
 
-    "/api/admin/db/info": async req => {
-      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-      return handleDbInfo();
-    },
-    "/api/admin/db/download": async req => {
-      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-      return handleDbDownload();
-    },
-    "/api/admin/db/upload": async req => {
-      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-      return handleDbUpload(req);
-    },
-
     // Debug endpoints — auth via x-mcp-secret (untuk MCP debug-stg)
     "/api/debug/query":            async req => handleDebugQuery(req),
     "/api/debug/token/*":          async req => handleDebugToken(req, new URL(req.url)),
@@ -635,7 +621,6 @@ server = serve({
     "/admin/user/edit":          async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/user/set-email":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/users/purge-orphans": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/users/purge-legacy":  async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/deepseek":    async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/openrouter": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
 

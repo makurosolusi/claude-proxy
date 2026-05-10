@@ -6,7 +6,7 @@ import {
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconPlayerPlay, IconTrash, IconPencil,
-  IconUsers, IconAlertTriangle, IconKey, IconRotate,
+  IconAlertTriangle, IconKey, IconRotate,
   IconPlus, IconCopy, IconCheck, IconSearch, IconArrowsSort,
   IconLayoutGrid, IconList,
 } from "@tabler/icons-react";
@@ -386,7 +386,6 @@ function EditAllLimitsGlobalModal({ onClose, onSaved }: { onClose: () => void; o
 }
 
 type SortKey = "name" | "usage" | "tokens" | "newest";
-type FilterKey = "all" | "legacy";
 
 export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, TokenStatus> }) {
   const [apiUsers, setApiUsers]       = useState<ApiUser[] | null>(null);
@@ -399,14 +398,13 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [addTokenTo, setAddTokenTo]               = useState<ApiUser | null>(null);
   const [search, setSearch]           = useState("");
   const [sort, setSort]               = useState<SortKey>("usage");
-  const [filter, setFilter]           = useState<FilterKey>("all");
   const [viewMode, setViewMode]         = useState<"grid" | "list">(() => {
     try { return (localStorage.getItem("admin-users-view") as "grid" | "list") || "grid"; }
     catch { return "grid"; }
   });
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [rowAction, setRowAction]           = useState<{ key: string; act: string } | null>(null);
-  const [bulkAction, setBulkAction]         = useState<"reset" | "pause" | "purge" | "purge-legacy" | null>(null);
+  const [bulkAction, setBulkAction]         = useState<"reset" | "pause" | "purge" | null>(null);
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/admin/users");
@@ -440,7 +438,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     if (!apiUsers) return null;
     const q = search.trim().toLowerCase();
     let list = apiUsers;
-    if (filter === "legacy") list = list.filter(u => !u.email);
     if (q) {
       list = list.filter(u =>
         u.name.toLowerCase().includes(q) ||
@@ -469,7 +466,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const total      = entries.length;
   const paused     = entries.filter(([, t]) => t.paused).length;
   const overLimit  = entries.filter(([, t]) => t.pct > 100).length;
-  const legacyCount = apiUsers?.filter(u => !u.email).length ?? 0;
 
   return (
     <Stack gap="xl">
@@ -508,16 +504,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                 </Group>
               </Paper>
             )}
-            {legacyCount > 0 && (
-              <Paper withBorder p="xs" radius="md" style={{ cursor: "pointer", borderColor: "var(--mantine-color-yellow-4)" }}
-                onClick={() => setFilter(f => f === "legacy" ? "all" : "legacy")}>
-                <Group gap="xs">
-                  <IconUsers size={14} color="var(--mantine-color-yellow-6)" />
-                  <Text size="xs" fw={600} c="yellow.7">{legacyCount}</Text>
-                  <Text size="xs" c="dimmed">legacy</Text>
-                </Group>
-              </Paper>
-            )}
           </Group>
         </Group>
       </Paper>
@@ -538,15 +524,13 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
           { act: "reset" as const, color: "gray",   icon: <IconRefresh size={18} />,     label: "Reset All Usage",    desc: "Zero out window counters for all tokens" },
           { act: "pause" as const, color: "orange", icon: <IconPlayerPause size={18} />, label: "Pause All Tokens",   desc: "Suspend all tokens temporarily" },
           { act: "purge" as const,        color: "red",    icon: <IconTrash size={18} />,       label: "Purge Orphan Users",  desc: "Delete users with no tokens" },
-          { act: "purge-legacy" as const, color: "yellow", icon: <IconUsers size={18} />,       label: "Purge Legacy Users",  desc: "Delete users without Google email (not migrated)" },
         ]).map(({ act, color, icon, label, desc }) => {
           const busy = bulkAction === act;
-          const doAction = () => runBulkAction(act as any, async () => {
+          const doAction = () => runBulkAction(act, async () => {
             if (act === "reset") await adminPost("/admin/reset", { all: "true" });
             else if (act === "pause") await adminPost("/admin/token/pause", { all: "true" });
-            else if (act === "purge") { const r = await fetch("/admin/users/purge-orphans", { method: "POST" }); await r.json(); }
-            else { const r = await fetch("/admin/users/purge-legacy", { method: "POST" }); const d = await r.json() as any; return d; }
-          }, act === "reset" ? "All usage reset" : act === "pause" ? "All tokens paused/resumed" : act === "purge" ? "Orphan users removed" : "Legacy users removed");
+            else { const r = await fetch("/admin/users/purge-orphans", { method: "POST" }); await r.json(); }
+          }, act === "reset" ? "All usage reset" : act === "pause" ? "All tokens paused/resumed" : "Orphan users removed");
           return (
             <Paper key={act} withBorder p="sm" radius="md"
               style={{ cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1 }}
@@ -563,13 +547,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                   children: <Text size="sm">Delete all users with no tokens? This cannot be undone.</Text>,
                   labels: { confirm: "Purge", cancel: "Cancel" },
                   confirmProps: { color: "red" },
-                  onConfirm: doAction,
-                });
-                else if (act === "purge-legacy") modals.openConfirmModal({
-                  title: "Purge Legacy Users",
-                  children: <Text size="sm">Delete all users <b>without a Google email</b> (legacy/manual users not yet migrated)? Their tokens will also be deleted. This cannot be undone.</Text>,
-                  labels: { confirm: "Purge Legacy", cancel: "Cancel" },
-                  confirmProps: { color: "yellow" },
                   onConfirm: doAction,
                 });
                 else doAction();
@@ -600,15 +577,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             leftSection={<IconSearch size={14} />}
             size="sm"
             style={{ flex: 1, minWidth: "clamp(140px, 40vw, 220px)" }}
-          />
-          <SegmentedControl
-            size="sm"
-            value={filter}
-            onChange={v => setFilter(v as FilterKey)}
-            data={[
-              { label: "All", value: "all" },
-              { label: `Legacy${legacyCount > 0 ? ` (${legacyCount})` : ""}`, value: "legacy" },
-            ]}
           />
           <Select
             value={sort}

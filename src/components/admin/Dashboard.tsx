@@ -8,7 +8,7 @@ import {
   IconLayoutDashboard, IconUsers, IconList, IconChartBar,
   IconSitemap, IconExternalLink, IconSun, IconMoon,
   IconChevronsLeft, IconChevronsRight,
-  IconPlugConnected, IconKey, IconDatabase, IconLogout,
+  IconPlugConnected, IconKey, IconLogout,
   IconRoute, IconCloud,
 } from "@tabler/icons-react";
 import { pctColor } from "../../utils";
@@ -20,10 +20,9 @@ import { AdminOverview } from "./Overview";
 import { AdminUsers } from "./Users";
 import { AdminTest } from "./Test";
 import { AdminAccounts } from "./Accounts";
-import { AdminDb } from "./Db";
 import { AdminModelRouting } from "./ModelRouting";
 import { AdminProviders } from "./Providers";
-type AdminSection = "overview" | "users" | "logs" | "stats" | "routing" | "providers" | "test" | "accounts" | "database";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "routing" | "providers" | "test" | "accounts";
 
 function AdminStats() {
   return (
@@ -72,7 +71,6 @@ export function AdminDashboard() {
     { id: "providers", label: "Providers",      icon: <IconCloud           size={SZ} />, desc: "Claude Max, OpenRouter & DeepSeek" },
     { id: "test",      label: "Test Connection",icon: <IconPlugConnected   size={SZ} />, desc: "Verify API connectivity"     },
     { id: "accounts", label: "Credentials",     icon: <IconKey             size={SZ} />, desc: "API keys & OAuth accounts" },
-    { id: "database", label: "Database",       icon: <IconDatabase        size={SZ} />, desc: "Backup & restore DB"     },
   ];
   const footerItems: { icon: React.ReactNode; label: string; href: string; target?: string }[] = [
     { icon: <IconSitemap      size={SZ} />, label: "Mind Map",    href: "/mind", target: "_blank" },
@@ -81,7 +79,7 @@ export function AdminDashboard() {
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
   const sectionTitles: Record<AdminSection, string> = {
-    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", routing: "Routing", providers: "Providers", test: "Test Connection", accounts: "Credentials", database: "Database",
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", routing: "Routing", providers: "Providers", test: "Test Connection", accounts: "Credentials",
   };
   const statusColor = upstream.ok ? "teal" : "red";
   const SIDEBAR_W   = collapsed ? 56 : 220;
@@ -247,7 +245,6 @@ export function AdminDashboard() {
           {section === "providers" && <AdminProviders />}
           {section === "test"      && <AdminTest />}
           {section === "accounts"  && <AdminAccounts />}
-          {section === "database"  && <AdminDb />}
         </Box>
       </AppShell.Main>
     </AppShell>
