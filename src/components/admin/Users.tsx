@@ -410,7 +410,8 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/admin/users");
-    setApiUsers(await res.json());
+    const data = await res.json();
+    setApiUsers(data.users ?? data);
   }, []);
 
   const runRowAction = async (key: string, act: string, fn: () => Promise<void>, msg: string) => {
