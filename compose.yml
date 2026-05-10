@@ -3,14 +3,10 @@ services:
     image: ghcr.io/bipprojectbali/claude-proxy:stg-latest
     container_name: claude-proxy-stg
     restart: unless-stopped
-    entrypoint: ["sh", "-c", "envman -e claude-proxy:stg -- bun src/index.tsx"]
     ports:
       - "54545:54545"    # OAuth PKCE callback — browser must reach localhost:54545
     volumes:
       - /srv/docker/volumes/apps/claude-proxy/credentials:/credentials    # OAuth claude-*.json credentials
-    environment:
-      - ENVMAN_SERVER=https://envman.wibudev.com
-      - ENVMAN_TOKEN=${ENVMAN_TOKEN}
     networks:
       - public-net
       - postgres-net-stg
@@ -29,15 +25,12 @@ services:
       - "traefik.http.routers.claude-proxy.tls=true"
       - "traefik.http.routers.claude-proxy.tls.certresolver=letsencrypt"
       - "traefik.http.services.claude-proxy.loadbalancer.server.port=8080"
-      - "traefik.http.services.claude-proxy.loadbalancer.responseForwarding.flushInterval=-1" 
+      - "traefik.http.services.claude-proxy.loadbalancer.responseForwarding.flushInterval=-1"
   migrate:
     image: ghcr.io/bipprojectbali/claude-proxy:stg-latest
     container_name: claude-proxy-stg-migrate
     restart: "no"
-    entrypoint: ["sh", "-c", "envman -e claude-proxy:stg -- bunx prisma migrate deploy"]
-    environment:
-      - ENVMAN_SERVER=https://envman.wibudev.com
-      - ENVMAN_TOKEN=${ENVMAN_TOKEN}
+    entrypoint: ["bunx", "prisma", "migrate", "deploy"]
     networks:
       - postgres-net-stg
 networks:
