@@ -15,7 +15,7 @@ import { handleApiStats }  from "./handlers/apiStats";
 import { handleApiMind }   from "./handlers/apiMind";
 import { handleApiRace }         from "./handlers/apiRace";
 import { handleApiUsageHourly }  from "./handlers/apiUsageHourly";
-import { handleApiSessions }     from "./handlers/apiSessions";
+import { handleApiSessions, handleApiSessionsSummary } from "./handlers/apiSessions";
 import { handleApiAnalytics }    from "./handlers/apiAnalytics";
 import { handleApiUserActivity } from "./handlers/apiUserActivity";
 import { handleApiCompetition }  from "./handlers/apiCompetition";
@@ -499,7 +499,7 @@ server = serve({
     },
     "/api/analytics": async req => handleApiAnalytics(await checkAdmin(req)),
     "/api/admin/user-activity": async req => {
-      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!await checkUser(req) && !await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiUserActivity();
     },
 
@@ -539,6 +539,7 @@ server = serve({
       if (!u) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiCompetition(u.userId);
     },
+    "/api/sessions/summary": () => handleApiSessionsSummary(),
     "/api/sessions/*": req => {
       const user = new URL(req.url).pathname.slice("/api/sessions/".length);
       return handleApiSessions(decodeURIComponent(user));

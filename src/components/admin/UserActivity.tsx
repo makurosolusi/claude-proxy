@@ -456,7 +456,7 @@ export function AdminUserActivity() {
   const load = useCallback(async () => {
     setLoading(true); setError(false);
     try {
-      const res = await fetch("/api/admin/user-activity");
+      const res = await fetch("/api/admin/user-activity", { credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json() as ActivityData);
     } catch { setError(true); }

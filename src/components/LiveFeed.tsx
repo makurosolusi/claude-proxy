@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Stack, Text, Box, Group, Badge, ScrollArea, Loader, useMantineColorScheme, Tooltip, Modal } from "@mantine/core";
+import { Stack, Text, Box, Group, Badge, ScrollArea, Loader, ActionIcon, useMantineColorScheme, Tooltip, Modal } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconBolt, IconAlertCircle, IconDatabase } from "@tabler/icons-react";
+import { IconBolt, IconAlertCircle, IconDatabase, IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { DetailContent } from "./tables/RequestLog";
 import { avatarColor } from "../utils";
 import type { LogEntry } from "../contexts";
@@ -42,7 +42,6 @@ function modelColor(model: string): string {
   return "#52525b";
 }
 
-// Cache hit rate indicator
 function CacheBar({ cacheRead, inputTokens }: { cacheRead: number; inputTokens: number }) {
   const total = inputTokens + cacheRead;
   if (total === 0 || cacheRead === 0) return null;
@@ -57,7 +56,46 @@ function CacheBar({ cacheRead, inputTokens }: { cacheRead: number; inputTokens: 
   );
 }
 
-function FeedEntry({ log: l, isNew, onClick }: { log: LogEntry; isNew: boolean; onClick: () => void }) {
+interface LogGroup {
+  key: string;
+  entries: LogEntry[];
+  // newest entry (shown as representative)
+  head: LogEntry;
+  totalTokens: number;
+  hasNew: boolean;
+}
+
+function groupLogs(logs: LogEntry[], newIds: Set<number>): LogGroup[] {
+  // Group by token_key + model + prompt (same prompt = same work session in Claude Code multi-turn)
+  const orderMap = new Map<string, LogGroup>();
+  const order: string[] = [];
+
+  for (const l of logs) {
+    const gk = `${l.token_key}::${l.model}::${l.prompt ?? ""}`;
+    if (!orderMap.has(gk)) {
+      order.push(gk);
+      orderMap.set(gk, {
+        key: `g-${l.id}`,
+        entries: [],
+        head: l,
+        totalTokens: 0,
+        hasNew: false,
+      });
+    }
+    const g = orderMap.get(gk)!;
+    g.entries.push(l);
+    g.totalTokens += l.input_tokens + l.output_tokens + l.cache_read + l.cache_creation;
+    if (newIds.has(l.id)) g.hasNew = true;
+  }
+
+  return order.map(gk => orderMap.get(gk)!);
+}
+
+function FeedEntry({
+  log: l, isNew, onClick, compact = false,
+}: {
+  log: LogEntry; isNew: boolean; onClick: () => void; compact?: boolean;
+}) {
   const isErr  = l.status >= 400;
   const total  = l.input_tokens + l.output_tokens + l.cache_read + l.cache_creation;
   const model  = modelShort(l.model);
@@ -66,39 +104,47 @@ function FeedEntry({ log: l, isNew, onClick }: { log: LogEntry; isNew: boolean; 
   const name   = l.name || l.token_key.slice(-8);
 
   return (
-    <Box className={`feed-entry${isNew ? " feed-entry-new" : ""}`}
+    <Box
+      className={`feed-entry${isNew ? " feed-entry-new" : ""}`}
       onClick={onClick}
-      style={{ padding: "9px 14px", borderBottom: "1px solid var(--cp-border)", cursor: "pointer" }}>
+      style={{
+        padding: compact ? "6px 14px 6px 48px" : "9px 14px",
+        borderBottom: "1px solid var(--cp-border)",
+        cursor: "pointer",
+        background: compact ? "var(--cp-surface-2)" : undefined,
+        opacity: compact ? 0.85 : 1,
+      }}
+    >
       <Group gap={8} wrap="nowrap" align="flex-start">
-
-        {/* Avatar circle */}
-        <Box style={{
-          width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-          background: isErr
-            ? "var(--cp-red-dim)"
-            : `var(--mantine-color-${aColor}-${document.documentElement.getAttribute("data-mantine-color-scheme") === "dark" ? "8" : "1"})`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 10, fontWeight: 700,
-          color: isErr ? "var(--cp-red)" : `var(--mantine-color-${aColor}-6)`,
-          fontFamily: "Geist Mono, monospace",
-          border: isErr ? "1px solid var(--cp-red-dim)" : "none",
-          marginTop: 1,
-        }}>
-          {isErr ? "!" : initials(name)}
-        </Box>
+        {!compact && (
+          <Box style={{
+            width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+            background: isErr
+              ? "var(--cp-red-dim)"
+              : `var(--mantine-color-${aColor}-${document.documentElement.getAttribute("data-mantine-color-scheme") === "dark" ? "8" : "1"})`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 10, fontWeight: 700,
+            color: isErr ? "var(--cp-red)" : `var(--mantine-color-${aColor}-6)`,
+            fontFamily: "Geist Mono, monospace",
+            border: isErr ? "1px solid var(--cp-red-dim)" : "none",
+            marginTop: 1,
+          }}>
+            {isErr ? "!" : initials(name)}
+          </Box>
+        )}
 
         <Box style={{ flex: 1, minWidth: 0 }}>
-          {/* Row 1: name + age */}
-          <Group justify="space-between" wrap="nowrap" mb={3}>
-            <Text fz={12} fw={600} truncate style={{ letterSpacing: "-0.01em", maxWidth: "65%" }}>
-              {name}
-            </Text>
-            <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ flexShrink: 0 }}>
+          <Group justify="space-between" wrap="nowrap" mb={compact ? 0 : 3}>
+            {!compact && (
+              <Text fz={12} fw={600} truncate style={{ letterSpacing: "-0.01em", maxWidth: "65%" }}>
+                {name}
+              </Text>
+            )}
+            <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ flexShrink: 0, marginLeft: compact ? "auto" : undefined }}>
               {fmtAge(l.ts)}
             </Text>
           </Group>
 
-          {/* Row 2: model badge + tokens + cache */}
           <Group gap={6} wrap="nowrap">
             {isErr ? (
               <Badge size="xs" variant="light" color="red" leftSection={<IconAlertCircle size={8} />}
@@ -129,8 +175,7 @@ function FeedEntry({ log: l, isNew, onClick }: { log: LogEntry; isNew: boolean; 
             )}
           </Group>
 
-          {/* Row 3: prompt preview */}
-          {l.prompt && !isErr && (
+          {l.prompt && !isErr && !compact && (
             <Text fz={10} c="dimmed" mt={4} lineClamp={1}
               style={{ fontStyle: "italic", lineHeight: 1.4, opacity: 0.75 }}>
               {l.prompt}
@@ -138,6 +183,129 @@ function FeedEntry({ log: l, isNew, onClick }: { log: LogEntry; isNew: boolean; 
           )}
         </Box>
       </Group>
+    </Box>
+  );
+}
+
+function GroupedEntry({
+  group, newIds, onEntryClick,
+}: {
+  group: LogGroup;
+  newIds: Set<number>;
+  onEntryClick: (log: LogEntry) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const l = group.head;
+  const isErr  = l.status >= 400;
+  const model  = modelShort(l.model);
+  const mColor = modelColor(l.model);
+  const aColor = avatarColor(l.name || l.token_key);
+  const name   = l.name || l.token_key.slice(-8);
+  const count  = group.entries.length;
+  const isNew  = group.hasNew;
+
+  return (
+    <Box>
+      {/* Group header row — click anywhere to expand */}
+      <Box
+        className={`feed-entry${isNew ? " feed-entry-new" : ""}`}
+        onClick={() => setExpanded(v => !v)}
+        style={{ padding: "9px 14px", borderBottom: "1px solid var(--cp-border)", cursor: "pointer" }}
+      >
+        <Group gap={8} wrap="nowrap" align="flex-start">
+          {/* Avatar */}
+          <Box style={{
+            width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+            background: isErr
+              ? "var(--cp-red-dim)"
+              : `var(--mantine-color-${aColor}-${document.documentElement.getAttribute("data-mantine-color-scheme") === "dark" ? "8" : "1"})`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 10, fontWeight: 700,
+            color: isErr ? "var(--cp-red)" : `var(--mantine-color-${aColor}-6)`,
+            fontFamily: "Geist Mono, monospace",
+            border: isErr ? "1px solid var(--cp-red-dim)" : "none",
+            marginTop: 1,
+          }}>
+            {isErr ? "!" : initials(name)}
+          </Box>
+
+          <Box style={{ flex: 1, minWidth: 0 }}>
+            <Group justify="space-between" wrap="nowrap" mb={3}>
+              <Group gap={6} wrap="nowrap" style={{ maxWidth: "65%" }}>
+                <Text fz={12} fw={600} truncate style={{ letterSpacing: "-0.01em" }}>
+                  {name}
+                </Text>
+                <Badge
+                  size="xs" variant="filled" color="gray"
+                  style={{ fontSize: 10, fontFamily: "Geist Mono, monospace", cursor: "default", flexShrink: 0 }}
+                >
+                  ×{count}
+                </Badge>
+              </Group>
+              <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ flexShrink: 0 }}>
+                {fmtAge(l.ts)}
+              </Text>
+            </Group>
+
+            <Group gap={6} wrap="nowrap">
+              {isErr ? (
+                <Badge size="xs" variant="light" color="red" leftSection={<IconAlertCircle size={8} />}
+                  style={{ fontSize: 10, fontFamily: "Geist Mono, monospace" }}>
+                  {l.status}
+                </Badge>
+              ) : (
+                <>
+                  <Box style={{
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                    background: mColor + "18", borderRadius: 6, padding: "1px 6px",
+                  }}>
+                    <Box w={5} h={5} style={{ borderRadius: "50%", background: mColor, flexShrink: 0 }} />
+                    <Text fz={10} fw={600} style={{ color: mColor, fontFamily: "Geist Mono, monospace" }}>
+                      {model}
+                    </Text>
+                  </Box>
+                  <Group gap={4} wrap="nowrap">
+                    <IconBolt size={9} color="var(--cp-text-3)" />
+                    <Text fz={10} c="dimmed" ff="Geist Mono, monospace">{kfmt(group.totalTokens)}</Text>
+                  </Group>
+                  <CacheBar cacheRead={l.cache_read} inputTokens={l.input_tokens} />
+                </>
+              )}
+
+              {/* Expand toggle */}
+              <ActionIcon
+                size={16} variant="subtle" color="gray"
+                style={{ marginLeft: "auto" }}
+                onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+                aria-label={expanded ? "Collapse" : "Expand"}
+              >
+                {expanded
+                  ? <IconChevronDown size={11} />
+                  : <IconChevronRight size={11} />
+                }
+              </ActionIcon>
+            </Group>
+
+            {l.prompt && !isErr && (
+              <Text fz={10} c="dimmed" mt={4} lineClamp={1}
+                style={{ fontStyle: "italic", lineHeight: 1.4, opacity: 0.75 }}>
+                {l.prompt}
+              </Text>
+            )}
+          </Box>
+        </Group>
+      </Box>
+
+      {/* Expanded sub-entries */}
+      {expanded && group.entries.map(entry => (
+        <FeedEntry
+          key={entry.id}
+          log={entry}
+          isNew={newIds.has(entry.id)}
+          onClick={() => onEntryClick(entry)}
+          compact
+        />
+      ))}
     </Box>
   );
 }
@@ -178,7 +346,6 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
       const d = await r.json();
       const newLogs: LogEntry[] = d.logs || [];
 
-      // Detect new entries
       const incoming = new Set(newLogs.map(l => l.id));
       const fresh    = new Set<number>();
       for (const id of incoming) {
@@ -207,19 +374,18 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
     load();
   }, [wsSignal, load]);
 
-  // Scroll to top on new entries
   useEffect(() => {
     const el = viewportRef.current;
     if (!el || newIds.size === 0) return;
     if (el.scrollTop < 60) el.scrollTo({ top: 0, behavior: "smooth" });
   }, [newIds]);
 
-  const bg    = dark ? "var(--cp-surface)" : "var(--cp-surface)";
-  const errCount = logs.filter(l => l.status >= 400).length;
+  const groups    = groupLogs(logs, newIds);
+  const errCount  = logs.filter(l => l.status >= 400).length;
 
   return (
     <Box style={{
-      background: bg,
+      background: "var(--cp-surface)",
       border: "1px solid var(--cp-border)",
       borderRadius: 20,
       overflow: "hidden",
@@ -258,7 +424,7 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
 
       {/* Feed */}
       <ScrollArea viewportRef={viewportRef} style={{ flex: 1 }} type="scroll" scrollbarSize={3}>
-        {logs.length === 0 && !loading ? (
+        {groups.length === 0 && !loading ? (
           <Stack align="center" py={40} gap={8}>
             <Box style={{
               width: 40, height: 40, borderRadius: 12,
@@ -270,9 +436,21 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
             <Text fz={12} c="dimmed">Belum ada request</Text>
           </Stack>
         ) : (
-          logs.map(l => (
-            <FeedEntry key={l.id} log={l} isNew={newIds.has(l.id)} onClick={() => showDetail(l)} />
-          ))
+          groups.map(group =>
+            group.entries.length === 1
+              ? <FeedEntry
+                  key={group.key}
+                  log={group.head}
+                  isNew={group.hasNew}
+                  onClick={() => showDetail(group.head)}
+                />
+              : <GroupedEntry
+                  key={group.key}
+                  group={group}
+                  newIds={newIds}
+                  onEntryClick={showDetail}
+                />
+          )
         )}
       </ScrollArea>
 

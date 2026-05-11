@@ -54,6 +54,33 @@ export async function handleApiSessions(user: string): Promise<Response> {
   return Response.json({ sessions: sessions.reverse() });
 }
 
+export async function handleApiSessionsSummary(): Promise<Response> {
+  const rows = await prisma.request_logs.findMany({
+    where: { status: { lt: 400 } },
+    select: { ts: true, name: true, token_key: true },
+    orderBy: { ts: "asc" },
+  });
+
+  // Group by user (name || token_key), count sessions by gap
+  const userRows = new Map<string, bigint[]>();
+  for (const r of rows) {
+    const user = r.name || r.token_key;
+    if (!userRows.has(user)) userRows.set(user, []);
+    userRows.get(user)!.push(r.ts);
+  }
+
+  const summary: Record<string, number> = {};
+  for (const [user, tsList] of userRows) {
+    let count = 1;
+    for (let i = 1; i < tsList.length; i++) {
+      if (Number(tsList[i]) - Number(tsList[i - 1]!) > SESSION_GAP_MS) count++;
+    }
+    summary[user] = count;
+  }
+
+  return Response.json(summary);
+}
+
 function lastUserText(messagesJson: string): string {
   if (!messagesJson) return "";
   try {
