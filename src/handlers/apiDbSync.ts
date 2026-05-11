@@ -128,8 +128,9 @@ export async function handleDbSync(req: Request): Promise<Response> {
   // Ambil export dari stg
   let exportData: any;
   try {
-    const exportUrl = url.replace(/\/$/, "") + "/api/admin/db/export?token=" + encodeURIComponent(token);
-    const res = await fetch(exportUrl, { signal: AbortSignal.timeout(30_000) });
+    const exportUrl = new URL("/api/admin/db/export", url.replace(/\/$/, ""));
+    exportUrl.searchParams.set("token", token);
+    const res = await fetch(exportUrl.toString(), { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as any;
       return Response.json({ error: `Export failed: ${err.error || res.status}` }, { status: 502 });
