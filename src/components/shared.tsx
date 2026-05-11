@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { Stack, Text, Button, Center, Paper, Box, Group, Badge, SimpleGrid, Tooltip, useMantineColorScheme } from "@mantine/core";
+import { Stack, Text, Button, Center, Paper, Box, Group, Badge, SimpleGrid, Tooltip, useMantineColorScheme, ThemeIcon } from "@mantine/core";
 import { Loader } from "@mantine/core";
+import { IconClock, IconBan } from "@tabler/icons-react";
 import { IconInfoCircle } from "@tabler/icons-react";
 import ReactECharts from "echarts-for-react";
 import { fmtResetAt } from "../utils";
@@ -49,6 +50,48 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+export function WaitingPage() {
+  return (
+    <Center mih="100vh">
+      <Paper withBorder p="xl" radius="md" style={{ maxWidth: 400, width: "100%", textAlign: "center" }}>
+        <Stack align="center" gap="md">
+          <ThemeIcon size={56} radius="xl" variant="light" color="yellow">
+            <IconClock size={28} />
+          </ThemeIcon>
+          <Stack gap={4} align="center">
+            <Text size="lg" fw={700}>Menunggu Persetujuan</Text>
+            <Text size="sm" c="dimmed">Akun kamu sudah terdaftar. Silakan tunggu admin menyetujui aksesmu.</Text>
+          </Stack>
+          <Button component="a" href="/auth/logout" variant="subtle" color="gray" size="sm">
+            Keluar
+          </Button>
+        </Stack>
+      </Paper>
+    </Center>
+  );
+}
+
+export function BlockedPage() {
+  return (
+    <Center mih="100vh">
+      <Paper withBorder p="xl" radius="md" style={{ maxWidth: 400, width: "100%", textAlign: "center" }}>
+        <Stack align="center" gap="md">
+          <ThemeIcon size={56} radius="xl" variant="light" color="red">
+            <IconBan size={28} />
+          </ThemeIcon>
+          <Stack gap={4} align="center">
+            <Text size="lg" fw={700}>Akses Diblokir</Text>
+            <Text size="sm" c="dimmed">Akun kamu telah diblokir. Hubungi admin jika kamu merasa ini adalah kesalahan.</Text>
+          </Stack>
+          <Button component="a" href="/auth/logout" variant="subtle" color="gray" size="sm">
+            Keluar
+          </Button>
+        </Stack>
+      </Paper>
+    </Center>
+  );
+}
+
 export function RequireAuth({
   profile,
   children,
@@ -59,6 +102,14 @@ export function RequireAuth({
   if (profile === "loading") return <LoadingScreen />;
   if (!profile?.authenticated) {
     window.location.replace("/login");
+    return null;
+  }
+  if (profile.status === "blocked") {
+    window.location.replace("/diblokir");
+    return null;
+  }
+  if (profile.status === "pending") {
+    window.location.replace("/menunggu");
     return null;
   }
   return <>{children}</>;

@@ -80,6 +80,7 @@ model users {
   description String @default("")
   created_at  BigInt
   role        String @default("USER")
+  status      String @default("pending")
 }
 
 model model_routes {

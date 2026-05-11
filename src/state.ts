@@ -125,15 +125,20 @@ export async function dbUpsertUser(entry: UserEntry) {
     create: {
       id: entry.id, name: entry.name, email: entry.email || "",
       description: entry.description, created_at: BigInt(entry.created_at),
-      role: entry.role || "USER",
+      role: entry.role || "USER", status: entry.status || "pending",
     },
-    update: { name: entry.name, email: entry.email || "", description: entry.description, role: entry.role || "USER" },
+    update: { name: entry.name, email: entry.email || "", description: entry.description, role: entry.role || "USER", status: entry.status || "pending" },
   });
 }
 
 export async function dbSetUserRole(id: string, role: import("./types").UserRole) {
   await prisma.users.update({ where: { id }, data: { role } });
   if (users[id]) users[id]!.role = role;
+}
+
+export async function dbSetUserStatus(id: string, status: import("./types").UserStatus) {
+  await prisma.users.update({ where: { id }, data: { status } });
+  if (users[id]) users[id]!.status = status;
 }
 
 export async function dbUpdateUser(id: string, name: string, description: string) {
@@ -351,7 +356,8 @@ export async function loadFromDb() {
     users[row.id] = {
       id: row.id, name: row.name, email: row.email || "",
       description: row.description || "", created_at: Number(row.created_at),
-      role: (row.role as import("./types").UserRole) || "USER",
+      role:   (row.role   as import("./types").UserRole)   || "USER",
+      status: (row.status as import("./types").UserStatus) || "pending",
     };
   }
 
@@ -475,11 +481,11 @@ export async function backfillUsers() {
       uid = users[base] ? base : ensureUniqueSlug(base, users);
     }
     if (!users[uid]) {
-      const entry: UserEntry = { id: uid, name: tk.name, email: "", description: "", created_at: now, role: "USER" };
+      const entry: UserEntry = { id: uid, name: tk.name, email: "", description: "", created_at: now, role: "USER", status: "pending" };
       users[uid] = entry;
       await prisma.users.upsert({
         where: { id: uid },
-        create: { id: uid, name: tk.name, email: "", description: "", created_at: BigInt(now), role: "USER" },
+        create: { id: uid, name: tk.name, email: "", description: "", created_at: BigInt(now), role: "USER", status: "pending" },
         update: {},
       });
     }
@@ -523,11 +529,13 @@ export async function backfillUsers() {
   `;
   for (const r of perUserRows) allTimePerUser[r.uid] = Number(r.total) ?? 0;
 
-  // Sync SUPER_ADMIN_EMAILS
+  // Sync SUPER_ADMIN_EMAILS — selalu approved
   for (const u of Object.values(users)) {
-    if (u.email && config.superAdminEmails.has(u.email.toLowerCase()) && u.role !== "SUPER_ADMIN") {
-      u.role = "SUPER_ADMIN";
-      await prisma.users.update({ where: { id: u.id }, data: { role: "SUPER_ADMIN" } });
+    if (u.email && config.superAdminEmails.has(u.email.toLowerCase())) {
+      const updates: Record<string, string> = {};
+      if (u.role !== "SUPER_ADMIN") { u.role = "SUPER_ADMIN"; updates.role = "SUPER_ADMIN"; }
+      if (u.status !== "approved")  { u.status = "approved";  updates.status = "approved"; }
+      if (Object.keys(updates).length) await prisma.users.update({ where: { id: u.id }, data: updates });
     }
   }
 

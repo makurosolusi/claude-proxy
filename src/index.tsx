@@ -6,7 +6,7 @@ const APP_VERSION: string = JSON.parse(
   fs.readFileSync(path.join(import.meta.dir, "../package.json"), "utf8")
 ).version;
 import { config }           from "./config";
-import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, modelRoutes, settings, resolveTokenName } from "./state";
+import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, dbSetUserStatus, dbSaveSetting, modelRoutes, settings, resolveTokenName } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
 import { handleApiStatus } from "./handlers/apiStatus";
@@ -455,12 +455,16 @@ server = serve({
         }
       }
       const userEntry = users[u.userId];
+      const userStatus = userEntry?.status || "pending";
+      const demoMode   = settings["demo_mode"] === "true";
+      const effectiveStatus = demoMode && userStatus === "pending" ? "approved" : userStatus;
       return Response.json({
         authenticated: true,
         userId:   u.userId,
         email:    u.email,
         name:     userEntry?.name || u.email,
         role:     userEntry?.role || "USER",
+        status:   effectiveStatus,
         tokens:   userTokens,
       });
     },
@@ -623,6 +627,8 @@ server = serve({
     "/admin/users/purge-orphans": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/deepseek":    async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/openrouter": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/user/set-status":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/settings/demo":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
 
     // Proxy endpoints
     "/v1/models": async req => {

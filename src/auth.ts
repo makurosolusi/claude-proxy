@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { randomBytes } from "crypto";
 import { prisma } from "./prisma";
-import { users, tokens, dbUpsertUser, dbSetUserRole, dbInsertToken, slugify, ensureUniqueSlug } from "./state";
+import { users, tokens, dbUpsertUser, dbSetUserRole, dbSetUserStatus, dbInsertToken, slugify, ensureUniqueSlug } from "./state";
 import { config } from "./config";
 
 function generateApiKey(): string {
@@ -33,10 +33,13 @@ export const auth = betterAuth({
       create: {
         after: async (baUser) => {
           const email = baUser.email.toLowerCase();
-          const role  = config.superAdminEmails.has(email) ? "SUPER_ADMIN" : "USER";
+          const isSuperAdmin = config.superAdminEmails.has(email);
+          const role  = isSuperAdmin ? "SUPER_ADMIN" : "USER";
+          const status = isSuperAdmin ? "approved" : "pending";
           const existing = Object.values(users).find(u => u.email?.toLowerCase() === email);
           if (existing) {
             if (existing.role !== role && role === "SUPER_ADMIN") await dbSetUserRole(existing.id, "SUPER_ADMIN");
+            if (existing.status !== "approved" && isSuperAdmin) await dbSetUserStatus(existing.id, "approved");
             return;
           }
           const base = slugify((baUser.name as string) || baUser.email.split("@")[0]);
@@ -48,6 +51,7 @@ export const auth = betterAuth({
             description: "",
             created_at: Date.now(),
             role,
+            status,
           } as const;
           users[id] = entry;
           await dbUpsertUser(entry);

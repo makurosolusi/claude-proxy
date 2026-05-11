@@ -1,6 +1,6 @@
-import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
 import { prisma } from "../prisma";
-import type { TokenProvider } from "../types";
+import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
@@ -59,7 +59,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!uid) {
       uid = ensureUniqueSlug(slugify(displayName), users);
       if (!users[uid]) {
-        const userEntry = { id: uid, name: displayName, email: "", description: "", created_at: Date.now(), role: "USER" as const };
+        const userEntry = { id: uid, name: displayName, email: "", description: "", created_at: Date.now(), role: "USER" as const, status: "pending" as const };
         users[uid] = userEntry;
         await dbUpsertUser(userEntry);
       }
@@ -233,6 +233,22 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     }
     triggerBroadcast();
     return Response.json({ ok: true, deleted });
+  }
+
+  if (pathname === "/admin/user/set-status" && req.method === "POST") {
+    const uid    = String(form?.get("user_id") || "").trim();
+    const status = String(form?.get("status")  || "").trim() as UserStatus;
+    if (!uid || !users[uid]) return new Response("User not found\n", { status: 404 });
+    const valid: UserStatus[] = ["pending", "approved", "blocked"];
+    if (!valid.includes(status)) return new Response("Invalid status\n", { status: 400 });
+    await dbSetUserStatus(uid, status);
+    return redirect();
+  }
+
+  if (pathname === "/admin/settings/demo" && req.method === "POST") {
+    const demo = String(form?.get("demo") || "false").trim();
+    await dbSaveSetting("demo_mode", demo === "true" ? "true" : "false");
+    return redirect();
   }
 
   if (pathname === "/admin/logs/clear" && req.method === "POST") {

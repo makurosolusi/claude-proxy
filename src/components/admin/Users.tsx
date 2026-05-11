@@ -8,12 +8,14 @@ import {
   IconRefresh, IconPlayerPause, IconPlayerPlay, IconTrash, IconPencil,
   IconAlertTriangle, IconKey, IconRotate,
   IconPlus, IconCopy, IconCheck, IconSearch, IconArrowsSort,
-  IconLayoutGrid, IconList,
+  IconLayoutGrid, IconList, IconBan, IconClock,
 } from "@tabler/icons-react";
 import { adminPost, fmtRel, avatarColor } from "../../utils";
 import type { TokenStatus } from "../../contexts";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
+
+type UserStatus = "pending" | "approved" | "blocked";
 
 interface ApiToken {
   key: string; name: string; limit: number | null; used: number;
@@ -22,6 +24,7 @@ interface ApiToken {
 }
 interface ApiUser {
   id: string; name: string; email: string; description: string; created_at: number;
+  role: string; status: UserStatus;
   tokens: ApiToken[];
 }
 
@@ -405,12 +408,29 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [rowAction, setRowAction]           = useState<{ key: string; act: string } | null>(null);
   const [bulkAction, setBulkAction]         = useState<"reset" | "pause" | "purge" | null>(null);
+  const [statusBusy, setStatusBusy]         = useState<string | null>(null);
+  const [demoMode, setDemoMode]             = useState(false);
+  const [demoSaving, setDemoSaving]         = useState(false);
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/admin/users");
     const data = await res.json();
     setApiUsers(data.users ?? data);
   }, []);
+
+  const setUserStatus = async (userId: string, status: UserStatus) => {
+    setStatusBusy(userId + status);
+    try {
+      await adminPost("/admin/user/set-status", { user_id: userId, status });
+      await reload();
+      const label = status === "approved" ? "Approved" : status === "blocked" ? "Blocked" : "Set to pending";
+      notifications.show({ color: status === "blocked" ? "red" : "teal", message: label, autoClose: 2000 });
+    } catch {
+      notifications.show({ color: "red", message: "Failed to update status", autoClose: 3000 });
+    } finally {
+      setStatusBusy(null);
+    }
+  };
 
   const runRowAction = async (key: string, act: string, fn: () => Promise<void>, msg: string) => {
     setRowAction({ key, act });
@@ -433,6 +453,24 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   };
 
   useEffect(() => { reload(); }, [reload]);
+
+  useEffect(() => {
+    fetch("/api/admin/settings")
+      .then(r => r.json())
+      .then((d: any) => setDemoMode(d.demo_mode === "true"))
+      .catch(() => {});
+  }, []);
+
+  const toggleDemo = async (val: boolean) => {
+    setDemoSaving(true);
+    try {
+      const form = new URLSearchParams();
+      form.set("demo", val ? "true" : "false");
+      await fetch("/admin/settings/demo", { method: "POST", body: form });
+      setDemoMode(val);
+      notifications.show({ color: val ? "blue" : "gray", message: val ? "Demo mode enabled" : "Demo mode disabled", autoClose: 2000 });
+    } finally { setDemoSaving(false); }
+  };
 
   const filteredUsers = useMemo(() => {
     if (!apiUsers) return null;
@@ -505,6 +543,25 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
               </Paper>
             )}
           </Group>
+        </Group>
+      </Paper>
+
+      {/* Demo Mode */}
+      <Paper withBorder p="md" radius="md" style={{ borderColor: demoMode ? "var(--mantine-color-blue-5)" : undefined }}>
+        <Group justify="space-between" wrap="nowrap">
+          <div>
+            <Text size="sm" fw={700}>Demo Mode</Text>
+            <Text size="xs" c="dimmed" mt={2}>
+              Jika aktif, semua user dengan status <b>pending</b> bisa langsung login ke <code>/</code> tanpa perlu persetujuan.
+            </Text>
+          </div>
+          <Switch
+            checked={demoMode}
+            disabled={demoSaving}
+            onChange={e => toggleDemo(e.currentTarget.checked)}
+            color="blue"
+            size="md"
+          />
         </Group>
       </Paper>
 
@@ -620,6 +677,10 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             const limitLabel = agg.totalLimit === null ? "∞" : nf(agg.totalLimit);
             const barColor = agg.maxPct >= 95 ? "red" : agg.maxPct >= 75 ? "orange" : agg.aggPct >= 50 ? "yellow" : "teal";
 
+            const statusColor = u.status === "approved" ? "teal" : u.status === "blocked" ? "red" : "yellow";
+            const statusLabel = u.status === "approved" ? "Approved" : u.status === "blocked" ? "Blocked" : "Pending";
+            const StatusIcon  = u.status === "approved" ? IconCheck : u.status === "blocked" ? IconBan : IconClock;
+
             const header = (
               <Group gap="md" wrap="nowrap" align="center">
                 <Avatar color={avatarColor(u.name)} radius="xl" size="md">{initials(u.name)}</Avatar>
@@ -627,6 +688,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                   <Group gap="xs" wrap="nowrap">
                     <Text size="sm" fw={700} truncate>{u.name}</Text>
                     {!u.email && <Badge size="xs" variant="light" color="yellow" leftSection={<IconAlertTriangle size={10} />}>Legacy</Badge>}
+                    <Badge size="xs" variant="light" color={statusColor} leftSection={<StatusIcon size={10} />}>{statusLabel}</Badge>
                     <Badge size="xs" variant="light" color="gray">{u.tokens.length} token{u.tokens.length !== 1 ? "s" : ""}</Badge>
                     {agg.pausedCount > 0 && <Badge size="xs" variant="light" color="orange" leftSection={<IconPlayerPause size={10} />}>{agg.pausedCount} paused</Badge>}
                     {agg.overCount > 0 && <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>{agg.overCount} over</Badge>}
@@ -637,6 +699,24 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
                   </Group>
                 </div>
                 <Group gap={2} wrap="nowrap" onClick={e => e.stopPropagation()}>
+                  {u.status !== "approved" && (
+                    <Tooltip label="Approve user" withArrow>
+                      <ActionIcon variant="subtle" color="teal" size="sm" radius="sm"
+                        loading={statusBusy === u.id + "approved"}
+                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); setUserStatus(u.id, "approved"); }}>
+                        <IconCheck size={ACT} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                  {u.status !== "blocked" && (
+                    <Tooltip label="Block user" withArrow>
+                      <ActionIcon variant="subtle" color="red" size="sm" radius="sm"
+                        loading={statusBusy === u.id + "blocked"}
+                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); setUserStatus(u.id, "blocked"); }}>
+                        <IconBan size={ACT} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
                   <Tooltip label="Edit user" withArrow>
                     <Box component="span" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", color: "var(--mantine-color-gray-light-color)" }}
                       onClick={(e: React.MouseEvent) => { e.stopPropagation(); setEditUser(u); }}

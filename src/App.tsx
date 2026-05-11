@@ -21,7 +21,7 @@ import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
 import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
 import { useStatus } from "./contexts";
-import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, UpstreamSection } from "./components/shared";
+import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, BlockedPage, UpstreamSection } from "./components/shared";
 import { DailyHistory } from "./components/tables/DailyHistory";
 import { RequestLog, DetailContent } from "./components/tables/RequestLog";
 import { AdminDashboard } from "./components/admin/Dashboard";
@@ -34,6 +34,9 @@ async function resolveLoginRedirect(): Promise<string> {
   try {
     const r = await fetch("/api/profile", { credentials: "include" });
     const d = await r.json() as any;
+    if (!d?.authenticated) return "/login";
+    if (d?.status === "blocked")  return "/diblokir";
+    if (d?.status === "pending")  return "/menunggu";
     if (d?.role === "SUPER_ADMIN" || d?.role === "ADMIN") return "/admin";
   } catch {}
   return "/";
@@ -1808,6 +1811,8 @@ export function App() {
           } />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/login/redirect" element={<LoginRedirect />} />
+          <Route path="/menunggu" element={<WaitingPage />} />
+          <Route path="/diblokir" element={<BlockedPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/mind" element={<MindPage />} />
           <Route path="/race" element={<RacePage />} />

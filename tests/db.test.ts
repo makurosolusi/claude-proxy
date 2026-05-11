@@ -40,7 +40,7 @@ function makeTokenEntry(overrides: Partial<TokenEntry> = {}): TokenEntry {
 function makeUserEntry(overrides: Partial<UserEntry> = {}): UserEntry {
   return {
     id: TEST_UID, name: "Test Fixture", email: "test@fixture.com",
-    description: "test user", created_at: Date.now(), role: "USER",
+    description: "test user", created_at: Date.now(), role: "USER", status: "pending",
     ...overrides,
   };
 }

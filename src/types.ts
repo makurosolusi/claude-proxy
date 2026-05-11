@@ -5,7 +5,8 @@ export interface ModelRoute {
   fallback_to: string | null;  // model_id tujuan redirect
 }
 
-export type UserRole = "SUPER_ADMIN" | "ADMIN" | "USER";
+export type UserRole   = "SUPER_ADMIN" | "ADMIN" | "USER";
+export type UserStatus = "pending" | "approved" | "blocked";
 
 export interface UserEntry {
   id:          string;   // stable slug, never changes
@@ -14,6 +15,7 @@ export interface UserEntry {
   description: string;
   created_at:  number;   // epoch ms
   role:        UserRole;
+  status:      UserStatus;
 }
 
 export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter";

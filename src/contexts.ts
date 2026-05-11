@@ -86,6 +86,7 @@ export interface ProfileResponse {
   email?:    string;
   name?:     string;
   role?:     "SUPER_ADMIN" | "ADMIN" | "USER";
+  status?:   "pending" | "approved" | "blocked";
   tokens?:   Record<string, ProfileToken>;
 }
 export interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }

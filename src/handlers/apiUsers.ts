@@ -22,7 +22,7 @@ export async function handleApiUsers(
           name: tk.name, used: tk.used, limit: tk.limit === Infinity ? null : tk.limit,
           paused: tk.paused, provider: tk.provider,
         }));
-      return { ...u, created_at: Number(u.created_at), tokens: userTokens };
+      return { ...u, created_at: Number(u.created_at), status: u.status || "pending", tokens: userTokens };
     }).sort((a, b) => a.name.localeCompare(b.name));
     return Response.json({ users: list });
   }
@@ -33,7 +33,7 @@ export async function handleApiUsers(
     const name = String(body.name || "").trim();
     if (!name) return Response.json({ error: "Name required" }, { status: 400 });
     const id = ensureUniqueSlug(slugify(name), users);
-    const entry: UserEntry = { id, name, email: body.email || "", description: body.description || "", created_at: Date.now(), role: "USER" };
+    const entry: UserEntry = { id, name, email: body.email || "", description: body.description || "", created_at: Date.now(), role: "USER", status: "pending" };
     users[id] = entry;
     await dbUpsertUser(entry);
     triggerBroadcast();
