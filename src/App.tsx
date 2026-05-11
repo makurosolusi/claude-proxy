@@ -15,7 +15,7 @@ import {
   IconAlertTriangle, IconAlertHexagon, IconChevronDown, IconChevronUp,
   IconBulb, IconX, IconChartBar, IconArrowUp, IconHeartbeat, IconKey,
   IconChartHistogram, IconList, IconFlame, IconChartPie, IconBolt,
-  IconTrophy, IconBrain, IconLayoutDashboard, IconChartLine,
+  IconTrophy, IconBrain, IconLayoutDashboard, IconChartLine, IconMessages,
 } from "@tabler/icons-react";
 import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
@@ -25,6 +25,7 @@ import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, Bl
 import { CompetitionPanel } from "./components/CompetitionPanel";
 import { AdminUserActivity } from "./components/admin/UserActivity";
 import { LiveFeed } from "./components/LiveFeed";
+import { SessionsContent } from "./components/SessionHistory";
 import { DailyHistory } from "./components/tables/DailyHistory";
 import { RequestLog, DetailContent } from "./components/tables/RequestLog";
 import { AdminDashboard } from "./components/admin/Dashboard";
@@ -770,6 +771,72 @@ function LoginPage() {
   );
 }
 
+function SessionsTab({ tokens }: { tokens: import("./contexts").StatusResponse["tokens"] }) {
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
+
+  // Kumpulkan user unik dari tokens
+  const userOptions = [...new Set(
+    Object.values(tokens).map(tk => tk.name).filter(Boolean)
+  )].sort().map(n => ({ value: n, label: n }));
+
+  return (
+    <Stack gap="lg">
+      <TextInput
+        placeholder="Cari atau pilih user…"
+        value={selectedUser || ""}
+        onChange={e => setSelectedUser(e.currentTarget.value || null)}
+        leftSection={<IconMessages size={14} />}
+        rightSection={selectedUser ? (
+          <Box style={{ cursor: "pointer", display: "flex" }} onClick={() => setSelectedUser(null)}>
+            <IconX size={14} color="var(--cp-text-3)" />
+          </Box>
+        ) : null}
+        size="sm"
+      />
+      {userOptions.length > 0 && !selectedUser && (
+        <Stack gap="xs">
+          <Text fz={11} fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".07em" }}>Pilih User</Text>
+          <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }} spacing="xs">
+            {userOptions.map(u => (
+              <Paper key={u.value} withBorder p="sm" radius="md"
+                style={{ cursor: "pointer", transition: "all 0.15s" }}
+                onClick={() => setSelectedUser(u.value)}
+                className="cp-interactive">
+                <Group gap={8} wrap="nowrap">
+                  <Box style={{
+                    width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                    background: `var(--mantine-color-${avatarColor(u.value)}-5)`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 11, fontWeight: 700, color: "#fff",
+                  }}>
+                    {u.value.slice(0, 2).toUpperCase()}
+                  </Box>
+                  <Text fz={12} fw={600} truncate>{u.value}</Text>
+                </Group>
+              </Paper>
+            ))}
+          </SimpleGrid>
+        </Stack>
+      )}
+      {selectedUser && (
+        <Box>
+          <Group gap="xs" mb="md">
+            <Badge
+              variant="light" color="blue" size="sm" ff="monospace"
+              style={{ cursor: "pointer" }}
+              onClick={() => setSelectedUser(null)}
+            >
+              ← {selectedUser}
+            </Badge>
+            <Text fz={11} c="dimmed">klik untuk ganti user</Text>
+          </Group>
+          <SessionsContent user={selectedUser} />
+        </Box>
+      )}
+    </Stack>
+  );
+}
+
 function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?: import("./contexts").ProfileResponse; wsSignal?: number }) {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
@@ -778,35 +845,7 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
     try { return localStorage.getItem("dashboard-tab") || "dashboard"; } catch { return "dashboard"; }
   });
   const headerRef = useRef<HTMLDivElement>(null);
-  const [headerHeight, setHeaderHeight] = useState(153);
-  const [subHeaderVisible, setSubHeaderVisible] = useState(true);
-  const lastScrollY = useRef(0);
   const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
-
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
-    obs.observe(el);
-    setHeaderHeight(el.offsetHeight);
-    return () => obs.disconnect();
-  }, []);
-
-  // Sub-header: hide saat scroll naik, muncul saat scroll turun
-  useEffect(() => {
-    const THRESHOLD = 8; // px minimum sebelum trigger
-    const onScroll = () => {
-      const y    = window.scrollY;
-      const diff = y - lastScrollY.current;
-      if (Math.abs(diff) < THRESHOLD) return;
-      // scroll ke atas (diff < 0) → sembunyikan sub-header
-      // scroll ke bawah (diff > 0) → tampilkan sub-header
-      setSubHeaderVisible(diff < 0);
-      lastScrollY.current = y;
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
   const [dismissedThresh, setDismissedThresh] = useState<string[]>([]);
   const visibleAlerts  = contextAlerts.filter(a => !dismissedAlerts.includes(a.label + a.ts));
   const visibleThresh  = thresholdAlerts.filter(a => !dismissedThresh.includes(a.label + a.type));
@@ -917,8 +956,8 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
   })();
 
   return (
-    <Box style={{ minHeight: "100vh", background: pageBg, backgroundAttachment: "fixed", transition: "background 3s ease", paddingTop: headerHeight, ["--header-h" as any]: `${headerHeight}px` }}>
-    {/* ── Fixed Header (Navbar + Sub-header) ──────────────── */}
+    <Box className="cp-page-bg" style={{ minHeight: "100vh", ["--cp-page-gradient" as any]: pageBg || "transparent" }}>
+    {/* ── Sticky Header (Navbar + Sub-header) ─────────────── */}
     {(() => {
       const ap         = upstream?.activeProvider;
       const isFallback = !!ap;
@@ -937,9 +976,10 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
       const userInitials = (profile?.name || profile?.email || "?").slice(0, 2).toUpperCase();
 
       return (
-        <div ref={headerRef} className="cp-header-fixed">
-          {/* ── Navbar ─────────────────────────────────── */}
-          <Box px={{ base: 12, sm: 24 }} style={{ height: 52, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <>
+          {/* ── Navbar — sticky ─────────────────────────── */}
+          <div ref={headerRef} className="cp-header-fixed">
+          <Box px={{ base: 12, sm: 24 }} style={{ height: 52, display: "flex", alignItems: "center", justifyContent: "space-between", maxWidth: 1800, margin: "0 auto" }}>
             <Group gap={12} wrap="nowrap">
               {/* Logo */}
               <Box style={{
@@ -978,18 +1018,12 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
             </Group>
           </Box>
 
-          {/* ── Sub-header ──────────────────────────────── */}
+          </div>
+
+          {/* ── Sub-header — scroll normal ──────────────── */}
           <Box px={{ base: 12, sm: 24 }} py={10}
-            style={{
-              borderTop: "1px solid var(--cp-border)",
-              opacity:    subHeaderVisible ? 1 : 0,
-              transform:  subHeaderVisible ? "translateY(0)" : "translateY(-6px)",
-              transition: "opacity 0.25s ease, transform 0.25s ease",
-              pointerEvents: subHeaderVisible ? "auto" : "none",
-              overflow: "hidden",
-              maxHeight: subHeaderVisible ? 200 : 0,
-            }}>
-            <Group justify="space-between" gap="md" wrap="wrap">
+            style={{ borderTop: "1px solid var(--cp-border)", borderBottom: "1px solid var(--cp-border)" }}>
+            <Group justify="space-between" gap="md" wrap="wrap" style={{ maxWidth: 1800, margin: "0 auto" }}>
 
               {/* Left: User + Quota + Model */}
               <Group gap={16} wrap="wrap" style={{ flex: 1, minWidth: 0 }}>
@@ -1066,13 +1100,13 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
 
             </Group>
           </Box>
-        </div>
+        </>
       );
     })()}
 
 
     {/* ── 2-kolom: Tabs (kiri) + LiveFeed (kanan) ──────────── */}
-    <Box px={{ base: 12, sm: 24 }} pt="xl" pb="xl">
+    <Box px={{ base: 12, sm: 24 }} pt="xl" pb="xl" style={{ maxWidth: 1800, margin: "0 auto" }}>
       <Box className="dashboard-grid cp-stagger">
 
         {/* ── Kiri: Tabs ─────────────────────────────────────── */}
@@ -1086,6 +1120,10 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
               <Tabs.Tab value="activity" leftSection={<IconChartLine size={13} />}
                 style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
                 Activity
+              </Tabs.Tab>
+              <Tabs.Tab value="sessions" leftSection={<IconMessages size={13} />}
+                style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
+                Sessions
               </Tabs.Tab>
               {/* Feed tab: hanya muncul di mobile */}
               <Tabs.Tab value="feed" leftSection={<IconActivity size={13} />}
@@ -1862,6 +1900,11 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
               </Stack>
             </Tabs.Panel>
 
+            {/* ── Tab Sessions ──────────────────────────────── */}
+            <Tabs.Panel value="sessions">
+              <SessionsTab tokens={tokens} />
+            </Tabs.Panel>
+
             {/* ── Tab Feed (mobile only) ────────────────────── */}
             <Tabs.Panel value="feed">
               <Box style={{ height: "calc(100dvh - 220px)", minHeight: 400, display: "flex", flexDirection: "column" }}>
@@ -1872,7 +1915,7 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
           </Tabs>
         </Box>{/* end Tabs col */}
 
-        {/* ── Kanan: LiveFeed sticky ─────────────────────────── */}
+        {/* ── Kanan: LiveFeed ────────────────────────────────── */}
         <Box className="live-feed-col">
           <LiveFeed wsSignal={wsSignal} />
         </Box>

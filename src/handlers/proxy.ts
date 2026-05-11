@@ -48,10 +48,10 @@ function extractTranscript(messages: any[]): string {
   const turns = messages
     .map(m => ({
       role: m.role === "assistant" ? "assistant" : "user",
-      text: getRawContent(m).slice(0, 1500),
+      text: getRawContent(m).slice(0, 8000), // per-turn: 8000 chars
     }))
     .filter(t => t.text.trim());
-  return JSON.stringify(turns).slice(0, 8000);
+  return JSON.stringify(turns).slice(0, 100_000); // total: 100KB
 }
 
 function extractResponseText(body: any, status: number): string {

@@ -176,6 +176,49 @@ function SessionCard({ session, dark }: { session: Session; dark: boolean }) {
   );
 }
 
+// Komponen reusable untuk dipakai di modal RequestLog
+export function SessionsContent({ user }: { user: string }) {
+  const { colorScheme } = useMantineColorScheme();
+  const dark = colorScheme === "dark";
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
+    fetch(`/api/sessions/${encodeURIComponent(user)}`)
+      .then(r => r.json())
+      .then((d: { sessions: Session[] }) => setSessions(d.sessions || []))
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  if (loading) return <Center py="xl"><Loader size="sm" /></Center>;
+
+  if (sessions.length === 0) return (
+    <Text size="sm" c="dimmed" ta="center" py="xl">
+      Belum ada session untuk user ini.
+    </Text>
+  );
+
+  const grandTotal = sessions.reduce((s, se) => s + se.total_tokens, 0);
+
+  return (
+    <Stack gap="sm">
+      <Group gap="md">
+        <Text size="sm" c="dimmed">{sessions.length} session{sessions.length !== 1 ? "s" : ""}</Text>
+        {grandTotal > 0 && (
+          <Badge variant="light" color="violet" leftSection={<IconCoins size={12} />} ff="monospace" size="sm">
+            {nf.format(grandTotal)} total tokens
+          </Badge>
+        )}
+      </Group>
+      <Accordion variant="separated" radius="md">
+        {sessions.map(s => <SessionCard key={s.id} session={s} dark={dark} />)}
+      </Accordion>
+    </Stack>
+  );
+}
+
 export function SessionHistory() {
   const { user } = useParams<{ user: string }>();
   const { colorScheme } = useMantineColorScheme();

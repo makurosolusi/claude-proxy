@@ -54,12 +54,16 @@
 /* ── Base resets ─────────────────────────────────────────────────────────── */
 
 html, body, #root {
-  overflow-x: hidden;
+  /* overflow-x: hidden pada html/body/root merusak position:sticky —
+     gunakan clip-path atau max-width di konten saja */
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv02","cv03","cv04","cv11";
 }
+
+/* Cegah horizontal scroll tanpa overflow-x: hidden yang rusak sticky */
+body { max-width: 100vw; }
 
 * { box-sizing: border-box; }
 
@@ -154,13 +158,25 @@ html, body, #root {
 /* ── Header system ───────────────────────────────────────────────────────── */
 
 .cp-header-fixed {
-  position: fixed;
-  top: 0; left: 0; right: 0;
+  position: sticky;
+  top: 0;
   z-index: 200;
   background: var(--cp-header-bg);
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   border-bottom: 1px solid var(--cp-border);
+}
+
+/* Background gradient animasi — pseudo-element terpisah agar tidak
+   mengganggu sticky context di parent */
+.cp-page-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--cp-page-gradient, transparent);
+  transition: background 3s ease;
 }
 
 /* ── Stat cards ──────────────────────────────────────────────────────────── */
@@ -246,40 +262,37 @@ html, body, #root {
 
 /* ── Dashboard grid ──────────────────────────────────────────────────────── */
 
-:root {
-  --feed-w: 0px;
-}
-@media (min-width: 900px)  { :root { --feed-w: 348px; } }
-@media (min-width: 1280px) { :root { --feed-w: 408px; } }
-
 .dashboard-grid {
-  /* tabs col: full width minus live feed width + gap */
-  display: block;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
 }
 
-/* Reserve space on the right so tabs content tidak tertutup feed */
 @media (min-width: 900px) {
   .dashboard-grid {
-    margin-right: calc(var(--feed-w) + 16px);
+    grid-template-columns: 1fr 340px;
   }
 }
 
-/* LiveFeed: fixed di kanan, dari bawah header sampai bawah viewport */
+@media (min-width: 1280px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr 400px;
+  }
+}
+
+/* LiveFeed: kolom kanan, sticky dalam grid, scroll internal */
 .live-feed-col {
-  display: none;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (min-width: 900px) {
   .live-feed-col {
-    display: flex;
-    flex-direction: column;
-    position: fixed;
-    right: 0;
-    top: var(--header-h, 153px);
-    width: var(--feed-w);
-    height: calc(100vh - var(--header-h, 153px));
-    padding: 12px 16px 16px 0;
-    z-index: 10;
+    position: sticky;
+    top: 16px;
+    height: calc(100vh - 32px);
+    min-height: 400px;
   }
   .live-feed-col > * {
     flex: 1;

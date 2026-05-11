@@ -53,15 +53,68 @@ function groupDuplicateLogs(logs: LogEntry[]): Array<{ log: LogEntry; count: num
   return out;
 }
 
+function ConversationHistory({ messagesJson, responseText }: { messagesJson: string; responseText: string }) {
+  type Turn = { role: string; text: string };
+  const turns: Turn[] = (() => {
+    try { return JSON.parse(messagesJson) as Turn[]; } catch { return []; }
+  })();
+
+  if (turns.length === 0 && !responseText) return null;
+
+  // Tambahkan response terakhir dari assistant jika ada
+  const all: Turn[] = [...turns];
+  if (responseText && (all.length === 0 || all[all.length - 1]?.role !== "assistant")) {
+    all.push({ role: "assistant", text: responseText });
+  }
+
+  if (all.length === 0) return null;
+
+  return (
+    <Stack gap={0}>
+      <Group gap="xs" mb="xs">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>
+          Conversation
+        </Text>
+        <Badge size="xs" variant="light" color="gray">{all.length} turn{all.length !== 1 ? "s" : ""}</Badge>
+      </Group>
+      {/* Scroll container — semua turn tampil, user scroll sendiri */}
+      <Box style={{ maxHeight: "60vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+        {all.map((t, i) => {
+          const isUser = t.role === "user";
+          return (
+            <Box key={i} style={{
+              borderRadius: 10,
+              padding: "8px 12px",
+              background: isUser ? "var(--mantine-color-blue-light)" : "var(--mantine-color-gray-light)",
+              borderLeft: `3px solid ${isUser ? "var(--mantine-color-blue-5)" : "var(--mantine-color-gray-5)"}`,
+            }}>
+              <Group gap={6} mb={4} align="center">
+                <Text size="10px" fw={700} tt="uppercase" c={isUser ? "blue" : "dimmed"} style={{ letterSpacing: ".06em" }}>
+                  {isUser ? "User" : "Assistant"}
+                </Text>
+                <Text size="10px" c="dimmed">#{i + 1}</Text>
+              </Group>
+              <Text size="xs" ff="monospace" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.6 }}>
+                {t.text || <Text span c="dimmed" fs="italic">empty</Text>}
+              </Text>
+            </Box>
+          );
+        })}
+      </Box>
+    </Stack>
+  );
+}
+
 export function DetailContent({ log: l }: { log: LogEntry }) {
   const tot    = l.input_tokens + l.output_tokens;
   const sev    = ctxSeverity(l);
   const ratio  = Math.round(l.input_tokens / Math.max(l.output_tokens, 1));
   const isCrit = sev === "critical";
+  const hasHistory = !!(l.messages_json || l.response_text);
 
   return (
     <Stack gap="md">
-      <Text size="xs" c="dimmed" ff="monospace">{new Date(l.ts).toISOString()}</Text>
+      <Text size="xs" c="dimmed" ff="monospace">{new Date(l.ts).toLocaleString()}</Text>
 
       {/* Context anomaly inline alert */}
       {sev && (
@@ -87,16 +140,34 @@ export function DetailContent({ log: l }: { log: LogEntry }) {
         </Alert>
       )}
 
+      {/* Stats grid */}
       <Grid>
         <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>User</Text><Text size="sm" ff="monospace">{l.name || l.token_key}</Text></Paper></Grid.Col>
         <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Model</Text><Text size="sm" ff="monospace">{l.model.replace(/^claude-/, "")}</Text></Paper></Grid.Col>
-        <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Tokens</Text><Text size="sm" ff="monospace"><b>{tot.toLocaleString()}</b> total · {l.input_tokens.toLocaleString()} in · {l.output_tokens.toLocaleString()} out{l.cache_read ? <Text span c="blue"> +{l.cache_read.toLocaleString()} cached</Text> : ""}</Text></Paper></Grid.Col>
+        <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Tokens</Text><Text size="sm" ff="monospace"><b>{tot.toLocaleString()}</b> · {l.input_tokens.toLocaleString()} in · {l.output_tokens.toLocaleString()} out{l.cache_read ? <Text span c="blue"> +{l.cache_read.toLocaleString()} cached</Text> : ""}</Text></Paper></Grid.Col>
         <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Status</Text><Group gap="xs"><Badge color={l.status >= 400 ? "red" : "teal"}>HTTP {l.status}</Badge>{l.stream && <Badge color="blue" size="xs">stream</Badge>}{l.stop_reason && <Badge color={l.stop_reason === "max_tokens" ? "yellow" : "teal"} size="xs">{l.stop_reason}</Badge>}</Group></Paper></Grid.Col>
-        {!!l.duration_ms && <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Latency</Text><Text size="sm" ff="monospace">{l.duration_ms.toLocaleString()} ms</Text></Paper></Grid.Col>}
-        {!!l.turns && <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Turns</Text><Text size="sm" ff="monospace">{l.turns}</Text></Paper></Grid.Col>}
+        {!!l.duration_ms && <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Latency</Text><Text size="sm" ff="monospace">{(l.duration_ms / 1000).toFixed(2)}s</Text></Paper></Grid.Col>}
+        {!!l.turns && <Grid.Col span={6}><Paper withBorder p="xs"><Text size="xs" c="dimmed" tt="uppercase" fw={700} mb={4}>Turns</Text><Text size="sm" ff="monospace">{l.turns} turn{l.turns !== 1 ? "s" : ""}</Text></Paper></Grid.Col>}
       </Grid>
-      {l.system_prompt && <><Text size="xs" c="dimmed" tt="uppercase" fw={700}>System Prompt</Text><Code block maw="100%" style={{ maxHeight: 150, overflow: "auto" }}>{l.system_prompt}</Code></>}
-      {l.prompt && <><Text size="xs" c="dimmed" tt="uppercase" fw={700}>User Prompt</Text><Code block maw="100%" style={{ maxHeight: 280, overflow: "auto" }}>{l.prompt}</Code></>}
+
+      {/* System prompt */}
+      {l.system_prompt && (
+        <>
+          <Text size="xs" c="dimmed" tt="uppercase" fw={700} style={{ letterSpacing: ".08em" }}>System Prompt</Text>
+          <Code block maw="100%" style={{ maxHeight: 120, overflow: "auto", fontSize: 11 }}>{l.system_prompt}</Code>
+        </>
+      )}
+
+      {/* Conversation history */}
+      {hasHistory
+        ? <ConversationHistory messagesJson={l.messages_json || ""} responseText={l.response_text || ""} />
+        : l.prompt && (
+          <>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={700} style={{ letterSpacing: ".08em" }}>User Prompt</Text>
+            <Code block maw="100%" style={{ maxHeight: 280, overflow: "auto", fontSize: 11 }}>{l.prompt}</Code>
+          </>
+        )
+      }
     </Stack>
   );
 }
@@ -348,6 +419,7 @@ export function RequestLog({ isAdmin, allowDestructive = false }: { isAdmin: boo
       <Modal opened={modalOpen} onClose={closeModal} title="Request Detail" size="lg" centered>
         {detail && <DetailContent log={detail} />}
       </Modal>
+
     </>
   );
 }

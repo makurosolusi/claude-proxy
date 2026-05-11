@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Stack, Text, Box, Group, Badge, ScrollArea, Loader, useMantineColorScheme, Tooltip } from "@mantine/core";
+import { Stack, Text, Box, Group, Badge, ScrollArea, Loader, useMantineColorScheme, Tooltip, Modal } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import { IconBolt, IconAlertCircle, IconDatabase } from "@tabler/icons-react";
+import { DetailContent } from "./tables/RequestLog";
 import { avatarColor } from "../utils";
 import type { LogEntry } from "../contexts";
 
@@ -55,7 +57,7 @@ function CacheBar({ cacheRead, inputTokens }: { cacheRead: number; inputTokens: 
   );
 }
 
-function FeedEntry({ log: l, isNew }: { log: LogEntry; isNew: boolean }) {
+function FeedEntry({ log: l, isNew, onClick }: { log: LogEntry; isNew: boolean; onClick: () => void }) {
   const isErr  = l.status >= 400;
   const total  = l.input_tokens + l.output_tokens + l.cache_read + l.cache_creation;
   const model  = modelShort(l.model);
@@ -65,7 +67,8 @@ function FeedEntry({ log: l, isNew }: { log: LogEntry; isNew: boolean }) {
 
   return (
     <Box className={`feed-entry${isNew ? " feed-entry-new" : ""}`}
-      style={{ padding: "9px 14px", borderBottom: "1px solid var(--cp-border)" }}>
+      onClick={onClick}
+      style={{ padding: "9px 14px", borderBottom: "1px solid var(--cp-border)", cursor: "pointer" }}>
       <Group gap={8} wrap="nowrap" align="flex-start">
 
         {/* Avatar circle */}
@@ -148,10 +151,25 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
   const [loading, setLoading]   = useState(true);
   const [total, setTotal]       = useState(0);
   const [newIds, setNewIds]     = useState<Set<number>>(new Set());
+  const [detail, setDetail]           = useState<LogEntry | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [modalOpened, { open: openModal, close: closeModal }] = useDisclosure(false);
   const { colorScheme }         = useMantineColorScheme();
   const dark                    = colorScheme === "dark";
   const viewportRef             = useRef<HTMLDivElement>(null);
   const prevIdsRef              = useRef<Set<number>>(new Set());
+
+  const showDetail = useCallback(async (log: LogEntry) => {
+    setDetail(log);
+    setDetailLoading(true);
+    openModal();
+    try {
+      const r = await fetch(`/api/logs/${log.id}`);
+      if (r.ok) setDetail(await r.json() as LogEntry);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [openModal]);
 
   const load = useCallback(async () => {
     try {
@@ -253,7 +271,7 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
           </Stack>
         ) : (
           logs.map(l => (
-            <FeedEntry key={l.id} log={l} isNew={newIds.has(l.id)} />
+            <FeedEntry key={l.id} log={l} isNew={newIds.has(l.id)} onClick={() => showDetail(l)} />
           ))
         )}
       </ScrollArea>
@@ -272,6 +290,16 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
           </Text>
         </Group>
       </Box>
+
+      {/* Request detail modal */}
+      <Modal opened={modalOpened} onClose={closeModal} title="Request Detail" size="lg" centered>
+        {detailLoading
+          ? <Group justify="center" py="xl"><Loader size="sm" /></Group>
+          : detail
+          ? <DetailContent log={detail} />
+          : <Text size="sm" c="dimmed">Gagal memuat detail.</Text>
+        }
+      </Modal>
     </Box>
   );
 }
