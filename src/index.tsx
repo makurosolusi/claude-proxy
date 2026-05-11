@@ -18,6 +18,7 @@ import { handleApiUsageHourly }  from "./handlers/apiUsageHourly";
 import { handleApiSessions }     from "./handlers/apiSessions";
 import { handleApiAnalytics }    from "./handlers/apiAnalytics";
 import { handleApiUserActivity } from "./handlers/apiUserActivity";
+import { handleApiCompetition }  from "./handlers/apiCompetition";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleDebugQuery } from "./handlers/apiDebug";
@@ -25,6 +26,7 @@ import { handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure 
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModelRoutes } from "./handlers/apiModelRoutes";
+import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, handleDbSync } from "./handlers/apiDbSync";
 import { handleProxy }     from "./handlers/proxy";
 import { auth } from "./auth";
 import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
@@ -499,6 +501,43 @@ server = serve({
     "/api/admin/user-activity": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiUserActivity();
+    },
+
+    // ── DB Sync ──────────────────────────────────────────────────────────────
+    // Generate one-time sync token (stg side)
+    "/api/admin/db/generate-sync-token": async req => {
+      if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const entry = generateSyncToken();
+      return Response.json({ token: entry.token, expires_at: new Date(entry.expires_at).toISOString() });
+    },
+    // List active sync tokens (stg side)
+    "/api/admin/db/sync-tokens": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return Response.json({ tokens: listSyncTokens().map(t => ({ token: t.token.slice(0, 12) + "…", expires_at: new Date(t.expires_at).toISOString() })) });
+    },
+    // Revoke sync token (stg side)
+    "/api/admin/db/revoke-sync-token": async req => {
+      if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const { token } = await req.json() as { token: string };
+      revokeSyncToken(token);
+      return Response.json({ ok: true });
+    },
+    // Export all DB data (stg side, authenticated via sync token)
+    "/api/admin/db/export": async req => {
+      return handleDbExport(req);
+    },
+    // Pull & import from remote (dev side)
+    "/api/admin/db/sync": async req => {
+      if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleDbSync(req);
+    },
+    "/api/competition": async req => {
+      const u = await checkUser(req);
+      if (!u) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiCompetition(u.userId);
     },
     "/api/sessions/*": req => {
       const user = new URL(req.url).pathname.slice("/api/sessions/".length);

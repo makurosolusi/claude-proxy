@@ -101,7 +101,7 @@ export function DetailContent({ log: l }: { log: LogEntry }) {
   );
 }
 
-export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
+export function RequestLog({ isAdmin, allowDestructive = false }: { isAdmin: boolean; allowDestructive?: boolean }) {
   const [logs, setLogs]       = useState<LogEntry[]>([]);
   const [page, setPage]       = useState(1);
   const [pages, setPages]     = useState(1);
@@ -199,12 +199,12 @@ export function RequestLog({ isAdmin }: { isAdmin: boolean }) {
                 />
               </Group>
               <Group gap="xs">
-                {isAdmin && user && (
+                {allowDestructive && user && (
                   <Button size="xs" variant="light" color="orange" onClick={() => clearLogs(false)}>
                     Clear {user} logs
                   </Button>
                 )}
-                {isAdmin && (
+                {allowDestructive && (
                   <Button size="xs" variant="light" color="red" onClick={() => clearLogs(true)}>Clear all</Button>
                 )}
               </Group>

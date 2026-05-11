@@ -1,60 +1,355 @@
-/* ── Mobile-first global resets ──────────────────────────────────────────── */
+/* ── Design System — claude-proxy ────────────────────────────────────────── */
 
-/* Prevent horizontal overflow at root */
+/* CSS Variables */
+:root {
+  --cp-accent:       #2563eb;
+  --cp-accent-dim:   rgba(37,99,235,0.12);
+  --cp-accent-glow:  rgba(37,99,235,0.25);
+  --cp-teal:         #0d9488;
+  --cp-teal-dim:     rgba(13,148,136,0.12);
+  --cp-red:          #dc2626;
+  --cp-red-dim:      rgba(220,38,38,0.10);
+  --cp-amber:        #d97706;
+  --cp-amber-dim:    rgba(217,119,6,0.12);
+  --cp-violet:       #7c3aed;
+  --cp-radius-sm:    10px;
+  --cp-radius-md:    14px;
+  --cp-radius-lg:    18px;
+  --cp-radius-xl:    24px;
+  --cp-transition:   all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  --cp-shadow-sm:    0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --cp-shadow-md:    0 4px 12px rgba(0,0,0,0.10), 0 2px 4px rgba(0,0,0,0.06);
+  --cp-shadow-lg:    0 10px 32px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.06);
+}
+
+[data-mantine-color-scheme="dark"] {
+  --cp-bg:           #0f0f10;
+  --cp-surface:      #18181b;
+  --cp-surface-2:    #1f1f23;
+  --cp-surface-3:    #27272a;
+  --cp-border:       rgba(255,255,255,0.06);
+  --cp-border-2:     rgba(255,255,255,0.10);
+  --cp-text:         #f4f4f5;
+  --cp-text-2:       #a1a1aa;
+  --cp-text-3:       #71717a;
+  --cp-header-bg:    rgba(15,15,16,0.92);
+  --cp-shadow-sm:    0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --cp-shadow-md:    0 4px 16px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.2);
+  --cp-shadow-lg:    0 12px 40px rgba(0,0,0,0.4), 0 4px 10px rgba(0,0,0,0.2);
+}
+
+[data-mantine-color-scheme="light"] {
+  --cp-bg:           #f8f9fa;
+  --cp-surface:      #ffffff;
+  --cp-surface-2:    #f4f4f5;
+  --cp-surface-3:    #e4e4e7;
+  --cp-border:       rgba(0,0,0,0.07);
+  --cp-border-2:     rgba(0,0,0,0.12);
+  --cp-text:         #18181b;
+  --cp-text-2:       #52525b;
+  --cp-text-3:       #a1a1aa;
+  --cp-header-bg:    rgba(248,249,250,0.92);
+}
+
+/* ── Base resets ─────────────────────────────────────────────────────────── */
+
 html, body, #root {
   overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02","cv03","cv04","cv11";
 }
 
-/* Safe area padding for notched phones */
+* { box-sizing: border-box; }
+
+/* Safe areas */
 .mantine-AppShell-main {
   padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
 }
 
-/* Make tables scroll cleanly on mobile */
+/* ── Scrollbar styling ───────────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--cp-border-2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--cp-text-3); }
+
+/* ── Global Paper override ───────────────────────────────────────────────── */
+
+.mantine-Paper-root {
+  border-color: var(--cp-border) !important;
+  background: var(--cp-surface) !important;
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+
+@keyframes cp-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.85); }
+}
+
+@keyframes cp-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cp-slide-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes cp-scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes cp-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes live-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(13,148,136,0.4); }
+  50%       { opacity: 0.7; box-shadow: 0 0 0 4px rgba(13,148,136,0); }
+}
+
+.cp-fade-in   { animation: cp-fade-in  0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.cp-scale-in  { animation: cp-scale-in 0.25s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.cp-slide-in  { animation: cp-slide-in 0.2s cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+/* Staggered children */
+.cp-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.cp-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.cp-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.cp-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.cp-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.cp-stagger > *:nth-child(6) { animation-delay: 300ms; }
+
+/* ── Interactive states ──────────────────────────────────────────────────── */
+
+.cp-interactive {
+  transition: var(--cp-transition);
+  cursor: pointer;
+}
+.cp-interactive:hover {
+  background: var(--cp-surface-2) !important;
+  transform: translateY(-1px);
+  box-shadow: var(--cp-shadow-md);
+}
+.cp-interactive:active {
+  transform: translateY(0);
+  box-shadow: var(--cp-shadow-sm);
+}
+
+/* Row hover for tables */
+.cp-row-hover {
+  transition: background 0.12s ease;
+  cursor: pointer;
+}
+.cp-row-hover:hover {
+  background: var(--cp-surface-2) !important;
+}
+
+/* ── Header system ───────────────────────────────────────────────────────── */
+
+.cp-header-fixed {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 200;
+  background: var(--cp-header-bg);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid var(--cp-border);
+}
+
+/* ── Stat cards ──────────────────────────────────────────────────────────── */
+
+.cp-stat-card {
+  background: var(--cp-surface) !important;
+  border: 1px solid var(--cp-border) !important;
+  border-radius: var(--cp-radius-lg) !important;
+  padding: 16px !important;
+  transition: var(--cp-transition);
+  position: relative;
+  overflow: hidden;
+}
+.cp-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--cp-accent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.cp-stat-card:hover::before { opacity: 1; }
+
+/* ── Live feed entry ─────────────────────────────────────────────────────── */
+
+.feed-entry {
+  transition: background 0.12s ease;
+  animation: cp-slide-in 0.2s cubic-bezier(0.4,0,0.2,1) both;
+}
+.feed-entry:hover {
+  background: var(--cp-surface-2) !important;
+}
+.feed-entry-new {
+  animation: cp-slide-in 0.3s cubic-bezier(0.4,0,0.2,1) both;
+  border-left: 2px solid var(--cp-accent);
+}
+
+/* Live indicator dot */
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cp-teal);
+  animation: live-dot 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* ── Leaderboard ─────────────────────────────────────────────────────────── */
+
+.leader-row {
+  transition: var(--cp-transition);
+  border-radius: var(--cp-radius-md);
+  padding: 10px 12px;
+  cursor: default;
+}
+.leader-row:hover {
+  background: var(--cp-surface-2);
+  transform: translateX(2px);
+}
+.leader-row.is-me {
+  background: var(--cp-accent-dim);
+  border: 1px solid var(--cp-accent-glow);
+}
+
+/* Rank badge */
+.rank-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Geist Mono", monospace;
+  font-weight: 700;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.rank-1 { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #fff; box-shadow: 0 2px 8px rgba(245,158,11,0.4); }
+.rank-2 { background: linear-gradient(135deg, #d1d5db, #9ca3af); color: #fff; }
+.rank-3 { background: linear-gradient(135deg, #f97316, #ea580c); color: #fff; }
+.rank-n { background: var(--cp-surface-3); color: var(--cp-text-3); }
+
+/* ── Dashboard grid ──────────────────────────────────────────────────────── */
+
+:root {
+  --feed-w: 0px;
+}
+@media (min-width: 900px)  { :root { --feed-w: 348px; } }
+@media (min-width: 1280px) { :root { --feed-w: 408px; } }
+
+.dashboard-grid {
+  /* tabs col: full width minus live feed width + gap */
+  display: block;
+}
+
+/* Reserve space on the right so tabs content tidak tertutup feed */
+@media (min-width: 900px) {
+  .dashboard-grid {
+    margin-right: calc(var(--feed-w) + 16px);
+  }
+}
+
+/* LiveFeed: fixed di kanan, dari bawah header sampai bawah viewport */
+.live-feed-col {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .live-feed-col {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    right: 0;
+    top: var(--header-h, 153px);
+    width: var(--feed-w);
+    height: calc(100vh - var(--header-h, 153px));
+    padding: 12px 16px 16px 0;
+    z-index: 10;
+  }
+  .live-feed-col > * {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+/* ── Table enhancements ──────────────────────────────────────────────────── */
+
 .mantine-Table-scrollContainer {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
+  border-radius: var(--cp-radius-lg);
 }
 
-/* Prevent modal overflow on tiny screens */
+/* ── Modal polish ────────────────────────────────────────────────────────── */
+
 .mantine-Modal-content {
   max-height: calc(100dvh - 2rem);
   overflow-y: auto;
+  background: var(--cp-surface) !important;
+  border: 1px solid var(--cp-border);
+}
+.mantine-Modal-header {
+  background: var(--cp-surface) !important;
+  border-bottom: 1px solid var(--cp-border);
 }
 
-/* Fluid images/media */
-img, svg, canvas {
-  max-width: 100%;
-}
+/* ── Pct color helpers ───────────────────────────────────────────────────── */
 
-/* Better touch scrolling in ScrollArea */
-.mantine-ScrollArea-viewport {
-  -webkit-overflow-scrolling: touch;
-}
+.pct-ok   { color: #059669; font-weight: 600; }
+.pct-warn { color: #d97706; font-weight: 600; }
+.pct-high { color: #ea580c; font-weight: 600; }
+.pct-over { color: #dc2626; font-weight: 600; }
 
-/* ── Row color indicators — targeted via JS className ─────────────────────── */
-.u-ok   td:first-child { border-left: 3px solid #10b981; }
-.u-warn td:first-child { border-left: 3px solid #f59e0b; }
-.u-high td:first-child { border-left: 3px solid #f97316; }
-.u-over td:first-child { border-left: 3px solid #ef4444; }
+.u-ok   td:first-child { border-left: 2px solid #10b981; }
+.u-warn td:first-child { border-left: 2px solid #f59e0b; }
+.u-high td:first-child { border-left: 2px solid #f97316; }
+.u-over td:first-child { border-left: 2px solid #ef4444; }
 
-/* Pct text colors */
-.pct-ok   { color: #059669; font-weight: 700; }
-.pct-warn { color: #d97706; font-weight: 700; }
-.pct-high { color: #ea580c; font-weight: 700; }
-.pct-over { color: #dc2626; font-weight: 700; }
+/* ── Bar cell ────────────────────────────────────────────────────────────── */
 
-/* Bar cell flex layout */
 .bar-cell { display: flex; align-items: center; gap: 8px; min-width: 80px; }
-.bar-cell span { white-space: nowrap; font-size: .8rem; font-weight: 700; min-width: 36px; text-align: right; }
+.bar-cell span { white-space: nowrap; font-size: .8rem; font-weight: 600; min-width: 36px; text-align: right; }
 
-/* Mobile responsive table cards */
+/* ── Token progress gradient ─────────────────────────────────────────────── */
+
+.quota-bar-fill {
+  background: linear-gradient(90deg, var(--cp-teal), var(--cp-accent));
+  border-radius: 4px;
+  height: 4px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Skeleton shimmer ────────────────────────────────────────────────────── */
+
+.cp-skeleton {
+  background: linear-gradient(90deg, var(--cp-surface-2) 25%, var(--cp-surface-3) 50%, var(--cp-surface-2) 75%);
+  background-size: 200% 100%;
+  animation: cp-shimmer 1.5s infinite;
+  border-radius: var(--cp-radius-sm);
+}
+
+/* ── Mobile responsive tables ────────────────────────────────────────────── */
+
 @media (max-width: 640px) {
   .users-table thead { display: none; }
   .users-table tbody tr {
     display: block;
-    border-radius: 8px;
+    border-radius: var(--cp-radius-md);
     margin-bottom: 8px;
     padding: 4px 0;
   }
@@ -74,5 +369,36 @@ img, svg, canvas {
     margin-right: 8px;
     text-transform: uppercase;
     letter-spacing: .05em;
+    color: var(--cp-text-3);
   }
 }
+
+/* ── Tab pills polish ────────────────────────────────────────────────────── */
+
+.mantine-Tabs-tab {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 13.5px;
+}
+.mantine-Tabs-tab[data-active] {
+  background: var(--cp-accent) !important;
+  color: white !important;
+}
+
+/* ── Notification polish ─────────────────────────────────────────────────── */
+
+.mantine-Notification-root {
+  border-radius: var(--cp-radius-lg) !important;
+  backdrop-filter: blur(12px);
+}
+
+/* ── Media queries for safe areas ───────────────────────────────────────── */
+
+@supports (padding: max(0px)) {
+  .cp-safe-bottom {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+}
+
+img, svg, canvas { max-width: 100%; }
+.mantine-ScrollArea-viewport { -webkit-overflow-scrolling: touch; }

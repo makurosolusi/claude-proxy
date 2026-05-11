@@ -1,7 +1,8 @@
 import { prisma } from "../prisma";
-import { users, tokens, dbUpsertUser, dbUpdateUser, dbDeleteUser, dbLinkTokenToUser, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
+import { users, tokens, dailyUsage, allTimePerUser, dbUpsertUser, dbUpdateUser, dbDeleteUser, dbLinkTokenToUser, deriveNameFromKey, slugify, ensureUniqueSlug } from "../state";
 import { config } from "../config";
 import { triggerBroadcast } from "../broadcast";
+import { todayKey } from "../tokens";
 import type { DailyUsage } from "../types";
 import type { TokenEntry, UserEntry } from "../types";
 
@@ -14,14 +15,24 @@ export async function handleApiUsers(
 
   // GET /api/admin/users
   if (req.method === "GET" && pathname === "/api/admin/users") {
+    const today = todayKey();
+    const todayUsage = dailyUsage[today] ?? {};
     const list = Object.values(users).map(u => {
       const userTokens = Object.entries(tokens)
         .filter(([, tk]) => tk.user_id === u.id)
-        .map(([key, tk]) => ({
-          key,
-          name: tk.name, used: tk.used, limit: tk.limit === Infinity ? null : tk.limit,
-          paused: tk.paused, provider: tk.provider,
-        }));
+        .map(([key, tk]) => {
+          const limit   = tk.limit === Infinity ? null : tk.limit;
+          const pct     = limit && limit > 0 ? Math.round((tk.used / limit) * 100) : 0;
+          const todayV  = todayUsage[key] ?? 0;
+          const alltime = allTimePerUser[u.id] ?? allTimePerUser[key] ?? 0;
+          return {
+            key,
+            name: tk.name, used: tk.used, limit,
+            paused: tk.paused, provider: tk.provider,
+            dynamic: tk.dynamic,
+            pct, today: todayV, alltime,
+          };
+        });
       return { ...u, created_at: Number(u.created_at), status: u.status || "pending", tokens: userTokens };
     }).sort((a, b) => a.name.localeCompare(b.name));
     return Response.json({ users: list });

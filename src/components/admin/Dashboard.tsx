@@ -9,7 +9,7 @@ import {
   IconSitemap, IconExternalLink, IconSun, IconMoon,
   IconChevronsLeft, IconChevronsRight,
   IconPlugConnected, IconKey, IconLogout,
-  IconRoute, IconCloud, IconChartLine,
+  IconRoute, IconCloud, IconChartLine, IconDatabase,
 } from "@tabler/icons-react";
 import { pctColor } from "../../utils";
 import { useStatus } from "../../contexts";
@@ -23,7 +23,8 @@ import { AdminAccounts } from "./Accounts";
 import { AdminModelRouting } from "./ModelRouting";
 import { AdminProviders } from "./Providers";
 import { AdminUserActivity } from "./UserActivity";
-type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "routing" | "providers" | "test" | "accounts";
+import { AdminDatabase } from "./Database";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "routing" | "providers" | "test" | "accounts" | "database";
 
 function AdminStats() {
   return (
@@ -72,7 +73,8 @@ export function AdminDashboard() {
     { id: "routing",   label: "Routing",        icon: <IconRoute           size={SZ} />, desc: "Model fallback rules"      },
     { id: "providers", label: "Providers",      icon: <IconCloud           size={SZ} />, desc: "Claude Max, OpenRouter & DeepSeek" },
     { id: "test",      label: "Test Connection",icon: <IconPlugConnected   size={SZ} />, desc: "Verify API connectivity"     },
-    { id: "accounts", label: "Credentials",     icon: <IconKey             size={SZ} />, desc: "API keys & OAuth accounts" },
+    { id: "accounts",  label: "Credentials",    icon: <IconKey             size={SZ} />, desc: "API keys & OAuth accounts" },
+    { id: "database",  label: "Database",       icon: <IconDatabase        size={SZ} />, desc: "DB sync stg ↔ dev" },
   ];
   const footerItems: { icon: React.ReactNode; label: string; href: string; target?: string }[] = [
     { icon: <IconSitemap      size={SZ} />, label: "Mind Map",    href: "/mind", target: "_blank" },
@@ -81,7 +83,7 @@ export function AdminDashboard() {
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
   const sectionTitles: Record<AdminSection, string> = {
-    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", activity: "Activity", routing: "Routing", providers: "Providers", test: "Test Connection", accounts: "Credentials",
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", activity: "Activity", routing: "Routing", providers: "Providers", test: "Test Connection", accounts: "Credentials", database: "Database",
   };
   const statusColor = upstream.ok ? "teal" : "red";
   const SIDEBAR_W   = collapsed ? 56 : 220;
@@ -241,13 +243,14 @@ export function AdminDashboard() {
         <Box p={{ base: "xs", sm: "md", md: "lg" }}>
           {section === "overview"  && <AdminOverview tokens={tokens} upstream={upstream} />}
           {section === "users"     && <AdminUsers tokens={tokens} />}
-          {section === "logs"      && <RequestLog isAdmin={true} />}
+          {section === "logs"      && <RequestLog isAdmin={true} allowDestructive={true} />}
           {section === "stats"     && <AdminStats />}
           {section === "activity"  && <AdminUserActivity />}
           {section === "routing"    && <AdminModelRouting />}
           {section === "providers" && <AdminProviders />}
           {section === "test"      && <AdminTest />}
           {section === "accounts"  && <AdminAccounts />}
+          {section === "database"  && <AdminDatabase />}
         </Box>
       </AppShell.Main>
     </AppShell>

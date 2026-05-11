@@ -6,7 +6,7 @@ import {
   Container, Group, Stack, Title, Text, Box, Button, Paper,
   ActionIcon, Tooltip, TextInput, useMantineColorScheme,
   SimpleGrid, Progress, ThemeIcon, Divider, Alert, Badge, Code, Collapse, Loader, Transition,
-  Table, Pagination, Modal, Anchor,
+  Table, Pagination, Modal, Anchor, Tabs,
 } from "@mantine/core";
 import {
   IconSun, IconMoon, IconLogout, IconLogin,
@@ -15,13 +15,16 @@ import {
   IconAlertTriangle, IconAlertHexagon, IconChevronDown, IconChevronUp,
   IconBulb, IconX, IconChartBar, IconArrowUp, IconHeartbeat, IconKey,
   IconChartHistogram, IconList, IconFlame, IconChartPie, IconBolt,
-  IconTrophy, IconBrain,
+  IconTrophy, IconBrain, IconLayoutDashboard, IconChartLine,
 } from "@tabler/icons-react";
 import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
 import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
 import { useStatus } from "./contexts";
 import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, BlockedPage, UpstreamSection } from "./components/shared";
+import { CompetitionPanel } from "./components/CompetitionPanel";
+import { AdminUserActivity } from "./components/admin/UserActivity";
+import { LiveFeed } from "./components/LiveFeed";
 import { DailyHistory } from "./components/tables/DailyHistory";
 import { RequestLog, DetailContent } from "./components/tables/RequestLog";
 import { AdminDashboard } from "./components/admin/Dashboard";
@@ -221,16 +224,25 @@ function ClockInline() {
   const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   return (
-    <Group justify="space-between" wrap="nowrap" gap="md">
-      <Group gap="xs" wrap="nowrap">
-        <IconClock size={14} color="var(--mantine-color-dimmed)" />
-        <Text size="sm" c="dimmed">{day}, {date}</Text>
-      </Group>
-      <Group gap={6} align="baseline" wrap="nowrap">
-        <Text fz={22} fw={700} ff="monospace" lh={1} style={{ letterSpacing: "-.02em" }}>{hh}:{mm}</Text>
-        <Text fz={14} fw={400} ff="monospace" lh={1} c="dimmed">:{ss}</Text>
-        <Text size="xs" c="dimmed" ml={6}>{tz}</Text>
-      </Group>
+    <Group gap={10} wrap="nowrap" align="center">
+      <Box hiddenFrom="sm">
+        <Text fz={16} fw={800} ff="Geist Mono, monospace" lh={1} style={{ letterSpacing: "-0.03em" }}>
+          {hh}:{mm}
+        </Text>
+      </Box>
+      <Box visibleFrom="sm">
+        <Group gap={4} wrap="nowrap" align="center">
+          <IconClock size={11} color="var(--cp-text-3)" />
+          <Text fz={11} c="dimmed">{day}, {date}</Text>
+        </Group>
+        <Group gap={3} align="baseline" wrap="nowrap" mt={1}>
+          <Text fz={19} fw={800} ff="Geist Mono, monospace" lh={1} style={{ letterSpacing: "-0.04em" }}>
+            {hh}:{mm}
+          </Text>
+          <Text fz={12} ff="Geist Mono, monospace" lh={1} c="dimmed">:{ss}</Text>
+          <Text fz={10} c="dimmed" ml={3}>{tz}</Text>
+        </Group>
+      </Box>
     </Group>
   );
 }
@@ -758,11 +770,43 @@ function LoginPage() {
   );
 }
 
-function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import("./contexts").ProfileResponse }) {
+function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?: import("./contexts").ProfileResponse; wsSignal?: number }) {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { tokens, upstream, contextAlerts = [], thresholdAlerts = [], insights = {} } = status;
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try { return localStorage.getItem("dashboard-tab") || "dashboard"; } catch { return "dashboard"; }
+  });
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(153);
+  const [subHeaderVisible, setSubHeaderVisible] = useState(true);
+  const lastScrollY = useRef(0);
   const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
+
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
+    obs.observe(el);
+    setHeaderHeight(el.offsetHeight);
+    return () => obs.disconnect();
+  }, []);
+
+  // Sub-header: hide saat scroll naik, muncul saat scroll turun
+  useEffect(() => {
+    const THRESHOLD = 8; // px minimum sebelum trigger
+    const onScroll = () => {
+      const y    = window.scrollY;
+      const diff = y - lastScrollY.current;
+      if (Math.abs(diff) < THRESHOLD) return;
+      // scroll ke atas (diff < 0) → sembunyikan sub-header
+      // scroll ke bawah (diff > 0) → tampilkan sub-header
+      setSubHeaderVisible(diff < 0);
+      lastScrollY.current = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const [dismissedThresh, setDismissedThresh] = useState<string[]>([]);
   const visibleAlerts  = contextAlerts.filter(a => !dismissedAlerts.includes(a.label + a.ts));
   const visibleThresh  = thresholdAlerts.filter(a => !dismissedThresh.includes(a.label + a.type));
@@ -865,131 +909,195 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
     };
   }, []);
 
+  const quotaPct = (() => {
+    const myTokens  = Object.values(profile?.tokens ?? {});
+    const totalUsed = myTokens.reduce((s, t) => s + t.used, 0);
+    const totalLim  = myTokens.reduce((s, t) => s + (t.limit ?? 0), 0);
+    return totalLim > 0 ? Math.min(100, Math.round((totalUsed / totalLim) * 100)) : 0;
+  })();
+
   return (
-    <Box style={{ minHeight: "100vh", background: pageBg, backgroundAttachment: "fixed", transition: "background 3s ease" }}>
-    <Container size="md" py={{ base: "md", sm: "xl" }} px={{ base: "sm", sm: "md" }}>
-      {/* ── Hero ─────────────────────────────────────────────── */}
-      {(() => {
-        const ap = upstream?.activeProvider;
-        const isFallback = !!ap;
-        const provName  = ap === "deepseek" ? "DeepSeek" : ap === "openrouter" ? "OpenRouter" : "Claude Max";
-        const provColor = ap === "deepseek" ? "violet" : ap === "openrouter" ? "orange"
-          : upstream?.ok ? "blue" : "gray";
-        const modelLabel = upstream?.activeModel ?? "claude-sonnet-4-6";
+    <Box style={{ minHeight: "100vh", background: pageBg, backgroundAttachment: "fixed", transition: "background 3s ease", paddingTop: headerHeight, ["--header-h" as any]: `${headerHeight}px` }}>
+    {/* ── Fixed Header (Navbar + Sub-header) ──────────────── */}
+    {(() => {
+      const ap         = upstream?.activeProvider;
+      const isFallback = !!ap;
+      const provName   = ap === "deepseek" ? "DeepSeek" : ap === "openrouter" ? "OpenRouter" : "Claude Max";
+      const provDot    = ap === "deepseek" ? "#7c3aed" : ap === "openrouter" ? "#f97316" : upstream?.ok ? "#0d9488" : "#71717a";
+      const modelLabel = (upstream?.activeModel ?? "claude-sonnet-4-6").replace(/^claude-/, "").replace(/-\d{8}$/, "");
+      const roleColor  = profile?.role === "SUPER_ADMIN" ? "red" : profile?.role === "ADMIN" ? "orange" : "blue";
+      const roleLabel  = profile?.role === "SUPER_ADMIN" ? "Super Admin" : profile?.role === "ADMIN" ? "Admin" : "User";
+      const myTokens   = Object.values(profile?.tokens || {});
+      const totalUsed  = myTokens.reduce((s, t) => s + t.used, 0);
+      const totalLim   = myTokens.reduce((s, t) => s + (t.limit ?? 0), 0);
+      const todayTok   = myTokens.reduce((s, t) => s + t.today, 0);
+      const pct        = totalLim > 0 ? Math.min(100, Math.round((totalUsed / totalLim) * 100)) : 0;
+      const pctColor   = pct >= 95 ? "#dc2626" : pct >= 75 ? "#f97316" : pct >= 50 ? "#d97706" : "#2563eb";
+      const avatarBg   = `var(--mantine-color-${avatarColor(profile?.name || profile?.email || "")}-6)`;
+      const userInitials = (profile?.name || profile?.email || "?").slice(0, 2).toUpperCase();
 
-        const roleColor = profile?.role === "SUPER_ADMIN" ? "red" : profile?.role === "ADMIN" ? "orange" : "blue";
-        const roleLabel = profile?.role === "SUPER_ADMIN" ? "Super Admin" : profile?.role === "ADMIN" ? "Admin" : "User";
-        const myTokens  = Object.values(profile?.tokens || {});
-        const totalUsed = myTokens.reduce((s, t) => s + t.used, 0);
-        const totalLim  = myTokens.reduce((s, t) => s + (t.limit ?? 0), 0);
-        const todayTok  = myTokens.reduce((s, t) => s + t.today, 0);
-        const pct       = totalLim > 0 ? Math.min(100, Math.round((totalUsed / totalLim) * 100)) : 0;
-        const userInitials = (profile?.name || profile?.email || "?").slice(0, 2).toUpperCase();
-
-        return (
-          <Paper withBorder p={{ base: "sm", sm: "lg" }} radius="lg" mb="lg"
-            style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
-            {/* top row: logo + actions */}
-            <Group justify="space-between" wrap="wrap" mb="md" gap="xs">
-              <Group gap="md">
-                <Box style={{ width: 48, height: 48, background: "#228be6", borderRadius: 12,
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Text span fz={16} fw={800} c="white" ff="monospace">CP</Text>
-                </Box>
-                <div>
-                  <Title order={3} ff="monospace" lh={1.2}>claude-proxy</Title>
-                  <Text size="sm" c="dimmed" mt={2}>
-                    Claude Max proxy · multi-user API key with quota management
-                  </Text>
-                </div>
-              </Group>
-              <Group gap="xs">
-                <Tooltip label="Toggle theme" position="bottom" withArrow openDelay={400}>
-                  <ActionIcon variant="default" size="lg" radius="md" onClick={() => toggleColorScheme()}>
-                    {colorScheme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
-                  </ActionIcon>
-                </Tooltip>
-                {(isAdmin || status.isAdmin) &&
-                  <Button component="a" href="/admin" variant="light" size="xs" radius="md" leftSection={<IconLogin size={13} />}>Admin</Button>
-                }
-                <Button component="a" href="/auth/logout" variant="default" size="xs" radius="md" leftSection={<IconLogout size={13} />}>Sign out</Button>
-              </Group>
+      return (
+        <div ref={headerRef} className="cp-header-fixed">
+          {/* ── Navbar ─────────────────────────────────── */}
+          <Box px={{ base: 12, sm: 24 }} style={{ height: 52, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Group gap={12} wrap="nowrap">
+              {/* Logo */}
+              <Box style={{
+                width: 34, height: 34, flexShrink: 0,
+                background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 2px 8px rgba(37,99,235,0.35)",
+              }}>
+                <Text span fz={11} fw={800} c="white" ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em" }}>CP</Text>
+              </Box>
+              <div>
+                <Text fw={700} fz={15} lh={1.2} style={{ letterSpacing: "-0.02em" }}>claude-proxy</Text>
+                <Text fz={11} c="dimmed" visibleFrom="sm" lh={1}>Multi-user Claude Max proxy</Text>
+              </div>
             </Group>
 
-            <Divider mb="md" opacity={0.5} />
-
-            {/* middle row: user profile + clock */}
-            <Group justify="space-between" wrap="wrap" gap="sm" mb="md">
-              {profile?.authenticated ? (
-                <Group gap="sm" wrap="nowrap">
-                  <Box style={{
-                    width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
-                    background: `var(--mantine-color-${avatarColor(profile.name || profile.email || "")}-5)`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                    <Text span fz={12} fw={700} c="white">{userInitials}</Text>
-                  </Box>
-                  <div>
-                    <Group gap={6} align="center">
-                      <Text size="sm" fw={600}>{profile.name || profile.email}</Text>
-                      <Badge size="xs" color={roleColor} variant="light" radius="sm">{roleLabel}</Badge>
-                    </Group>
-                    <Text size="xs" c="dimmed">{profile.email}</Text>
-                  </div>
-                </Group>
-              ) : <div />}
-              <ClockInline />
+            <Group gap={6} wrap="nowrap">
+              <Tooltip label="Toggle theme" position="bottom" withArrow openDelay={600}>
+                <ActionIcon variant="subtle" size="md" radius="lg" onClick={() => toggleColorScheme()}
+                  style={{ color: "var(--cp-text-2)" }}>
+                  {colorScheme === "dark" ? <IconSun size={15} /> : <IconMoon size={15} />}
+                </ActionIcon>
+              </Tooltip>
+              {(isAdmin || status.isAdmin) && (
+                <Button component="a" href="/admin" size="xs" variant="light" radius="lg"
+                  leftSection={<IconLogin size={12} />}
+                  style={{ fontWeight: 600, fontSize: 12 }}>
+                  Admin
+                </Button>
+              )}
+              <Button component="a" href="/auth/logout" size="xs" variant="subtle" radius="lg"
+                leftSection={<IconLogout size={12} />}
+                style={{ fontWeight: 600, fontSize: 12, color: "var(--cp-text-2)" }}>
+                <Text visibleFrom="xs" span>Sign out</Text>
+              </Button>
             </Group>
+          </Box>
 
-            {/* quota row */}
-            {profile?.authenticated && (
-              <Group justify="space-between" wrap="wrap" gap="sm" mb="md">
-                {totalLim > 0 ? (
-                  <div style={{ flex: 1, minWidth: 180, maxWidth: 320 }}>
-                    <Group justify="space-between" mb={4}>
-                      <Text size="xs" c="dimmed">Quota</Text>
-                      <Text size="xs" ff="monospace" c={pct > 80 ? "red" : "dimmed"}>{pct}%</Text>
-                    </Group>
-                    <Progress value={pct} size="xs" radius="xl" color={pct > 80 ? "red" : pct > 50 ? "yellow" : "blue"} />
-                    <Text size="xs" c="dimmed" mt={3}>{nf.format(totalUsed)} / {nf.format(totalLim)} tokens</Text>
-                  </div>
-                ) : <div />}
-                <Group gap="lg" wrap="nowrap">
-                  <div style={{ textAlign: "right" }}>
-                    <Text size="xs" c="dimmed">Today</Text>
-                    <Text size="sm" fw={600} ff="monospace">{nf.format(todayTok)}</Text>
-                  </div>
-                  <Button component="a" href="/profile" variant="light" size="xs" radius="md" leftSection={<IconUsers size={13} />}>
-                    Profile
-                  </Button>
-                </Group>
-              </Group>
-            )}
+          {/* ── Sub-header ──────────────────────────────── */}
+          <Box px={{ base: 12, sm: 24 }} py={10}
+            style={{
+              borderTop: "1px solid var(--cp-border)",
+              opacity:    subHeaderVisible ? 1 : 0,
+              transform:  subHeaderVisible ? "translateY(0)" : "translateY(-6px)",
+              transition: "opacity 0.25s ease, transform 0.25s ease",
+              pointerEvents: subHeaderVisible ? "auto" : "none",
+              overflow: "hidden",
+              maxHeight: subHeaderVisible ? 200 : 0,
+            }}>
+            <Group justify="space-between" gap="md" wrap="wrap">
 
-            <Divider mb="md" opacity={0.5} />
+              {/* Left: User + Quota + Model */}
+              <Group gap={16} wrap="wrap" style={{ flex: 1, minWidth: 0 }}>
 
-            {/* bottom row: active model */}
-            <Group justify="space-between" wrap="nowrap" gap="md">
-              <Group gap="sm" wrap="nowrap">
-                <Box w={8} h={8} style={{ borderRadius: "50%", flexShrink: 0,
-                  background: `var(--mantine-color-${provColor}-5)` }} />
-                <Group gap={6} align="baseline" wrap="nowrap">
-                  <Text size="sm" fw={600}>{provName}</Text>
-                  <Text size="xs" c="dimmed" ff="monospace">{modelLabel}</Text>
-                </Group>
-                {isFallback && (
-                  <Text size="xs" c="dimmed">
-                    — rate-limited, auto-routing until Claude recovers
-                  </Text>
+                {/* Avatar + Name */}
+                {profile?.authenticated && (
+                  <Group gap={8} wrap="nowrap" style={{ flexShrink: 0 }}>
+                    <Box style={{
+                      width: 32, height: 32, borderRadius: "50%",
+                      background: avatarBg, flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, fontWeight: 700, color: "#fff",
+                      fontFamily: "Geist Mono, monospace",
+                    }}>{userInitials}</Box>
+                    <Box>
+                      <Group gap={5} wrap="nowrap">
+                        <Text fz={13} fw={600} style={{ letterSpacing: "-0.01em" }}>
+                          {profile.name || profile.email?.split("@")[0]}
+                        </Text>
+                        <Badge size="xs" color={roleColor} variant="light" style={{ fontSize: 10, fontWeight: 700 }}>
+                          {roleLabel}
+                        </Badge>
+                      </Group>
+                      <Text fz={10} c="dimmed">{profile.email}</Text>
+                    </Box>
+                  </Group>
                 )}
+
+                {/* Quota bar */}
+                {totalLim > 0 && (
+                  <Box style={{ minWidth: 140, maxWidth: 240, flex: 1 }}>
+                    <Group justify="space-between" mb={4}>
+                      <Text fz={10} c="dimmed" fw={500} tt="uppercase" style={{ letterSpacing: ".06em" }}>Quota</Text>
+                      <Text fz={10} ff="Geist Mono, monospace" fw={700} style={{ color: pctColor }}>{pct}%</Text>
+                    </Group>
+                    <Box style={{ height: 3, background: "var(--cp-surface-3)", borderRadius: 4, overflow: "hidden" }}>
+                      <Box style={{
+                        height: "100%", borderRadius: 4,
+                        width: `${pct}%`,
+                        background: pct >= 95 ? "var(--cp-red)" : pct >= 75 ? "var(--cp-amber)" : "var(--cp-accent)",
+                        transition: "width 0.6s cubic-bezier(0.4,0,0.2,1)",
+                      }} />
+                    </Box>
+                    <Text fz={10} c="dimmed" mt={3} ff="Geist Mono, monospace">
+                      {nf.format(totalUsed)} <Text span c="dimmed" fz={9}>/ {nf.format(totalLim)}</Text>
+                    </Text>
+                  </Box>
+                )}
+
+                {/* Model status */}
+                <Group gap={6} wrap="nowrap" visibleFrom="md">
+                  <Box w={6} h={6} style={{ borderRadius: "50%", background: provDot, flexShrink: 0 }} />
+                  <Text fz={12} fw={600}>{provName}</Text>
+                  <Text fz={11} c="dimmed" ff="Geist Mono, monospace">{modelLabel}</Text>
+                  <Badge size="xs" variant="dot" color={isFallback ? "orange" : "teal"} style={{ fontSize: 10 }}>
+                    {isFallback ? "fallback" : "primary"}
+                  </Badge>
+                </Group>
               </Group>
-              <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: ".08em", flexShrink: 0 }}>
-                {isFallback ? "fallback" : "primary"}
-              </Text>
+
+              {/* Right: clock + today + profile */}
+              <Group gap={12} wrap="nowrap" style={{ flexShrink: 0 }}>
+                <ClockInline />
+                <Box ta="center" style={{ flexShrink: 0 }}>
+                  <Text fz={9} c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Today</Text>
+                  <Text fz={14} fw={700} ff="Geist Mono, monospace" lh={1.2}>{nf.format(todayTok)}</Text>
+                </Box>
+                <Button component="a" href="/profile" size="xs" variant="light" radius="lg"
+                  leftSection={<IconUsers size={11} />}
+                  style={{ fontWeight: 600, fontSize: 12 }}>
+                  <Text visibleFrom="xs" span>Profile</Text>
+                </Button>
+              </Group>
+
             </Group>
-          </Paper>
-        );
-      })()}
+          </Box>
+        </div>
+      );
+    })()}
+
+
+    {/* ── 2-kolom: Tabs (kiri) + LiveFeed (kanan) ──────────── */}
+    <Box px={{ base: 12, sm: 24 }} pt="xl" pb="xl">
+      <Box className="dashboard-grid cp-stagger">
+
+        {/* ── Kiri: Tabs ─────────────────────────────────────── */}
+        <Box className="cp-fade-in">
+          <Tabs value={activeTab} onChange={v => { if (!v) return; setActiveTab(v); try { localStorage.setItem("dashboard-tab", v); } catch {} }} variant="pills" radius="lg">
+            <Tabs.List mb="lg">
+              <Tabs.Tab value="dashboard" leftSection={<IconLayoutDashboard size={13} />}
+                style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
+                Dashboard
+              </Tabs.Tab>
+              <Tabs.Tab value="activity" leftSection={<IconChartLine size={13} />}
+                style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
+                Activity
+              </Tabs.Tab>
+              {/* Feed tab: hanya muncul di mobile */}
+              <Tabs.Tab value="feed" leftSection={<IconActivity size={13} />}
+                hiddenFrom="sm"
+                style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
+                Feed
+              </Tabs.Tab>
+            </Tabs.List>
+
+            {/* ── Tab Dashboard ─────────────────────────────── */}
+            <Tabs.Panel value="dashboard">
+              <Stack gap="lg">
 
       {/* ── Critical Sonnet Alert ────────────────────────────── */}
       {upstream?.sevenDaySonnet && (
@@ -997,81 +1105,84 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
       )}
 
       {/* ── Quick Stats ──────────────────────────────────────── */}
-      <SimpleGrid cols={{ base: 2, sm: 4 }} mb="lg" id="stats" style={{ scrollMarginTop: 16 }}>
-        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
-          <Group gap="sm" mb={6}>
-            <ThemeIcon variant="light" color="blue" size="md" radius="md">
-              <IconActivity size={16} />
-            </ThemeIcon>
-            <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today</Text>
+      <SimpleGrid cols={{ base: 2, sm: 4 }} mb="lg" id="stats" style={{ scrollMarginTop: 16 }}
+        className="cp-stagger">
+        <Box className="cp-stat-card cp-fade-in">
+          <Group gap={8} mb={8}>
+            <Box style={{
+              width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+              background: "var(--cp-accent-dim)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <IconActivity size={14} color="var(--cp-accent)" />
+            </Box>
+            <Text fz={10} fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today</Text>
           </Group>
-          <Text fz={{ base: 18, xs: 22, sm: 24 }} fw={700} ff="monospace" c={todayTotal === 0 ? "dimmed" : undefined}
-            style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+          <Text fz={{ base: 20, sm: 26 }} fw={800} ff="Geist Mono, monospace"
+            c={todayTotal === 0 ? "dimmed" : "var(--cp-text)"}
+            style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
             {nf.format(todayTotal)}
           </Text>
-          <Text size="xs" c="dimmed" mt={2}>
-            {todayTotal === 0 ? "Quiet day — no requests yet" : "tokens used today"}
+          <Text fz={11} c="dimmed" mt={4}>
+            {todayTotal === 0 ? "Quiet — no requests yet" : "tokens used today"}
           </Text>
-        </Paper>
+        </Box>
 
-        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
-          <Group gap="sm" mb={6}>
-            <ThemeIcon variant="light" color="violet" size="md" radius="md">
-              <IconDatabase size={16} />
-            </ThemeIcon>
-            <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>All-Time</Text>
+        <Box className="cp-stat-card cp-fade-in">
+          <Group gap={8} mb={8}>
+            <Box style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(124,58,237,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <IconDatabase size={14} color="#7c3aed" />
+            </Box>
+            <Text fz={10} fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>All-Time</Text>
           </Group>
-          <Text fz={{ base: 18, xs: 22, sm: 24 }} fw={700} ff="monospace"
-            style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+          <Text fz={{ base: 20, sm: 26 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
             {nf.format(status.totalAllTime ?? 0)}
           </Text>
-          <Text size="xs" c="dimmed" mt={2}>total tokens processed</Text>
-        </Paper>
+          <Text fz={11} c="dimmed" mt={4}>total tokens processed</Text>
+        </Box>
 
-        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
-          <Group gap="sm" mb={6}>
-            <ThemeIcon variant="light" color="teal" size="md" radius="md">
-              <IconUsers size={16} />
-            </ThemeIcon>
-            <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Active</Text>
+        <Box className="cp-stat-card cp-fade-in">
+          <Group gap={8} mb={8}>
+            <Box style={{ width: 28, height: 28, borderRadius: 8, background: "var(--cp-teal-dim)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <IconUsers size={14} color="var(--cp-teal)" />
+            </Box>
+            <Text fz={10} fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Active</Text>
           </Group>
-          <Text fz={{ base: 18, xs: 22, sm: 24 }} fw={700} ff="monospace"
-            style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+          <Text fz={{ base: 20, sm: 26 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
             {activeTokens}
-            <Text span fz="sm" fw={400} c="dimmed"> / {totalTokens}</Text>
+            <Text span fz={14} fw={500} c="dimmed"> /{totalTokens}</Text>
           </Text>
-          <Text size="xs" c="dimmed" mt={2}>
-            {totalTokens === 0 ? "no tokens configured" : activeTokens === 0 ? "no token has usage this window" : "tokens with usage this window"}
+          <Text fz={11} c="dimmed" mt={4}>
+            {totalTokens === 0 ? "no tokens configured" : activeTokens === 0 ? "none active this window" : "tokens active this window"}
           </Text>
-        </Paper>
+        </Box>
 
-        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
-          <Group gap="sm" mb={6}>
-            <ThemeIcon variant="light" color="orange" size="md" radius="md">
-              <IconClock size={16} />
-            </ThemeIcon>
-            <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Resets In</Text>
+        <Box className="cp-stat-card cp-fade-in">
+          <Group gap={8} mb={8}>
+            <Box style={{ width: 28, height: 28, borderRadius: 8, background: "var(--cp-amber-dim)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <IconClock size={14} color="var(--cp-amber)" />
+            </Box>
+            <Text fz={10} fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Resets In</Text>
           </Group>
           {countdownMs !== null ? (
             <>
-              <Text fz={{ base: 18, xs: 22, sm: 24 }} fw={700} ff="monospace"
-                style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+              <Text fz={{ base: 20, sm: 26 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
                 {fmtCountdown(countdownMs)}
               </Text>
-              <Text size="xs" c="dimmed" mt={2}>
+              <Text fz={11} c="dimmed" mt={4}>
                 at {new Date(resetsAtMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </Text>
             </>
           ) : (
             <>
-              <Group gap="xs" align="center" mih={32}>
-                <Loader size="xs" color="orange" />
-                <Text fz="md" fw={500} c="dimmed">polling…</Text>
+              <Group gap={6} align="center" mih={28}>
+                <Loader size={10} color="orange" />
+                <Text fz={13} fw={500} c="dimmed">polling…</Text>
               </Group>
-              <Text size="xs" c="dimmed" mt={2}>upstream not yet responded</Text>
+              <Text fz={11} c="dimmed" mt={4}>waiting for upstream</Text>
             </>
           )}
-        </Paper>
+        </Box>
       </SimpleGrid>
 
       {/* ── Context Alerts ───────────────────────────────────── */}
@@ -1730,25 +1841,44 @@ function Dashboard({ isAdmin, profile }: { isAdmin: boolean; profile?: import(".
         }
       </Modal>
 
-      {/* ── Request Log (public shows compact preview) ───────── */}
-      <Box id="logs" style={{ scrollMarginTop: 16 }}>
-        <RequestLog isAdmin={isAdmin} />
-      </Box>
-
-      {/* ── Admin-only sections ──────────────────────────────── */}
+      {/* Admin-only: daily history */}
       {isAdmin && (
-        <>
-          <Divider my="lg" />
-
-          <Stack gap="xs" mb="xl">
-            <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Daily History</Text>
-            <Paper withBorder style={{ overflow: "hidden" }}>
-              <DailyHistory isAdmin={isAdmin} />
-            </Paper>
-          </Stack>
-        </>
+        <Stack gap="xs">
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Daily History</Text>
+          <Paper withBorder style={{ overflow: "hidden" }}>
+            <DailyHistory isAdmin={isAdmin} />
+          </Paper>
+        </Stack>
       )}
-    </Container>
+
+              </Stack>{/* end Tab Dashboard Stack */}
+            </Tabs.Panel>
+
+            {/* ── Tab Activity ──────────────────────────────── */}
+            <Tabs.Panel value="activity">
+              <Stack gap="xl">
+                <CompetitionPanel quotaPct={quotaPct} />
+                <AdminUserActivity />
+              </Stack>
+            </Tabs.Panel>
+
+            {/* ── Tab Feed (mobile only) ────────────────────── */}
+            <Tabs.Panel value="feed">
+              <Box style={{ height: "calc(100dvh - 220px)", minHeight: 400, display: "flex", flexDirection: "column" }}>
+                <LiveFeed wsSignal={wsSignal} />
+              </Box>
+            </Tabs.Panel>
+
+          </Tabs>
+        </Box>{/* end Tabs col */}
+
+        {/* ── Kanan: LiveFeed sticky ─────────────────────────── */}
+        <Box className="live-feed-col">
+          <LiveFeed wsSignal={wsSignal} />
+        </Box>
+
+      </Box>{/* end dashboard-grid */}
+    </Box>{/* end px wrapper */}
 
     <BackToTop />
     <FloatingChat userName={profile?.name || profile?.email} />
@@ -1760,6 +1890,7 @@ export function App() {
   const [status, setStatus]     = useState<StatusResponse | null>(null);
   const [profile, setProfile]   = useState<import("./contexts").ProfileResponse | null | "loading">("loading");
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
+  const [wsSignal, setWsSignal] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
 
   const sendChat = useCallback((nick: string, text: string) => {
@@ -1780,6 +1911,7 @@ export function App() {
           if (data.type === "chat_message")  { setChatMsgs(prev => [...prev.slice(-99), data.message]); return; }
           if (data.type === "chat_clear")    { setChatMsgs([]); return; }
           setStatus(data);
+          setWsSignal(n => n + 1); // trigger LiveFeed refresh
         } catch {}
       };
       ws.onclose = () => { if (!dead) setTimeout(connect, 3000); };
@@ -1801,7 +1933,7 @@ export function App() {
         <Routes>
           <Route path="/" element={
             <RequireAuth profile={profile}>
-              {status ? <Dashboard isAdmin={profile !== "loading" && (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN")} profile={profile as import("./contexts").ProfileResponse} /> : <LoadingScreen />}
+              {status ? <Dashboard isAdmin={profile !== "loading" && (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN")} profile={profile as import("./contexts").ProfileResponse} wsSignal={wsSignal} /> : <LoadingScreen />}
             </RequireAuth>
           } />
           <Route path="/admin" element={

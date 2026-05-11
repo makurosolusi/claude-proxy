@@ -10,9 +10,34 @@ import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 
 const theme = createTheme({
-  fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace',
-  fontFamilyMonospace: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace',
-  defaultRadius: "md",
+  fontFamily: '"Geist", "Inter", -apple-system, BlinkMacSystemFont, sans-serif',
+  fontFamilyMonospace: '"Geist Mono", "JetBrains Mono", ui-monospace, "SF Mono", monospace',
+  defaultRadius: "lg",
+  focusRing: "auto",
+  colors: {
+    // Override blue to electric blue
+    blue: [
+      "#e8f0ff","#c5d6ff","#9db8ff","#6d94ff",
+      "#3d6eff","#2563eb","#1d4ed8","#1e40af",
+      "#1e3a8a","#1e3270",
+    ],
+  },
+  primaryColor: "blue",
+  primaryShade: 5,
+  components: {
+    Paper: {
+      defaultProps: { radius: "xl" },
+    },
+    Badge: {
+      defaultProps: { radius: "md" },
+    },
+    Button: {
+      defaultProps: { radius: "lg" },
+    },
+    ActionIcon: {
+      defaultProps: { radius: "lg" },
+    },
+  },
 });
 
 const Inspector = import.meta.env.DEV
