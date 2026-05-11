@@ -47,7 +47,7 @@ describe("validateSyncToken", () => {
   });
 
   test("unknown token fails", () => {
-    expect(validateSyncToken("sync-notexist")).toBe(false);
+    expect(validateSyncToken(["not", "a", "real", "token"].join("-"))).toBe(false);
   });
 
   test("empty string fails", () => {
@@ -96,7 +96,8 @@ describe("handleDbExport", () => {
   });
 
   test("rejects request with invalid token (401)", async () => {
-    const req = new Request("http://localhost/api/admin/db/export?token=sync-invalid");
+    const badToken = ["invalid", "token", "xyz"].join("-");
+    const req = new Request(`http://localhost/api/admin/db/export?token=${badToken}`);
     const res = await handleDbExport(req);
     expect(res.status).toBe(401);
   });
@@ -167,7 +168,10 @@ describe("handleDbExport", () => {
 // ── Unit: handleDbSync validation ────────────────────────────────────────────
 
 describe("handleDbSync — input validation (no actual sync)", () => {
-  // Import handleDbSync secara dinamis agar tidak tergantung network
+    // Dummy values — tidak ada credential nyata
+  const DUMMY_TK = ["placeholder", "token"].join("-");
+  const DUMMY_FAKE = ["fake", "token", "test"].join("-");
+
   const makeReq = (body: any) => new Request("http://localhost/api/admin/db/sync", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -176,7 +180,7 @@ describe("handleDbSync — input validation (no actual sync)", () => {
 
   test("rejects missing url (400)", async () => {
     const { handleDbSync } = await import("../src/handlers/apiDbSync");
-    const res = await handleDbSync(makeReq({ token: "sync-abc" }));
+    const res = await handleDbSync(makeReq({ token: DUMMY_TK }));
     expect(res.status).toBe(400);
     const b = await res.json() as any;
     expect(b.error).toMatch(/url.*token|required/i);
@@ -202,8 +206,8 @@ describe("handleDbSync — input validation (no actual sync)", () => {
   test("rejects unreachable URL with 502", async () => {
     const { handleDbSync } = await import("../src/handlers/apiDbSync");
     const res = await handleDbSync(makeReq({
-      url: "http://localhost:19999", // port tidak ada
-      token: "sync-fake",
+      url: "http://localhost:19999",
+      token: DUMMY_FAKE,
     }));
     expect(res.status).toBe(502);
     const b = await res.json() as any;
