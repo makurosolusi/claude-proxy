@@ -12,6 +12,14 @@ import {
 import ReactECharts from "echarts-for-react";
 import { avatarColor } from "../../utils";
 
+// HTML helpers for ECharts tooltips — use \x3c/\x3e to avoid esbuild JSX parse issues
+const LT = "\x3c", GT = "\x3e";
+const H = {
+  b:    (s: string) => LT + "b" + GT + s + LT + "/b" + GT,
+  br:   LT + "br" + GT,
+  span: (s: string, color: string) => LT + "span style='color:" + color + "'" + GT + s + LT + "/span" + GT,
+};
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface HourlyRow  { user: string; h: number; requests: number; tokens: number; input_tokens: number; cache_read: number; avg_duration_ms: number; }
@@ -82,11 +90,7 @@ function HourlyHeatmap({ hourly, users, dark }: { hourly: HourlyRow[]; users: st
     backgroundColor: "transparent",
     tooltip: {
       position: "top",
-      formatter: (p: any) => {
-        const u = users[p.data[1]];
-        const v = p.data[2];
-        return `<b>${u}</b><br/>${p.data[0]}:00 — ${nf(v)} ${metric}`;
-      },
+      formatter: (p: any) => H.b(users[p.data[1]]) + H.br + p.data[0] + ":00 - " + nf(p.data[2]) + " " + metric,
     },
     grid: { top: 10, bottom: 48, left: 12, right: 24, containLabel: true },
     xAxis: {
@@ -246,11 +250,11 @@ function DailyTrends({ daily, users, dark }: { daily: DailyRow[]; users: string[
         formatter: (params: any[]) => {
           const day = params[0]?.axisValue;
           const lines = params
-            .filter(p => p.value > 0)
-            .sort((a, b) => b.value - a.value)
-            .map(p => `${p.marker}<b>${p.seriesName}</b>: ${kFmt(p.value)}`)
-            .join("<br/>");
-          return `<b>${day}</b><br/>${lines || "<span style='color:#868e96'>no data</span>"}`;
+            .filter((p: any) => p.value > 0)
+            .sort((a: any, b: any) => b.value - a.value)
+            .map((p: any) => p.marker + H.b(p.seriesName) + ": " + kFmt(p.value))
+            .join(H.br);
+          return H.b(day) + H.br + (lines || H.span("no data", "#868e96"));
         },
       },
       legend: {
