@@ -1,9 +1,8 @@
 import { prisma } from "../prisma";
+import { startOfTodayMs } from "../date";
 
 export async function handleApiUsageHourly(): Promise<Response> {
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const startMs = BigInt(startOfToday.getTime());
+  const startMs = BigInt(startOfTodayMs());
 
   const rows = await prisma.$queryRaw<{ h: number; tokens: bigint; requests: bigint }[]>`
     SELECT EXTRACT(HOUR FROM to_timestamp(ts / 1000.0))::INTEGER AS h,

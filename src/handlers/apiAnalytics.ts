@@ -1,6 +1,7 @@
 import { prisma } from "../prisma";
 import { recentLogs, dailyUsage, allTimePerUser, tokens, resolveTokenName, deriveNameFromKey } from "../state";
 import { todayKey } from "../tokens";
+import { localDateStr } from "../date";
 
 async function buildKeyToName(): Promise<Map<string, string>> {
   const map  = new Map<string, string>();
@@ -131,7 +132,7 @@ export async function handleApiAnalytics(isAdmin: boolean): Promise<Response> {
   });
 
   // Daily usage per user (last 30 days)
-  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const cutoff = localDateStr(new Date(Date.now() - 30 * 86400000));
   const dailyRows = await prisma.daily_usage.findMany({ where: { date: { gte: cutoff } }, orderBy: { date: "asc" } });
   const dailyMap: Record<string, Record<string, number>> = {};
   const userSet = new Set<string>();

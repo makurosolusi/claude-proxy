@@ -1,4 +1,5 @@
 import { prisma } from "../prisma";
+import { localDateStr, startOfTodayMs } from "../date";
 
 interface HourlyRow {
   display_name: string;
@@ -31,7 +32,7 @@ interface TodayRow {
 }
 
 function prevDay(dateStr: string): string {
-  return new Date(new Date(dateStr).getTime() - 86_400_000).toISOString().slice(0, 10);
+  return localDateStr(new Date(new Date(dateStr).getTime() - 86_400_000));
 }
 
 function calcStreak(user: string, dailyRows: DailyRow[], today: string): number {
@@ -62,12 +63,10 @@ function productivityScore(p: {
 }
 
 export async function handleApiUserActivity(): Promise<Response> {
-  const now          = Date.now();
-  const todayDate    = new Date(now);
-  todayDate.setHours(0, 0, 0, 0);
-  const startMs      = BigInt(todayDate.getTime());
-  const cutoff30dMs  = BigInt(now - 30 * 86_400_000);
-  const today        = new Date(now).toISOString().slice(0, 10);
+  const now         = Date.now();
+  const startMs     = BigInt(startOfTodayMs());
+  const cutoff30dMs = BigInt(now - 30 * 86_400_000);
+  const today       = localDateStr();
 
   const [hourlyRows, dailyRows, todayRows] = await Promise.all([
     prisma.$queryRaw<HourlyRow[]>`

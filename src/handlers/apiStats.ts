@@ -1,5 +1,6 @@
 import { prisma } from "../prisma";
 import { tokens, resolveTokenName, deriveNameFromKey } from "../state";
+import { localDateStr } from "../date";
 
 async function buildKeyToName(): Promise<Map<string, string>> {
   const map  = new Map<string, string>();
@@ -19,7 +20,7 @@ function keyToNameFn(map: Map<string, string>, key: string): string {
 
 export async function handleApiStats(): Promise<Response> {
   try {
-    const cutoff   = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const cutoff   = localDateStr(new Date(Date.now() - 30 * 86400000));
     const cutoffMs = BigInt(Date.now() - 30 * 86400000);
     const nameMap  = await buildKeyToName();
 

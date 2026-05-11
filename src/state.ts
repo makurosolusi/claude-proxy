@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { config } from "./config";
+import { localDateStr } from "./date";
 import type { TokenEntry, UserEntry, UpstreamState, DailyUsage, RequestLogEntry, ModelRoute } from "./types";
 
 // ── Runtime state (in-memory) ─────────────────────────────────────────────────
@@ -420,8 +421,8 @@ export async function loadFromDb() {
   for (const row of settingRows) settings[row.key] = row.value;
   if (settingRows.length) console.log(`Settings loaded: ${settingRows.length} key(s)`);
 
-  // Prune old daily usage (keep 30 days)
-  const cutoff = new Date(now - 30 * 86400000).toISOString().slice(0, 10);
+  // Prune old daily usage (keep 30 days) — localDateStr() pakai TZ env, bukan UTC
+  const cutoff = localDateStr(new Date(now - 30 * 86400000));
   await prisma.daily_usage.deleteMany({ where: { date: { lt: cutoff } } });
 
   // Load daily usage

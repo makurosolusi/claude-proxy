@@ -10,6 +10,8 @@ services:
     networks:
       - public-net
       - postgres-net-stg
+    environment:
+      - TZ=Asia/Makassar
     mem_limit: 512m
     cpus: "0.5"
     logging:

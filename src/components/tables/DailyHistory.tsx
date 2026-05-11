@@ -16,7 +16,8 @@ export function DailyHistory({ isAdmin }: { isAdmin: boolean }) {
     }).catch(() => {});
   }, []);
 
-  const today    = new Date().toISOString().slice(0, 10);
+  const _d = new Date();
+  const today = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,"0")}-${String(_d.getDate()).padStart(2,"0")}`;
   const allDates = [...data].reverse();
   const pages    = Math.max(1, Math.ceil(allDates.length / DAILY_PER_PAGE));
   const dates    = allDates.slice((page - 1) * DAILY_PER_PAGE, page * DAILY_PER_PAGE);
