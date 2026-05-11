@@ -9,7 +9,7 @@ import {
   IconSitemap, IconExternalLink, IconSun, IconMoon,
   IconChevronsLeft, IconChevronsRight,
   IconPlugConnected, IconKey, IconLogout,
-  IconRoute, IconCloud,
+  IconRoute, IconCloud, IconChartLine,
 } from "@tabler/icons-react";
 import { pctColor } from "../../utils";
 import { useStatus } from "../../contexts";
@@ -22,7 +22,8 @@ import { AdminTest } from "./Test";
 import { AdminAccounts } from "./Accounts";
 import { AdminModelRouting } from "./ModelRouting";
 import { AdminProviders } from "./Providers";
-type AdminSection = "overview" | "users" | "logs" | "stats" | "routing" | "providers" | "test" | "accounts";
+import { AdminUserActivity } from "./UserActivity";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "routing" | "providers" | "test" | "accounts";
 
 function AdminStats() {
   return (
@@ -67,6 +68,7 @@ export function AdminDashboard() {
     { id: "users",    label: "Users",          icon: <IconUsers           size={SZ} />, desc: "Token management"       },
     { id: "logs",     label: "Request Logs",   icon: <IconList            size={SZ} />, desc: "Activity & history"     },
     { id: "stats",    label: "Stats",          icon: <IconChartBar        size={SZ} />, desc: "Daily usage history"    },
+    { id: "activity", label: "Activity",       icon: <IconChartLine       size={SZ} />, desc: "Per-user activity & productivity" },
     { id: "routing",   label: "Routing",        icon: <IconRoute           size={SZ} />, desc: "Model fallback rules"      },
     { id: "providers", label: "Providers",      icon: <IconCloud           size={SZ} />, desc: "Claude Max, OpenRouter & DeepSeek" },
     { id: "test",      label: "Test Connection",icon: <IconPlugConnected   size={SZ} />, desc: "Verify API connectivity"     },
@@ -79,7 +81,7 @@ export function AdminDashboard() {
 
   const utilPct = upstream.fiveHour?.utilization ?? null;
   const sectionTitles: Record<AdminSection, string> = {
-    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", routing: "Routing", providers: "Providers", test: "Test Connection", accounts: "Credentials",
+    overview: "Overview", users: "Users", logs: "Request Logs", stats: "Stats", activity: "Activity", routing: "Routing", providers: "Providers", test: "Test Connection", accounts: "Credentials",
   };
   const statusColor = upstream.ok ? "teal" : "red";
   const SIDEBAR_W   = collapsed ? 56 : 220;
@@ -241,6 +243,7 @@ export function AdminDashboard() {
           {section === "users"     && <AdminUsers tokens={tokens} />}
           {section === "logs"      && <RequestLog isAdmin={true} />}
           {section === "stats"     && <AdminStats />}
+          {section === "activity"  && <AdminUserActivity />}
           {section === "routing"    && <AdminModelRouting />}
           {section === "providers" && <AdminProviders />}
           {section === "test"      && <AdminTest />}

@@ -17,6 +17,7 @@ import { handleApiRace }         from "./handlers/apiRace";
 import { handleApiUsageHourly }  from "./handlers/apiUsageHourly";
 import { handleApiSessions }     from "./handlers/apiSessions";
 import { handleApiAnalytics }    from "./handlers/apiAnalytics";
+import { handleApiUserActivity } from "./handlers/apiUserActivity";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
 import { handleDebugQuery } from "./handlers/apiDebug";
@@ -495,6 +496,10 @@ server = serve({
       catch (e: any) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
     },
     "/api/analytics": async req => handleApiAnalytics(await checkAdmin(req)),
+    "/api/admin/user-activity": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiUserActivity();
+    },
     "/api/sessions/*": req => {
       const user = new URL(req.url).pathname.slice("/api/sessions/".length);
       return handleApiSessions(decodeURIComponent(user));
