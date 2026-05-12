@@ -11,6 +11,8 @@ import {
 } from "@tabler/icons-react";
 import ReactECharts from "echarts-for-react";
 import { avatarColor } from "../../utils";
+import { UserAvatar } from "../UserAvatar";
+import { useStatus } from "../../contexts";
 
 // HTML helpers for ECharts tooltips — use \x3c/\x3e to avoid esbuild JSX parse issues
 const LT = "\x3c", GT = "\x3e";
@@ -66,7 +68,7 @@ function relTime(iso: string): string {
 
 // ── Panel 1: Hourly Heatmap ───────────────────────────────────────────────────
 
-function HourlyHeatmap({ hourly, users, dark }: { hourly: HourlyRow[]; users: string[]; dark: boolean }) {
+function HourlyHeatmap({ hourly, users, dark, userImages }: { hourly: HourlyRow[]; users: string[]; dark: boolean; userImages: Record<string, string> }) {
   const [metric, setMetric] = useState<"requests" | "tokens">("requests");
 
   const textClr  = dark ? "#c1c2c5" : "#343a40";
@@ -166,7 +168,7 @@ function HourlyHeatmap({ hourly, users, dark }: { hourly: HourlyRow[]; users: st
         {userHourSummary.map(s => (
           <Paper key={s.user} withBorder p="md" radius="md">
             <Group gap="sm" mb="xs" wrap="nowrap">
-              <Avatar color={avatarColor(s.user)} radius="xl" size="sm">{initials(s.user)}</Avatar>
+              <UserAvatar name={s.user} imageUrl={userImages[s.user]} size={28} />
               <Text size="sm" fw={700} truncate style={{ flex: 1 }}>{s.user}</Text>
               <Badge size="xs" variant="light" color="blue" ff="monospace">{s.totalReqs} req</Badge>
             </Group>
@@ -336,7 +338,7 @@ function MetricCell({ label, value, sub }: { label: string; value: string; sub?:
   );
 }
 
-function LeaderboardCard({ entry, rank }: { entry: LeaderboardEntry; rank: number }) {
+function LeaderboardCard({ entry, rank, imageUrl }: { entry: LeaderboardEntry; rank: number; imageUrl?: string }) {
   const score = entry.productivity_score;
   const scoreColor = score >= 80 ? "teal" : score >= 50 ? "blue" : score >= 25 ? "yellow" : "gray";
   const medal = rank < 3 ? MEDALS[rank] : null;
@@ -351,7 +353,7 @@ function LeaderboardCard({ entry, rank }: { entry: LeaderboardEntry; rank: numbe
       )}
       <Group justify="space-between" wrap="nowrap" mb="sm" align="flex-start">
         <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-          <Avatar color={avatarColor(entry.user)} radius="xl" size="md">{initials(entry.user)}</Avatar>
+          <UserAvatar name={entry.user} imageUrl={imageUrl} size={38} />
           <div style={{ minWidth: 0 }}>
             <Group gap={4} align="center" wrap="nowrap">
               {medal && <Text span fz={14}>{medal}</Text>}
@@ -382,7 +384,7 @@ function LeaderboardCard({ entry, rank }: { entry: LeaderboardEntry; rank: numbe
   );
 }
 
-function Leaderboard({ leaderboard }: { leaderboard: LeaderboardEntry[] }) {
+function Leaderboard({ leaderboard, userImages }: { leaderboard: LeaderboardEntry[]; userImages: Record<string, string> }) {
   if (leaderboard.length === 0) return (
     <Paper withBorder p="xl" radius="md" ta="center">
       <Stack align="center" gap="xs">
@@ -406,7 +408,7 @@ function Leaderboard({ leaderboard }: { leaderboard: LeaderboardEntry[] }) {
       </Paper>
       <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="sm">
         {leaderboard.map((entry, i) => (
-          <LeaderboardCard key={entry.user} entry={entry} rank={i} />
+          <LeaderboardCard key={entry.user} entry={entry} rank={i} imageUrl={userImages[entry.user]} />
         ))}
       </SimpleGrid>
     </Stack>
@@ -452,6 +454,7 @@ export function AdminUserActivity() {
   const [error, setError]     = useState(false);
   const { colorScheme }       = useMantineColorScheme();
   const dark                  = colorScheme === "dark";
+  const userImages            = useStatus()?.userImages ?? {};
 
   const load = useCallback(async () => {
     setLoading(true); setError(false);
@@ -499,9 +502,9 @@ export function AdminUserActivity() {
       {data && (
         <>
           <SummaryBar leaderboard={data.leaderboard} />
-          <HourlyHeatmap hourly={data.hourly} users={data.users} dark={dark} />
+          <HourlyHeatmap hourly={data.hourly} users={data.users} dark={dark} userImages={userImages} />
           <DailyTrends   daily={data.daily}   users={data.users} dark={dark} />
-          <Leaderboard   leaderboard={data.leaderboard} />
+          <Leaderboard   leaderboard={data.leaderboard} userImages={userImages} />
         </>
       )}
     </Stack>

@@ -11,6 +11,8 @@ import {
   IconLayoutGrid, IconList, IconBan, IconClock,
 } from "@tabler/icons-react";
 import { adminPost, fmtRel, avatarColor } from "../../utils";
+import { UserAvatar } from "../UserAvatar";
+import { useStatus } from "../../contexts";
 import type { TokenStatus } from "../../contexts";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
@@ -391,6 +393,7 @@ function EditAllLimitsGlobalModal({ onClose, onSaved }: { onClose: () => void; o
 type SortKey = "name" | "usage" | "tokens" | "newest";
 
 export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, TokenStatus> }) {
+  const userImages = useStatus()?.userImages ?? {};
   const [apiUsers, setApiUsers]       = useState<ApiUser[] | null>(null);
   const [editUser, setEditUser]           = useState<ApiUser | null>(null);
   const [deleteUser, setDeleteUser]       = useState<ApiUser | null>(null);
@@ -683,7 +686,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
             const header = (
               <Group gap="md" wrap="nowrap" align="center">
-                <Avatar color={avatarColor(u.name)} radius="xl" size="md">{initials(u.name)}</Avatar>
+                <UserAvatar name={u.name} imageUrl={userImages[u.name]} size={38} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Group gap="xs" wrap="nowrap">
                     <Text size="sm" fw={700} truncate>{u.name}</Text>
@@ -987,7 +990,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
             const gridHeader = (
               <Group gap="sm" wrap="nowrap" align="flex-start">
-                <Avatar color={avatarColor(u.name)} radius="xl" size="md" style={{ flexShrink: 0, marginTop: 2 }}>{initials(u.name)}</Avatar>
+                <UserAvatar name={u.name} imageUrl={userImages[u.name]} size={38} />
                 <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
                   <Group justify="space-between" wrap="nowrap" gap="xs">
                     <Text size="sm" fw={700} truncate>{u.name}</Text>

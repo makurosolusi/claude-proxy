@@ -11,7 +11,7 @@ export default defineConfig({
   ],
   server: {
     middlewareMode: true,
-    hmr: { port: parseInt(process.env.REACT_DEV_HMR_PORT || "24678", 10) },
+    hmr: { port: parseInt(process.env.HMR_PORT || "24678", 10) },
   },
   appType: "custom",
   build: {

@@ -23,6 +23,7 @@ import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
 import { useStatus } from "./contexts";
 import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, BlockedPage, UpstreamSection } from "./components/shared";
 import { CompetitionPanel } from "./components/CompetitionPanel";
+import { UserAvatar } from "./components/UserAvatar";
 import { AdminUserActivity } from "./components/admin/UserActivity";
 import { LiveFeed } from "./components/LiveFeed";
 import { SessionsContent } from "./components/SessionHistory";
@@ -556,7 +557,6 @@ function ProfilePage() {
   const totalAlltime = tkEntries.reduce((s, [, t]) => s + (t.alltime ?? 0), 0);
   const roleColor = profile.role === "SUPER_ADMIN" ? "red" : profile.role === "ADMIN" ? "orange" : "blue";
   const roleLabel = profile.role === "SUPER_ADMIN" ? "Super Admin" : profile.role === "ADMIN" ? "Admin" : "User";
-  const initials = (profile.name || profile.email || "?").slice(0, 2).toUpperCase();
 
   const codeBg  = isDark ? "#1a1b1e" : "#f1f3f5";
   const codeFg  = isDark ? "#c9cace" : "#2c2e33";
@@ -570,13 +570,7 @@ function ProfilePage() {
           <Paper withBorder p="lg" radius="md">
             <Group justify="space-between" wrap="wrap" gap="sm">
               <Group gap="md">
-                <Box style={{
-                  width: 46, height: 46, borderRadius: "50%", flexShrink: 0,
-                  background: `var(--mantine-color-${avatarColor(profile.name || profile.email || "")}-5)`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <Text span fz={15} fw={700} c="white">{initials}</Text>
-                </Box>
+                <UserAvatar name={profile.name || profile.email || "?"} imageUrl={profile.image} size={46} />
                 <div>
                   <Group gap={6} align="center">
                     <Text size="md" fw={700}>{profile.name}</Text>
@@ -772,6 +766,7 @@ function LoginPage() {
 }
 
 function SessionsTab({ tokens }: { tokens: import("./contexts").StatusResponse["tokens"] }) {
+  const status = useStatus();
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     try { return (localStorage.getItem("sessions-view") as "grid" | "list") || "grid"; } catch { return "grid"; }
@@ -839,14 +834,7 @@ function SessionsTab({ tokens }: { tokens: import("./contexts").StatusResponse["
                   onClick={() => setSelectedUser(u.value)}
                   className="cp-interactive">
                   <Group gap={8} wrap="nowrap">
-                    <Box style={{
-                      width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-                      background: `var(--mantine-color-${avatarColor(u.value)}-5)`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11, fontWeight: 700, color: "#fff",
-                    }}>
-                      {u.value.slice(0, 2).toUpperCase()}
-                    </Box>
+                    <UserAvatar name={u.value} imageUrl={status?.userImages?.[u.value]} size={28} />
                     <Box style={{ minWidth: 0, flex: 1 }}>
                       <Text fz={12} fw={600} truncate>{u.value}</Text>
                       {sessionCounts[u.value] != null && (
@@ -866,14 +854,7 @@ function SessionsTab({ tokens }: { tokens: import("./contexts").StatusResponse["
                   className="cp-interactive">
                   <Group justify="space-between" wrap="nowrap">
                     <Group gap={8} wrap="nowrap">
-                      <Box style={{
-                        width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
-                        background: `var(--mantine-color-${avatarColor(u.value)}-5)`,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 10, fontWeight: 700, color: "#fff",
-                      }}>
-                        {u.value.slice(0, 2).toUpperCase()}
-                      </Box>
+                      <UserAvatar name={u.value} imageUrl={status?.userImages?.[u.value]} size={26} />
                       <Text fz={13} fw={600}>{u.value}</Text>
                     </Group>
                     {sessionCounts[u.value] != null && (
@@ -1043,8 +1024,6 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
       const todayTok   = myTokens.reduce((s, t) => s + t.today, 0);
       const pct        = totalLim > 0 ? Math.min(100, Math.round((totalUsed / totalLim) * 100)) : 0;
       const pctColor   = pct >= 95 ? "#dc2626" : pct >= 75 ? "#f97316" : pct >= 50 ? "#d97706" : "#2563eb";
-      const avatarBg   = `var(--mantine-color-${avatarColor(profile?.name || profile?.email || "")}-6)`;
-      const userInitials = (profile?.name || profile?.email || "?").slice(0, 2).toUpperCase();
 
       return (
         <>
@@ -1102,13 +1081,7 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                 {/* Avatar + Name */}
                 {profile?.authenticated && (
                   <Group gap={8} wrap="nowrap" style={{ flexShrink: 0 }}>
-                    <Box style={{
-                      width: 32, height: 32, borderRadius: "50%",
-                      background: avatarBg, flexShrink: 0,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11, fontWeight: 700, color: "#fff",
-                      fontFamily: "Geist Mono, monospace",
-                    }}>{userInitials}</Box>
+                    <UserAvatar name={profile?.name || profile?.email || "?"} imageUrl={profile?.image} size={32} />
                     <Box>
                       <Group gap={5} wrap="nowrap">
                         <Text fz={13} fw={600} style={{ letterSpacing: "-0.01em" }}>

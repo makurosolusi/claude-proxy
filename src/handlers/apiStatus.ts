@@ -100,7 +100,7 @@ function fmtCd(ms: number) {
   return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
 }
 
-export function handleApiStatus(req: Request, url: URL, isAdmin: boolean): Response {
+export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userImages: Record<string, string> = {}): Response {
   const now   = Date.now();
   const today = todayKey();
 
@@ -254,5 +254,6 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean): Respo
       })(),
     },
     modelRoutes: Object.values(modelRoutes),
+    userImages,
   }, { headers: { "Cache-Control": "no-store" } });
 }

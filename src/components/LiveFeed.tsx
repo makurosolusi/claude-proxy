@@ -3,8 +3,9 @@ import { Stack, Text, Box, Group, Badge, ScrollArea, Loader, ActionIcon, useMant
 import { useDisclosure } from "@mantine/hooks";
 import { IconBolt, IconAlertCircle, IconDatabase, IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { DetailContent } from "./tables/RequestLog";
-import { avatarColor } from "../utils";
+import { UserAvatar } from "./UserAvatar";
 import type { LogEntry } from "../contexts";
+import { useStatus } from "../contexts";
 
 const MAX = 80;
 
@@ -26,9 +27,6 @@ function modelShort(model: string) {
   return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
 }
 
-function initials(s: string) {
-  return (s || "?").trim().split(/\s+/).slice(0, 2).map(p => p[0]?.toUpperCase() ?? "").join("") || "?";
-}
 
 const MODEL_COLORS: Record<string, string> = {
   "opus":   "#7c3aed",
@@ -91,16 +89,16 @@ function groupLogs(logs: LogEntry[], newIds: Set<number>): LogGroup[] {
   return order.map(gk => orderMap.get(gk)!);
 }
 
+
 function FeedEntry({
-  log: l, isNew, onClick, compact = false,
+  log: l, isNew, onClick, compact = false, imageUrl,
 }: {
-  log: LogEntry; isNew: boolean; onClick: () => void; compact?: boolean;
+  log: LogEntry; isNew: boolean; onClick: () => void; compact?: boolean; imageUrl?: string;
 }) {
   const isErr  = l.status >= 400;
   const total  = l.input_tokens + l.output_tokens + l.cache_read + l.cache_creation;
   const model  = modelShort(l.model);
   const mColor = modelColor(l.model);
-  const aColor = avatarColor(l.name || l.token_key);
   const name   = l.name || l.token_key.slice(-8);
 
   return (
@@ -116,22 +114,7 @@ function FeedEntry({
       }}
     >
       <Group gap={8} wrap="nowrap" align="flex-start">
-        {!compact && (
-          <Box style={{
-            width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-            background: isErr
-              ? "var(--cp-red-dim)"
-              : `var(--mantine-color-${aColor}-${document.documentElement.getAttribute("data-mantine-color-scheme") === "dark" ? "8" : "1"})`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 10, fontWeight: 700,
-            color: isErr ? "var(--cp-red)" : `var(--mantine-color-${aColor}-6)`,
-            fontFamily: "Geist Mono, monospace",
-            border: isErr ? "1px solid var(--cp-red-dim)" : "none",
-            marginTop: 1,
-          }}>
-            {isErr ? "!" : initials(name)}
-          </Box>
-        )}
+        {!compact && <UserAvatar name={name} imageUrl={imageUrl} isErr={isErr} />}
 
         <Box style={{ flex: 1, minWidth: 0 }}>
           <Group justify="space-between" wrap="nowrap" mb={compact ? 0 : 3}>
@@ -188,18 +171,18 @@ function FeedEntry({
 }
 
 function GroupedEntry({
-  group, newIds, onEntryClick,
+  group, newIds, onEntryClick, imageUrl,
 }: {
   group: LogGroup;
   newIds: Set<number>;
   onEntryClick: (log: LogEntry) => void;
+  imageUrl?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const l = group.head;
   const isErr  = l.status >= 400;
   const model  = modelShort(l.model);
   const mColor = modelColor(l.model);
-  const aColor = avatarColor(l.name || l.token_key);
   const name   = l.name || l.token_key.slice(-8);
   const count  = group.entries.length;
   const isNew  = group.hasNew;
@@ -213,21 +196,7 @@ function GroupedEntry({
         style={{ padding: "9px 14px", borderBottom: "1px solid var(--cp-border)", cursor: "pointer" }}
       >
         <Group gap={8} wrap="nowrap" align="flex-start">
-          {/* Avatar */}
-          <Box style={{
-            width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-            background: isErr
-              ? "var(--cp-red-dim)"
-              : `var(--mantine-color-${aColor}-${document.documentElement.getAttribute("data-mantine-color-scheme") === "dark" ? "8" : "1"})`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 10, fontWeight: 700,
-            color: isErr ? "var(--cp-red)" : `var(--mantine-color-${aColor}-6)`,
-            fontFamily: "Geist Mono, monospace",
-            border: isErr ? "1px solid var(--cp-red-dim)" : "none",
-            marginTop: 1,
-          }}>
-            {isErr ? "!" : initials(name)}
-          </Box>
+          <UserAvatar name={name} imageUrl={imageUrl} isErr={isErr} />
 
           <Box style={{ flex: 1, minWidth: 0 }}>
             <Group justify="space-between" wrap="nowrap" mb={3}>
@@ -287,8 +256,8 @@ function GroupedEntry({
             </Group>
 
             {l.prompt && !isErr && (
-              <Text fz={10} c="dimmed" mt={4} lineClamp={1}
-                style={{ fontStyle: "italic", lineHeight: 1.4, opacity: 0.75 }}>
+              <Text fz={14} c="dimmed" mt={4} lineClamp={4}
+                style={{ lineHeight: 1.5, opacity: 0.9 }}>
                 {l.prompt}
               </Text>
             )}
@@ -380,6 +349,17 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
     if (el.scrollTop < 60) el.scrollTo({ top: 0, behavior: "smooth" });
   }, [newIds]);
 
+  const status     = useStatus();
+  // userImages dari WS push jika ada, fallback ke fetch HTTP sekali
+  const [localUserImages, setLocalUserImages] = useState<Record<string, string>>({});
+  useEffect(() => {
+    fetch("/api/status").then(r => r.ok ? r.json() : null)
+      .then(d => d?.userImages && setLocalUserImages(d.userImages))
+      .catch(() => {});
+  }, []);
+  const userImages = (status?.userImages && Object.keys(status.userImages).length > 0)
+    ? status.userImages
+    : localUserImages;
   const groups    = groupLogs(logs, newIds);
   const errCount  = logs.filter(l => l.status >= 400).length;
 
@@ -436,21 +416,25 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
             <Text fz={12} c="dimmed">Belum ada request</Text>
           </Stack>
         ) : (
-          groups.map(group =>
-            group.entries.length === 1
+          groups.map(group => {
+            const name = group.head.name || group.head.token_key.slice(-8);
+            const imageUrl = userImages[name];
+            return group.entries.length === 1
               ? <FeedEntry
                   key={group.key}
                   log={group.head}
                   isNew={group.hasNew}
                   onClick={() => showDetail(group.head)}
+                  imageUrl={imageUrl}
                 />
               : <GroupedEntry
                   key={group.key}
                   group={group}
                   newIds={newIds}
                   onEntryClick={showDetail}
-                />
-          )
+                  imageUrl={imageUrl}
+                />;
+          })
         )}
       </ScrollArea>
 

@@ -6,6 +6,7 @@ const APP_VERSION: string = JSON.parse(
   fs.readFileSync(path.join(import.meta.dir, "../package.json"), "utf8")
 ).version;
 import { config }           from "./config";
+import { prisma }           from "./prisma";
 import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, dbSetUserStatus, dbSaveSetting, modelRoutes, settings, resolveTokenName } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
@@ -221,6 +222,17 @@ function broadcastRaw(payload: string) {
 type WsData = { isAdmin: boolean };
 const wsClients = new Set<ServerWebSocket<WsData>>();
 
+// Cache userImages untuk WebSocket push (refresh setiap 5 menit)
+let userImagesCache: Record<string, string> = {};
+async function refreshUserImages() {
+  try {
+    const rows = await prisma.user.findMany({ select: { name: true, image: true } });
+    userImagesCache = Object.fromEntries(rows.filter(r => r.image).map(r => [r.name, r.image!]));
+  } catch {}
+}
+refreshUserImages();
+setInterval(refreshUserImages, 5 * 60_000);
+
 function buildStatusPayload(isAdmin: boolean) {
   const now   = Date.now();
   const today = todayKey();
@@ -264,6 +276,7 @@ function buildStatusPayload(isAdmin: boolean) {
       sevenDayOpus:   upstream.sevenDayOpus,
     },
     modelRoutes:      Object.values(modelRoutes),
+    userImages:       userImagesCache,
   };
 }
 
@@ -461,11 +474,13 @@ server = serve({
       const userStatus = userEntry?.status || "pending";
       const demoMode   = settings["demo_mode"] === "true";
       const effectiveStatus = demoMode && userStatus === "pending" ? "approved" : userStatus;
+      const baUser = await prisma.user.findFirst({ where: { email: u.email }, select: { image: true } });
       return Response.json({
         authenticated: true,
         userId:   u.userId,
         email:    u.email,
         name:     userEntry?.name || u.email,
+        image:    baUser?.image ?? null,
         role:     userEntry?.role || "USER",
         status:   effectiveStatus,
         tokens:   userTokens,
@@ -482,7 +497,7 @@ server = serve({
     // API — public
     "/api/status": async req => {
       const isAdm = await checkAdmin(req);
-      return handleApiStatus(req, new URL(req.url), isAdm);
+      return handleApiStatus(req, new URL(req.url), isAdm, userImagesCache);
     },
 
     // API — admin only (also accepts MCP secret for explain_log tool)

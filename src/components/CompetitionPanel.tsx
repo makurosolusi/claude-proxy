@@ -12,6 +12,8 @@ import {
 import ReactECharts from "echarts-for-react";
 import confetti from "canvas-confetti";
 import { avatarColor } from "../utils";
+import { UserAvatar } from "./UserAvatar";
+import { useStatus } from "../contexts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -297,10 +299,9 @@ function MeCard({ me, dark }: { me: MeStats; dark: boolean }) {
 
 const RANK_MEDALS = ["🥇", "🥈", "🥉"];
 
-function LeaderRow({ entry, maxTokens }: { entry: LeaderEntry; maxTokens: number }) {
+function LeaderRow({ entry, maxTokens, imageUrl }: { entry: LeaderEntry; maxTokens: number; imageUrl?: string }) {
   const pct      = maxTokens > 0 ? (entry.tokens_today / maxTokens) * 100 : 0;
   const isTop3   = entry.rank <= 3;
-  const aColor   = avatarColor(entry.name);
   const rankClass = entry.rank <= 3 ? `rank-${entry.rank}` : "rank-n";
 
   return (
@@ -312,10 +313,7 @@ function LeaderRow({ entry, maxTokens }: { entry: LeaderEntry; maxTokens: number
           {isTop3 ? RANK_MEDALS[entry.rank - 1] : entry.rank}
         </Box>
 
-        {/* Avatar */}
-        <Avatar color={aColor} radius="xl" size={30} style={{ flexShrink: 0 }}>
-          <Text fz={11} fw={700}>{initials(entry.name)}</Text>
-        </Avatar>
+        <UserAvatar name={entry.name} imageUrl={imageUrl} size={30} />
 
         {/* Name + progress */}
         <Box style={{ flex: 1, minWidth: 0 }}>
@@ -363,6 +361,7 @@ export function CompetitionPanel({ quotaPct }: { quotaPct: number }) {
   const [loading, setLoading] = useState(true);
   const { colorScheme }       = useMantineColorScheme();
   const dark                  = colorScheme === "dark";
+  const userImages            = useStatus()?.userImages ?? {};
   const milestoneRef = useRef<MilestoneState>({ hadActivityToday: false, prevRank: null, prevStreak: 0, prevQuotaPct: 0, fired: new Set() });
   const [toasts, setToasts]   = useState<Toast[]>([]);
   const toastId = useRef(0);
@@ -452,7 +451,7 @@ export function CompetitionPanel({ quotaPct }: { quotaPct: number }) {
           </Box>
           <Box style={{ padding: "4px 0" }}>
             {data.leaderboard.map(e => (
-              <LeaderRow key={e.userId || e.name} entry={e} maxTokens={maxTokens} />
+              <LeaderRow key={e.userId || e.name} entry={e} maxTokens={maxTokens} imageUrl={userImages[e.name]} />
             ))}
           </Box>
         </Box>

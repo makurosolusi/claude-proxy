@@ -64,6 +64,7 @@ export interface StatusResponse {
   thresholdAlerts: ThresholdAlert[];
   insights:        Record<string, UserInsight>;
   modelRoutes:      ModelRoute[];
+  userImages:       Record<string, string>;
 }
 export interface LogEntry {
   id: number; ts: number; token_key: string; name: string; model: string;
@@ -85,6 +86,7 @@ export interface ProfileResponse {
   userId?:   string;
   email?:    string;
   name?:     string;
+  image?:    string;
   role?:     "SUPER_ADMIN" | "ADMIN" | "USER";
   status?:   "pending" | "approved" | "blocked";
   tokens?:   Record<string, ProfileToken>;
