@@ -1340,8 +1340,8 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                 return (
                   <Box key={key} style={{ cursor: "pointer" }} onClick={() => setSelectedToken({ key, tk })}>
                     <Group gap="sm" wrap="nowrap" mb={4}>
-                      <Group gap={6} style={{ minWidth: isAdmin ? 100 : 72, maxWidth: isAdmin ? 160 : 100, flexShrink: 0 }} wrap="nowrap">
-                        <Box w={6} h={6} style={{ borderRadius: "50%", background: `var(--mantine-color-${dotColor}-5)`, flexShrink: 0 }} />
+                      <Group gap={6} style={{ minWidth: isAdmin ? 120 : 88, maxWidth: isAdmin ? 180 : 120, flexShrink: 0 }} wrap="nowrap">
+                        <UserAvatar name={display} imageUrl={status.userImages?.[tk.name || display]} size={20} />
                         <Tooltip label={tk.label} withArrow openDelay={400} disabled={display === tk.label}>
                           <Text size="xs" ff="monospace" truncate>{display}</Text>
                         </Tooltip>
@@ -1409,7 +1409,7 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                       style={{ borderBottom: i < analytics.allTimeByUser.length - 1 ? "1px solid var(--mantine-color-default-border)" : undefined }}>
                       <Group justify="space-between" mb={6} wrap="nowrap">
                         <Group gap={8} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
-                          <Box w={10} h={10} style={{ borderRadius: "50%", background: color, flexShrink: 0 }} />
+                          <UserAvatar name={display} imageUrl={status.userImages?.[u.user]} size={22} />
                           <Tooltip label={u.user} withArrow openDelay={400} disabled={display === u.user}>
                             <Text size="sm" fw={600} ff="monospace" truncate>{display}</Text>
                           </Tooltip>
@@ -1528,7 +1528,7 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                           </Table.Td>
                           <Table.Td>
                             <Group gap={6} wrap="nowrap">
-                              <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${dot}-5)`, flexShrink: 0 }} />
+                              <UserAvatar name={display} imageUrl={status.userImages?.[u.label]} size={20} />
                               <Tooltip label={u.label} withArrow openDelay={400} disabled={display === u.label}>
                                 <Badge variant="light" color={u.paused ? "gray" : "blue"} size="sm" ff="monospace">{display}</Badge>
                               </Tooltip>
@@ -1810,8 +1810,8 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                     const dot = avatarColor(display);
                     return (
                       <Group key={u.label} gap="sm" wrap="nowrap">
-                        <Group gap={6} wrap="nowrap" style={{ minWidth: 110, maxWidth: 160 }}>
-                          <Box w={6} h={6} style={{ borderRadius: "50%", background: `var(--mantine-color-${dot}-5)`, flexShrink: 0 }} />
+                        <Group gap={6} wrap="nowrap" style={{ minWidth: 120, maxWidth: 170 }}>
+                          <UserAvatar name={display} imageUrl={status.userImages?.[u.label]} size={20} />
                           <Tooltip label={u.label} withArrow openDelay={400} disabled={display === u.label}>
                             <Text size="xs" ff="monospace" truncate>{display}</Text>
                           </Tooltip>
@@ -1927,8 +1927,8 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
       {isAdmin && (
         <Stack gap="xs">
           <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Daily History</Text>
-          <Paper withBorder style={{ overflow: "hidden" }}>
-            <DailyHistory isAdmin={isAdmin} />
+          <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
+            <DailyHistory isAdmin={isAdmin} userImages={status.userImages} />
           </Paper>
         </Stack>
       )}

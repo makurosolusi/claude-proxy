@@ -1,90 +1,138 @@
 import { useState, useEffect } from "react";
-import { Stack, Table, Text, Badge, Group, Pagination } from "@mantine/core";
+import { Stack, Table, Text, Badge, Group, Tooltip, Box, SegmentedControl } from "@mantine/core";
+import { UserAvatar } from "../UserAvatar";
 
-const DAILY_PER_PAGE = 7;
+const DATE_WINDOWS = [7, 14, 30] as const;
+type DateWindow = typeof DATE_WINDOWS[number];
 
-export function DailyHistory({ isAdmin }: { isAdmin: boolean }) {
+export function DailyHistory({ isAdmin, userImages = {} }: { isAdmin: boolean; userImages?: Record<string, string> }) {
   const [data, setData]   = useState<{ date: string; total: number; by_user: Record<string, number> }[]>([]);
   const [users, setUsers] = useState<string[]>([]);
-  const [page, setPage]   = useState(1);
+  const [window, setWindow] = useState<DateWindow>(7);
 
   useEffect(() => {
     fetch("/api/stats").then(r => r.json()).then(d => {
       setData(d.daily || []);
       setUsers(d.users || []);
-      setPage(1);
     }).catch(() => {});
   }, []);
 
   const _d = new Date();
   const today = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,"0")}-${String(_d.getDate()).padStart(2,"0")}`;
-  const allDates = [...data].reverse();
-  const pages    = Math.max(1, Math.ceil(allDates.length / DAILY_PER_PAGE));
-  const dates    = allDates.slice((page - 1) * DAILY_PER_PAGE, page * DAILY_PER_PAGE);
+
+  // newest-first dates, sliced to selected window
+  const allDates  = [...data].sort((a, b) => b.date.localeCompare(a.date));
+  const dates     = allDates.slice(0, window);
 
   if (!allDates.length) return <Text size="sm" c="dimmed" ta="center" p="xl">No data yet.</Text>;
 
-  const cc = (v: number) => !v ? "dimmed" : v > 20000 ? "red" : v > 10000 ? "orange" : v > 5000 ? "yellow" : "teal";
-  const totalAll = allDates.reduce((s, d) => s + d.total, 0);
+  const cc = (v: number) => !v ? "dimmed" : v > 500_000 ? "red" : v > 200_000 ? "orange" : v > 50_000 ? "yellow" : "teal";
   const nf = new Intl.NumberFormat();
+  const totalAll = allDates.reduce((s, d) => s + d.total, 0);
 
   return (
     <Stack gap={0}>
-      <Table.ScrollContainer minWidth={280}>
+      {/* Window selector */}
+      <Group justify="flex-end" px="md" py="xs" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+        <SegmentedControl
+          size="xs"
+          value={String(window)}
+          onChange={v => setWindow(Number(v) as DateWindow)}
+          data={DATE_WINDOWS.map(w => ({ label: `${w}d`, value: String(w) }))}
+        />
+      </Group>
+
+      <Table.ScrollContainer minWidth={320}>
         <Table highlightOnHover>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Date</Table.Th>
-              {users.map(k => (
-                <Table.Th key={k} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>
-                  {k}
-                </Table.Th>
-              ))}
-              <Table.Th style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Total</Table.Th>
+              {/* User column */}
+              <Table.Th style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", minWidth: 160 }}>
+                User
+              </Table.Th>
+              {/* One column per date */}
+              {dates.map(d => {
+                const isToday = d.date === today;
+                return (
+                  <Table.Th key={d.date} ta="right" style={{ fontSize: 11, letterSpacing: ".04em", minWidth: 72 }}>
+                    <Group gap={4} justify="flex-end" wrap="nowrap">
+                      <Text fz={11} fw={isToday ? 700 : 400} ff="monospace">{d.date.slice(5)}</Text>
+                      {isToday && <Badge color="blue" variant="filled" size="xs" px={4}>T</Badge>}
+                    </Group>
+                  </Table.Th>
+                );
+              })}
+              <Table.Th ta="right" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", minWidth: 88 }}>
+                Total
+              </Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {dates.map(d => {
-              const row   = d.by_user || {};
-              const total = d.total;
-              const isToday = d.date === today;
+            {users.map(k => {
+              const userTotal = dates.reduce((s, d) => s + (d.by_user[k] || 0), 0);
               return (
-                <Table.Tr key={d.date} style={isToday ? {
-                  background: "light-dark(rgba(34,139,230,.06),rgba(34,139,230,.12))",
-                  boxShadow: "inset 2px 0 0 var(--mantine-color-blue-5)",
-                } : {}}>
-                  <Table.Td pl="md">
-                    <Group gap="xs" wrap="nowrap">
-                      <Text size="sm" ff="monospace" fw={isToday ? 700 : 400}>
-                        {d.date.slice(5)}
-                      </Text>
-                      {isToday && <Badge color="blue" variant="filled" size="xs">today</Badge>}
+                <Table.Tr key={k}>
+                  {/* User identity */}
+                  <Table.Td>
+                    <Group gap={8} wrap="nowrap">
+                      <UserAvatar name={k} imageUrl={userImages[k]} size={24} />
+                      <Tooltip label={k} withArrow openDelay={400} disabled={k.length <= 20}>
+                        <Text size="sm" fw={600} truncate maw={140}>{k}</Text>
+                      </Tooltip>
                     </Group>
                   </Table.Td>
-                  {users.map(k => (
-                    <Table.Td key={k}>
-                      <Text size="sm" ff="monospace" fw={600} c={cc(row[k] || 0)}>
-                        {row[k] ? nf.format(row[k]) : <Text span c="dimmed">—</Text>}
-                      </Text>
-                    </Table.Td>
-                  ))}
-                  <Table.Td>
-                    <Text size="sm" ff="monospace" fw={700} c={cc(total)}>
-                      {total ? nf.format(total) : <Text span c="dimmed">—</Text>}
+                  {/* Value per date */}
+                  {dates.map(d => {
+                    const v = d.by_user[k] || 0;
+                    const isToday = d.date === today;
+                    return (
+                      <Table.Td key={d.date} ta="right"
+                        style={isToday ? { background: "light-dark(rgba(34,139,230,.05),rgba(34,139,230,.10))" } : {}}>
+                        <Text size="sm" ff="monospace" fw={v ? 600 : 400} c={cc(v)}>
+                          {v ? nf.format(v) : <Text span c="dimmed" fz={11}>—</Text>}
+                        </Text>
+                      </Table.Td>
+                    );
+                  })}
+                  {/* User total */}
+                  <Table.Td ta="right">
+                    <Text size="sm" ff="monospace" fw={700} c={cc(userTotal)}>
+                      {userTotal ? nf.format(userTotal) : <Text span c="dimmed">—</Text>}
                     </Text>
                   </Table.Td>
                 </Table.Tr>
               );
             })}
+
+            {/* Grand total row */}
+            <Table.Tr style={{ borderTop: "2px solid var(--mantine-color-default-border)" }}>
+              <Table.Td>
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".06em" }}>Total</Text>
+              </Table.Td>
+              {dates.map(d => {
+                const isToday = d.date === today;
+                return (
+                  <Table.Td key={d.date} ta="right"
+                    style={isToday ? { background: "light-dark(rgba(34,139,230,.05),rgba(34,139,230,.10))" } : {}}>
+                    <Text size="sm" ff="monospace" fw={700} c={cc(d.total)}>
+                      {d.total ? nf.format(d.total) : <Text span c="dimmed">—</Text>}
+                    </Text>
+                  </Table.Td>
+                );
+              })}
+              <Table.Td ta="right">
+                <Text size="sm" ff="monospace" fw={700}>
+                  {nf.format(dates.reduce((s, d) => s + d.total, 0))}
+                </Text>
+              </Table.Td>
+            </Table.Tr>
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
 
-      <Group justify="space-between" p="sm" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
-        <Pagination total={pages} value={page} onChange={setPage} size="sm" />
+      <Group justify="flex-end" px="md" py="xs" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
         <Text size="xs" c="dimmed">
-          {`${nf.format(totalAll)} tok total · ${allDates.length} days`}
-          {pages > 1 && ` · page ${page}/${pages}`}
+          {nf.format(totalAll)} tok total · {allDates.length} days
         </Text>
       </Group>
     </Stack>

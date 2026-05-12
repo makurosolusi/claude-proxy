@@ -63,30 +63,40 @@ interface LogGroup {
   hasNew: boolean;
 }
 
+const GROUP_GAP_MS = 30 * 60 * 1000; // 30 minutes
+
 function groupLogs(logs: LogEntry[], newIds: Set<number>): LogGroup[] {
-  // Group by token_key + model + prompt (same prompt = same work session in Claude Code multi-turn)
-  const orderMap = new Map<string, LogGroup>();
-  const order: string[] = [];
+  // Group by token_key + model + prompt, but only within a 30-minute window.
+  // Entries from the same user/prompt but separated by >30 min become separate groups.
+  const groups: LogGroup[] = [];
+  const lastTsMap = new Map<string, number>(); // gk → ts of last entry added to that group
 
   for (const l of logs) {
-    const gk = `${l.token_key}::${l.model}::${l.prompt ?? ""}`;
-    if (!orderMap.has(gk)) {
-      order.push(gk);
-      orderMap.set(gk, {
-        key: `g-${l.id}`,
-        entries: [],
+    const baseKey = `${l.token_key}::${l.model}::${l.prompt ?? ""}`;
+    const lastTs  = lastTsMap.get(baseKey);
+    const gk      = (lastTs !== undefined && lastTs - l.ts <= GROUP_GAP_MS)
+      ? baseKey
+      : `${baseKey}::${l.ts}`;
+
+    const existing = groups.find(g => g.key === gk);
+    if (!existing) {
+      groups.push({
+        key: gk,
+        entries: [l],
         head: l,
-        totalTokens: 0,
-        hasNew: false,
+        totalTokens: l.input_tokens + l.output_tokens + l.cache_read + l.cache_creation,
+        hasNew: newIds.has(l.id),
       });
+    } else {
+      existing.entries.push(l);
+      existing.totalTokens += l.input_tokens + l.output_tokens + l.cache_read + l.cache_creation;
+      if (newIds.has(l.id)) existing.hasNew = true;
     }
-    const g = orderMap.get(gk)!;
-    g.entries.push(l);
-    g.totalTokens += l.input_tokens + l.output_tokens + l.cache_read + l.cache_creation;
-    if (newIds.has(l.id)) g.hasNew = true;
+    // logs arrive newest-first; track the oldest ts seen for this baseKey
+    lastTsMap.set(baseKey, l.ts);
   }
 
-  return order.map(gk => orderMap.get(gk)!);
+  return groups;
 }
 
 
