@@ -902,38 +902,33 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
   const visibleAlerts  = contextAlerts.filter(a => !dismissedAlerts.includes(a.label + a.ts));
   const visibleThresh  = thresholdAlerts.filter(a => !dismissedThresh.includes(a.label + a.type));
 
-  // Dynamic background: radial gradient from bottom grows more intense as
-  // upstream 5h utilization rises. Starts at 20%, full intensity at 90%.
+  // Dynamic background: prairie-to-fire scene driven by 5h upstream utilization.
+  // t=0 → calm (faint blue sky tint). t=1 → dark sky + deep red fire from bottom.
   const utilPct = upstream?.fiveHour?.utilization ?? 0;
-  const t       = Math.max(0, Math.min(1, (utilPct - 20) / 70));
+  const t       = Math.max(0, Math.min(1, utilPct / 90));
   const isDark  = colorScheme === "dark" ||
     (colorScheme === "auto" && typeof window !== "undefined" &&
      window.matchMedia("(prefers-color-scheme: dark)").matches);
   const pageBg  = useMemo(() => {
-    if (t <= 0) return undefined;
-    if (isDark) {
-      const a1 = (t * 0.95).toFixed(3);
-      const a2 = (t * 0.75).toFixed(3);
-      const a3 = (t * 0.30).toFixed(3);
-      return [
-        `radial-gradient(ellipse 150% 90% at 50% 100%,`,
-        ` rgba(100,6,6,${a1}) 0%,`,
-        ` rgba(70,5,5,${a2}) 45%,`,
-        ` rgba(40,4,4,${a3}) 70%,`,
-        ` transparent 90%)`,
-      ].join("");
-    } else {
-      const a1 = (t * 0.30).toFixed(3);
-      const a2 = (t * 0.18).toFixed(3);
-      const a3 = (t * 0.07).toFixed(3);
-      return [
-        `radial-gradient(ellipse 150% 90% at 50% 100%,`,
-        ` rgba(220,40,40,${a1}) 0%,`,
-        ` rgba(200,30,30,${a2}) 45%,`,
-        ` rgba(180,20,20,${a3}) 70%,`,
-        ` transparent 90%)`,
-      ].join("");
-    }
+    if (t <= 0) return "transparent";
+
+    // ── Sky (top) — blue wash fading to dark as fire grows ──────────────
+    const skyA = isDark ? (0.10 + t * 0.12) : (0.10 + t * 0.10);
+    const skyR = Math.round(20  + t * 20);
+    const skyG = Math.round(60  - t * 55);
+    const skyB = Math.round(150 - t * 130);
+    const sky  = `radial-gradient(ellipse 220% 55% at 50% 0%, rgba(${skyR},${skyG},${skyB},${skyA.toFixed(3)}) 0%, transparent 65%)`;
+
+    // ── Fire (bottom) — green meadow → amber → orange → deep red ────────
+    // colour shifts through phases based on t
+    const fr = Math.round(t < 0.35 ? 30  + t * 560 : t < 0.65 ? 226 - (t-0.35)*100 : 196);
+    const fg = Math.round(t < 0.35 ? 90  - t * 257 : t < 0.65 ? Math.max(0, 0 - (t-0.35)*0) : 0);
+    const fb = Math.round(t < 0.35 ? 50  - t * 143 : 0);
+    const fireA  = isDark ? (t * 0.55) : (t * 0.35);
+    const fireA2 = isDark ? (t * 0.25) : (t * 0.15);
+    const fire = `radial-gradient(ellipse 180% 75% at 50% 100%, rgba(${fr},${fg},${fb},${fireA.toFixed(3)}) 0%, rgba(${Math.round(fr*0.6)},${Math.round(fg*0.3)},0,${fireA2.toFixed(3)}) 40%, transparent 75%)`;
+
+    return `${sky}, ${fire}`;
   }, [t, isDark]);
 
   const todayTotal   = Object.values(tokens).reduce((sum, tk: any) => sum + (tk.today || 0), 0);
@@ -1008,7 +1003,7 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
   })();
 
   return (
-    <Box className="cp-page-bg" style={{ minHeight: "100vh", ["--cp-page-gradient" as any]: pageBg || "transparent" }}>
+    <Box className="cp-page-bg" style={{ minHeight: "100vh", backgroundImage: pageBg !== "transparent" ? pageBg : undefined, backgroundAttachment: "fixed" }}>
     {/* ── Sticky Header (Navbar + Sub-header) ─────────────── */}
     {(() => {
       const ap         = upstream?.activeProvider;

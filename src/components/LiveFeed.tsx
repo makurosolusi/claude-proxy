@@ -169,8 +169,8 @@ function FeedEntry({
           </Group>
 
           {l.prompt && !isErr && !compact && (
-            <Text fz={10} c="dimmed" mt={4} lineClamp={1}
-              style={{ fontStyle: "italic", lineHeight: 1.4, opacity: 0.75 }}>
+            <Text fz={13} c="dimmed" mt={4} lineClamp={4}
+              style={{ lineHeight: 1.5, opacity: 0.9 }}>
               {l.prompt}
             </Text>
           )}
