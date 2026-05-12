@@ -1,6 +1,6 @@
 {
   "name": "claude-proxy",
-  "version": "2.1.25",
+  "version": "2.1.26",
   "scripts": {
     "dev": "bun --hot src/serve.ts",
     "build": "vite build",
