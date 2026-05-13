@@ -2133,6 +2133,7 @@ export function App() {
       ws.onmessage = e => {
         try {
           const data = JSON.parse(e.data);
+          if (data.type === "force_reload")   { window.location.reload(); return; }
           if (data.type === "chat_history")  { setChatMsgs(data.messages); return; }
           if (data.type === "chat_message")  {
             const msg: ChatMsg = data.message;

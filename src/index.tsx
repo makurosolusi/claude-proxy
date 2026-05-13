@@ -726,6 +726,21 @@ server = serve({
       return handleApiModelRoutes(req, new URL(req.url));
     },
 
+    "/api/admin/broadcast/refresh": async req => {
+      if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      triggerBroadcast();
+      return Response.json({ ok: true, clients: wsClients.size });
+    },
+    "/api/admin/broadcast/reload": async req => {
+      if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const payload = JSON.stringify({ type: "force_reload" });
+      let count = 0;
+      for (const ws of wsClients) { ws.send(payload); count++; }
+      return Response.json({ ok: true, clients: count });
+    },
+
     // Admin actions
     "/admin/reset":              async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/logs/clear":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },

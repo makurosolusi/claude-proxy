@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Stack, SimpleGrid, Paper, Text, Group, ThemeIcon, NumberFormatter, Box, Loader, Badge, Progress } from "@mantine/core";
-import { IconRefresh, IconPlayerPause, IconPencil, IconLogout, IconActivity, IconUsers, IconGauge, IconChartBar, IconClock, IconTrash, IconAlertHexagon, IconAlertTriangle, IconBulb } from "@tabler/icons-react";
+import { IconRefresh, IconPlayerPause, IconPencil, IconActivity, IconUsers, IconGauge, IconChartBar, IconClock, IconTrash, IconAlertHexagon, IconAlertTriangle, IconBulb, IconRadar, IconReload } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { pctColor, fmtResetAt, adminPost } from "../../utils";
@@ -98,7 +98,7 @@ function StatCard({ label, value, sub, color, suffix, icon }: {
   );
 }
 
-type ActionId = "reset" | "pause" | "edit" | "clearLogs" | "clearUsage";
+type ActionId = "reset" | "pause" | "edit" | "clearLogs" | "clearUsage" | "broadcastRefresh" | "broadcastReload";
 
 function ActionCard({ icon, label, desc, color, loading, onClick }: {
   icon: React.ReactNode; label: string; desc: string; color: string;
@@ -242,9 +242,44 @@ export function AdminOverview({ tokens, upstream, contextAlerts = [], userImages
             })}
           />
           <ActionCard
-            icon={<IconLogout size={18} />} label="Sign Out"
-            desc="End admin session and return to public page" color="gray"
-            onClick={() => { window.location.href = "/admin/logout"; }}
+            icon={<IconRadar size={18} />} label="Soft Refresh"
+            desc="Push status terbaru ke semua dashboard aktif via WebSocket" color="teal"
+            loading={loading === "broadcastRefresh"}
+            onClick={() => run(
+              "broadcastRefresh",
+              async () => {
+                const r = await fetch("/api/admin/broadcast/refresh", { method: "POST" });
+                const d = await r.json() as any;
+                notifications.show({ color: "teal", message: `Status di-push ke ${d.clients} client aktif`, autoClose: 3000 });
+              },
+              "Broadcast refresh sent",
+            )}
+          />
+          <ActionCard
+            icon={<IconReload size={18} />} label="Hard Reload"
+            desc="Paksa semua browser reload halaman — akan interrupt user aktif" color="red"
+            loading={loading === "broadcastReload"}
+            onClick={() => modals.openConfirmModal({
+              title: "Hard Reload Semua Client",
+              children: (
+                <Text size="sm">
+                  Ini akan <b>reload paksa</b> semua browser yang sedang membuka dashboard.
+                  User yang sedang mengetik atau melihat detail akan ter-interrupt.
+                  Gunakan hanya setelah deploy baru atau perubahan config besar.
+                </Text>
+              ),
+              labels: { confirm: "Reload Semua", cancel: "Batal" },
+              confirmProps: { color: "red" },
+              onConfirm: () => run(
+                "broadcastReload",
+                async () => {
+                  const r = await fetch("/api/admin/broadcast/reload", { method: "POST" });
+                  const d = await r.json() as any;
+                  notifications.show({ color: "orange", message: `Force reload dikirim ke ${d.clients} client`, autoClose: 4000 });
+                },
+                "Force reload sent",
+              ),
+            })}
           />
         </SimpleGrid>
       </Stack>
