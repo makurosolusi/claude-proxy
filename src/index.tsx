@@ -233,6 +233,23 @@ async function refreshUserImages() {
 refreshUserImages();
 setInterval(refreshUserImages, 5 * 60_000);
 
+async function pruneRequestLogs() {
+  const logDays = Math.max(1, parseInt(settings["log_retention_days"] || "30"));
+  const msgDays = Math.max(1, parseInt(settings["msg_retention_days"] || "7"));
+  const logCutoff = BigInt(Date.now() - logDays * 86400_000);
+  const msgCutoff = BigInt(Date.now() - msgDays * 86400_000);
+  const [deleted, stripped] = await Promise.all([
+    prisma.request_logs.deleteMany({ where: { ts: { lt: logCutoff } } }),
+    prisma.request_logs.updateMany({
+      where: { ts: { lt: msgCutoff }, messages_json: { not: "" } },
+      data: { messages_json: "" },
+    }),
+  ]);
+  return { deleted: deleted.count, stripped: stripped.count, log_retention_days: logDays, msg_retention_days: msgDays };
+}
+pruneRequestLogs();
+setInterval(pruneRequestLogs, 24 * 60 * 60_000);
+
 function buildStatusPayload(isAdmin: boolean) {
   const now   = Date.now();
   const today = todayKey();
@@ -548,6 +565,45 @@ server = serve({
       if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleDbSync(req);
+    },
+    "/api/admin/db/stats": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const [rows, size, msgRows] = await Promise.all([
+        prisma.request_logs.count(),
+        prisma.$queryRaw<{ size_bytes: bigint }[]>`
+          SELECT pg_total_relation_size('request_logs') AS size_bytes
+        `,
+        prisma.request_logs.count({ where: { messages_json: { not: "" } } }),
+      ]);
+      return Response.json({
+        rows,
+        size_bytes: size[0].size_bytes.toString(),
+        rows_with_messages: msgRows,
+      });
+    },
+    "/api/admin/db/retention": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (req.method === "GET") {
+        return Response.json({
+          log_retention_days:  parseInt(settings["log_retention_days"]  || "30"),
+          msg_retention_days:  parseInt(settings["msg_retention_days"]  || "7"),
+        });
+      }
+      if (req.method === "POST") {
+        const body = await req.json() as any;
+        const logDays = Math.max(1, parseInt(body.log_retention_days) || 30);
+        const msgDays = Math.max(1, parseInt(body.msg_retention_days) || 7);
+        await dbSaveSetting("log_retention_days", String(logDays));
+        await dbSaveSetting("msg_retention_days", String(msgDays));
+        return Response.json({ ok: true, log_retention_days: logDays, msg_retention_days: msgDays });
+      }
+      return new Response("Method not allowed", { status: 405 });
+    },
+    "/api/admin/db/prune": async req => {
+      if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const result = await pruneRequestLogs();
+      return Response.json({ ok: true, ...result });
     },
     "/api/competition": async req => {
       const u = await checkUser(req);

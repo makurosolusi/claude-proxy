@@ -6,7 +6,7 @@ import {
   Container, Group, Stack, Title, Text, Box, Button, Paper,
   ActionIcon, Tooltip, TextInput, useMantineColorScheme,
   SimpleGrid, Progress, ThemeIcon, Divider, Alert, Badge, Code, Collapse, Loader, Transition,
-  Table, Pagination, Modal, Anchor, Tabs,
+  Table, Pagination, Modal, Anchor, Tabs, Overlay, Center, RingProgress,
 } from "@mantine/core";
 import {
   IconSun, IconMoon, IconLogout, IconLogin,
@@ -15,10 +15,11 @@ import {
   IconAlertTriangle, IconAlertHexagon, IconChevronDown, IconChevronUp,
   IconBulb, IconX, IconChartBar, IconArrowUp, IconHeartbeat, IconKey,
   IconChartHistogram, IconList, IconLayoutGrid, IconFlame, IconChartPie, IconBolt,
-  IconTrophy, IconBrain, IconLayoutDashboard, IconChartLine, IconMessages,
+  IconTrophy, IconBrain, IconLayoutDashboard, IconChartLine, IconMessages, IconHistory,
 } from "@tabler/icons-react";
 import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
+import { notifications } from "@mantine/notifications";
 import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
 import { useStatus } from "./contexts";
 import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, BlockedPage, UpstreamSection } from "./components/shared";
@@ -29,6 +30,7 @@ import { LiveFeed } from "./components/LiveFeed";
 import { SessionsContent } from "./components/SessionHistory";
 import { DailyHistory } from "./components/tables/DailyHistory";
 import { RequestLog, DetailContent } from "./components/tables/RequestLog";
+import { FeedHistory } from "./components/FeedHistory";
 import { AdminDashboard } from "./components/admin/Dashboard";
 import { MindPage } from "./components/MindPage";
 import { RacePage } from "./components/RacePage";
@@ -207,6 +209,124 @@ function ContextAlertCard({ alert: a, onDismiss }: { alert: ContextAlert; onDism
   );
 }
 
+
+function ContextAlertOverlay({ alerts, onDismiss }: {
+  alerts: ContextAlert[];
+  onDismiss: (key: string) => void;
+}) {
+  const worst = alerts[0];
+  if (!worst) return null;
+
+  const isCrit  = worst.severity === "critical";
+  const msg     = contextMessage(worst);
+  const color   = isCrit ? "#dc2626" : "#ea580c";
+  const bgColor = isCrit ? "rgba(220,38,38,0.08)" : "rgba(234,88,12,0.07)";
+  const Icon    = isCrit ? IconAlertHexagon : IconAlertTriangle;
+  const nf      = new Intl.NumberFormat();
+  const key     = worst.label + worst.ts;
+
+  return (
+    <>
+      <Overlay backgroundOpacity={0.75} blur={6} zIndex={300} />
+      <Center style={{ position: "fixed", inset: 0, zIndex: 301, padding: 16 }}>
+        <Box style={{
+          width: "100%", maxWidth: 520,
+          background: "var(--mantine-color-body)",
+          borderRadius: 20,
+          border: `2px solid ${color}`,
+          boxShadow: `0 0 60px ${color}40, 0 24px 48px rgba(0,0,0,0.4)`,
+          overflow: "hidden",
+        }}>
+          {/* Top stripe */}
+          <Box style={{ height: 6, background: `linear-gradient(90deg, ${color}, ${color}99)` }} />
+
+          <Stack gap={0} p="xl">
+            {/* Header */}
+            <Group gap="md" mb="lg" align="flex-start">
+              <RingProgress size={72} thickness={6} roundCaps
+                sections={[{ value: Math.min(100, worst.ratio), color }]}
+                label={<Center><Icon size={22} color={color} /></Center>}
+              />
+              <Box style={{ flex: 1 }}>
+                <Group gap="xs" mb={4}>
+                  <Badge color={isCrit ? "red" : "orange"} variant="filled" size="sm" tt="uppercase">
+                    {isCrit ? "⚠ Critical" : "⚠ Warning"}
+                  </Badge>
+                  <Text size="xs" c="dimmed" ff="monospace">{worst.label}</Text>
+                </Group>
+                <Text fw={800} fz={18} lh={1.3} style={{ letterSpacing: "-0.02em" }}>
+                  {msg.title}
+                </Text>
+              </Box>
+            </Group>
+
+            {/* Stats */}
+            <SimpleGrid cols={3} mb="lg" style={{ background: bgColor, borderRadius: 12, padding: "12px 16px" }}>
+              <Box>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Input</Text>
+                <Text fw={700} ff="monospace" fz={16} style={{ color }}>{nf.format(worst.input_tokens)}</Text>
+              </Box>
+              <Box>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Output</Text>
+                <Text fw={700} ff="monospace" fz={16}>{nf.format(worst.output_tokens)}</Text>
+              </Box>
+              <Box>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Rasio</Text>
+                <Text fw={700} ff="monospace" fz={16} style={{ color }}>{worst.ratio}×</Text>
+              </Box>
+            </SimpleGrid>
+
+            {/* What & why */}
+            <Stack gap="sm" mb="lg">
+              <Box>
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4} style={{ letterSpacing: ".06em" }}>Apa yang terjadi</Text>
+                <Text size="sm" lh={1.6}>{msg.what}</Text>
+              </Box>
+              <Box>
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4} style={{ letterSpacing: ".06em" }}>Mengapa</Text>
+                <Text size="sm" c="dimmed" lh={1.6}>{msg.why}</Text>
+              </Box>
+            </Stack>
+
+            {/* Steps */}
+            <Stack gap="sm" mb="xl">
+              <Group gap="xs">
+                <IconBulb size={14} color="var(--mantine-color-yellow-5)" />
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".06em" }}>Yang bisa dilakukan sekarang</Text>
+              </Group>
+              {msg.steps.map((s, i) => (
+                <Group key={i} gap="sm" align="flex-start" wrap="nowrap"
+                  style={{ background: "var(--mantine-color-default-hover)", borderRadius: 10, padding: "10px 14px" }}>
+                  <Badge variant="outline" color="gray" size="sm" style={{ flexShrink: 0, marginTop: 2 }}>{i + 1}</Badge>
+                  <Box>
+                    <Group gap="xs" mb={2}>
+                      {s.cmd && <Code fz="sm" fw={700}>{s.cmd}</Code>}
+                      <Text size="sm" fw={600}>{s.label}</Text>
+                    </Group>
+                    <Text size="xs" c="dimmed">{s.desc}</Text>
+                  </Box>
+                </Group>
+              ))}
+            </Stack>
+
+            {/* Actions */}
+            <Group gap="sm">
+              <Button flex={1} color={isCrit ? "red" : "orange"} size="md" radius="xl" fw={700}
+                onClick={() => onDismiss(key)}>
+                Saya Mengerti — Akan Saya Tangani
+              </Button>
+              {alerts.length > 1 && (
+                <Text size="xs" c="dimmed" ta="center">
+                  +{alerts.length - 1} alert lain
+                </Text>
+              )}
+            </Group>
+          </Stack>
+        </Box>
+      </Center>
+    </>
+  );
+}
 
 const DAY_ID = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
 const MON_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
@@ -899,8 +1019,15 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
   const headerRef = useRef<HTMLDivElement>(null);
   const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
   const [dismissedThresh, setDismissedThresh] = useState<string[]>([]);
+  const [dismissedOverlay, setDismissedOverlay] = useState<string[]>([]);
   const visibleAlerts  = contextAlerts.filter(a => !dismissedAlerts.includes(a.label + a.ts));
   const visibleThresh  = thresholdAlerts.filter(a => !dismissedThresh.includes(a.label + a.type));
+
+  // Alerts milik user yang sedang login — cocokkan label token dengan nama token user
+  const myTokenNames = Object.values(profile?.tokens ?? {}).map(t => t.name).filter(Boolean);
+  const myAlerts = contextAlerts.filter(a =>
+    myTokenNames.includes(a.label) && !dismissedOverlay.includes(a.label + a.ts)
+  );
 
   // Dynamic background: prairie-to-fire scene driven by 5h upstream utilization.
   // t=0 → calm (faint blue sky tint). t=1 → dark sky + deep red fire from bottom.
@@ -1163,6 +1290,10 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
               <Tabs.Tab value="sessions" leftSection={<IconMessages size={13} />}
                 style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
                 Sessions
+              </Tabs.Tab>
+              <Tabs.Tab value="history" leftSection={<IconHistory size={13} />}
+                style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
+                History
               </Tabs.Tab>
               {/* Feed tab: hanya muncul di mobile */}
               <Tabs.Tab value="feed" leftSection={<IconActivity size={13} />}
@@ -1944,6 +2075,11 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
               <SessionsTab tokens={tokens} />
             </Tabs.Panel>
 
+            {/* ── Tab History ───────────────────────────────── */}
+            <Tabs.Panel value="history">
+              <FeedHistory />
+            </Tabs.Panel>
+
             {/* ── Tab Feed (mobile only) ────────────────────── */}
             <Tabs.Panel value="feed">
               <Box style={{ height: "calc(100dvh - 220px)", minHeight: 400, display: "flex", flexDirection: "column" }}>
@@ -1964,6 +2100,14 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
 
     <BackToTop />
     <FloatingChat userName={profile?.name || profile?.email} />
+
+    {/* ── Context alert overlay — hanya untuk user yang login ── */}
+    {myAlerts.length > 0 && (
+      <ContextAlertOverlay
+        alerts={myAlerts}
+        onDismiss={key => setDismissedOverlay(d => [...d, key])}
+      />
+    )}
     </Box>
   );
 }
@@ -1990,7 +2134,26 @@ export function App() {
         try {
           const data = JSON.parse(e.data);
           if (data.type === "chat_history")  { setChatMsgs(data.messages); return; }
-          if (data.type === "chat_message")  { setChatMsgs(prev => [...prev.slice(-99), data.message]); return; }
+          if (data.type === "chat_message")  {
+            const msg: ChatMsg = data.message;
+            setChatMsgs(prev => [...prev.slice(-99), msg]);
+            // System messages → toast notification agar terlihat tanpa buka chat
+            if (msg.type === "system") {
+              const text  = msg.text;
+              const isErr = text.includes("🚨") || text.includes("quota") || text.includes("besar") || text.includes("blocked");
+              const isWarn = text.includes("⚠️") || text.includes("nearing") || text.includes("80%");
+              const isGood = text.includes("🔄") || text.includes("reset") || text.includes("✅");
+              notifications.show({
+                id:       msg.id,
+                title:    isErr ? "Peringatan sistem" : isGood ? "Info sistem" : "Sistem",
+                message:  text.replace(/^[⚡🚨⚠️🔄✅🗑️🚫]\s?/, ""),
+                color:    isErr ? "red" : isWarn ? "orange" : isGood ? "teal" : "blue",
+                autoClose: isErr ? 10000 : 6000,
+                withBorder: true,
+              });
+            }
+            return;
+          }
           if (data.type === "chat_clear")    { setChatMsgs([]); return; }
           setStatus(data);
           setWsSignal(n => n + 1); // trigger LiveFeed refresh

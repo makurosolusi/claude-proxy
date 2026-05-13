@@ -6,6 +6,8 @@ import {
   Modal, Grid, Code, Pagination, Divider, ThemeIcon, ActionIcon, Anchor, Alert,
 } from "@mantine/core";
 import { IconSitemap, IconSearch, IconFilter, IconStack2, IconFlag, IconAlertTriangle, IconAlertHexagon, IconRepeat, IconUsers, IconList } from "@tabler/icons-react";
+import { useStatus } from "../../contexts";
+import { UserAvatar } from "../UserAvatar";
 
 const nf = new Intl.NumberFormat();
 
@@ -173,6 +175,8 @@ export function DetailContent({ log: l }: { log: LogEntry }) {
 }
 
 export function RequestLog({ isAdmin, allowDestructive = false }: { isAdmin: boolean; allowDestructive?: boolean }) {
+  const status     = useStatus();
+  const userImages = status?.userImages ?? {};
   const [logs, setLogs]       = useState<LogEntry[]>([]);
   const [page, setPage]       = useState(1);
   const [pages, setPages]     = useState(1);
@@ -354,13 +358,18 @@ export function RequestLog({ isAdmin, allowDestructive = false }: { isAdmin: boo
                       </Group>
                     </Table.Td>
                   ),
-                  user:  <Table.Td key="user" style={STICKY_COL}>
-                    <Anchor component={Link} to={`/sessions/${encodeURIComponent(u)}`}
-                      onClick={e => e.stopPropagation()}
-                      style={{ textDecoration: "none" }}>
-                      <Badge variant="light" color="blue" size="sm" ff="monospace" style={{ cursor: "pointer" }}>{u}</Badge>
-                    </Anchor>
-                  </Table.Td>,
+                  user: (
+                    <Table.Td key="user" style={STICKY_COL}>
+                      <Anchor component={Link} to={`/sessions/${encodeURIComponent(u)}`}
+                        onClick={e => e.stopPropagation()}
+                        style={{ textDecoration: "none" }}>
+                        <Group gap={6} wrap="nowrap">
+                          <UserAvatar name={u} imageUrl={userImages[u]} size={20} />
+                          <Text size="xs" fw={600} truncate maw={120}>{u}</Text>
+                        </Group>
+                      </Anchor>
+                    </Table.Td>
+                  ),
                   model: <Table.Td key="model"><Text size="xs" ff="monospace" c="dimmed">{model}</Text></Table.Td>,
                   in:    <Table.Td key="in"><Text size="xs" ff="monospace" c="dimmed">{l.input_tokens.toLocaleString()}</Text></Table.Td>,
                   out:   <Table.Td key="out"><Text size="xs" ff="monospace" c="dimmed">{l.output_tokens.toLocaleString()}</Text></Table.Td>,

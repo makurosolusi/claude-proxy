@@ -1,11 +1,81 @@
 import { useState } from "react";
-import { Stack, SimpleGrid, Paper, Text, Group, ThemeIcon, NumberFormatter, Box, Loader } from "@mantine/core";
-import { IconRefresh, IconPlayerPause, IconPencil, IconLogout, IconActivity, IconUsers, IconGauge, IconChartBar, IconClock, IconTrash } from "@tabler/icons-react";
+import { Stack, SimpleGrid, Paper, Text, Group, ThemeIcon, NumberFormatter, Box, Loader, Badge, Progress } from "@mantine/core";
+import { IconRefresh, IconPlayerPause, IconPencil, IconLogout, IconActivity, IconUsers, IconGauge, IconChartBar, IconClock, IconTrash, IconAlertHexagon, IconAlertTriangle, IconBulb } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { pctColor, fmtResetAt, adminPost } from "../../utils";
-import type { TokenStatus, UpstreamData } from "../../contexts";
+import type { TokenStatus, UpstreamData, ContextAlert } from "../../contexts";
 import { UpstreamSection } from "../shared";
+import { UserAvatar } from "../UserAvatar";
+
+const nf = new Intl.NumberFormat();
+
+function ContextAlertsPanel({ alerts, userImages }: { alerts: ContextAlert[]; userImages: Record<string, string> }) {
+  if (alerts.length === 0) return null;
+
+  return (
+    <Stack gap="xs">
+      <Group gap="xs">
+        <ThemeIcon variant="light" color="red" size="sm" radius="sm"><IconAlertHexagon size={13} /></ThemeIcon>
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Context Alerts</Text>
+        <Badge size="xs" color="red" variant="filled">{alerts.length}</Badge>
+      </Group>
+      <Stack gap="xs">
+        {alerts.map(a => {
+          const isCrit  = a.severity === "critical";
+          const color   = isCrit ? "red" : "orange";
+          const Icon    = isCrit ? IconAlertHexagon : IconAlertTriangle;
+          const maxRatio = 100;
+          const ratioPct = Math.min(100, Math.round((a.ratio / maxRatio) * 100));
+          return (
+            <Paper key={a.label + a.ts} withBorder radius="md"
+              style={{ borderColor: `var(--mantine-color-${color}-4)`, overflow: "hidden" }}>
+              <Box style={{ height: 3, background: `var(--mantine-color-${color}-5)` }} />
+              <Group gap="md" p="sm" wrap="nowrap" align="flex-start">
+                {/* Avatar */}
+                <UserAvatar name={a.label} imageUrl={userImages[a.label]} size={32} />
+
+                {/* Info */}
+                <Box style={{ flex: 1, minWidth: 0 }}>
+                  <Group justify="space-between" mb={4} wrap="nowrap">
+                    <Group gap={6} wrap="nowrap">
+                      <Text size="sm" fw={700} truncate>{a.label}</Text>
+                      <Badge size="xs" color={color} variant="light" leftSection={<Icon size={9} />}>
+                        {isCrit ? "critical" : "warning"}
+                      </Badge>
+                    </Group>
+                    <Text size="xs" c="dimmed" ff="monospace" style={{ flexShrink: 0 }}>
+                      {nf.format(a.input_tokens)} in
+                    </Text>
+                  </Group>
+
+                  {/* Ratio bar */}
+                  <Group gap="xs" mb={4} wrap="nowrap">
+                    <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>rasio {a.ratio}×</Text>
+                    <Progress value={ratioPct} color={color} size="xs" radius="xl" style={{ flex: 1 }} />
+                    <Text size="xs" c="dimmed" ff="monospace" style={{ flexShrink: 0 }}>{a.turns}t</Text>
+                  </Group>
+
+                  {/* Suggestion */}
+                  <Group gap={4} wrap="nowrap">
+                    <IconBulb size={11} color="var(--mantine-color-yellow-5)" />
+                    <Text size="xs" c="dimmed">
+                      {isCrit ? "Segera jalankan " : "Disarankan jalankan "}
+                      <Text span ff="monospace" fw={600} c={color}>/compact</Text>
+                      {" atau "}
+                      <Text span ff="monospace" fw={600} c={color}>/clear</Text>
+                      {" di Claude Code"}
+                    </Text>
+                  </Group>
+                </Box>
+              </Group>
+            </Paper>
+          );
+        })}
+      </Stack>
+    </Stack>
+  );
+}
 
 function StatCard({ label, value, sub, color, suffix, icon }: {
   label: string; value: string | number; sub?: string; color?: string; suffix?: string; icon: React.ReactNode;
@@ -51,8 +121,9 @@ function ActionCard({ icon, label, desc, color, loading, onClick }: {
   );
 }
 
-export function AdminOverview({ tokens, upstream }: {
+export function AdminOverview({ tokens, upstream, contextAlerts = [], userImages = {} }: {
   tokens: Record<string, TokenStatus>; upstream: UpstreamData;
+  contextAlerts?: ContextAlert[]; userImages?: Record<string, string>;
 }) {
   const [loading, setLoading] = useState<ActionId | null>(null);
 
@@ -106,6 +177,8 @@ export function AdminOverview({ tokens, upstream }: {
         <StatCard label="Active users" value={activeUsers} sub={`of ${totalTokens} total`} color="blue" icon={<IconUsers size={16} />} />
         <StatCard label="Window usage" value={totalUsed} sub="current window" color="teal" icon={<IconChartBar size={16} />} />
       </SimpleGrid>
+
+      <ContextAlertsPanel alerts={contextAlerts} userImages={userImages} />
 
       <Stack gap="xs">
         <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Upstream Health</Text>
