@@ -1,7 +1,7 @@
 import { prisma } from "./prisma";
 import { config } from "./config";
 import { localDateStr } from "./date";
-import type { TokenEntry, UserEntry, UpstreamState, DailyUsage, RequestLogEntry, ModelRoute } from "./types";
+import type { TokenEntry, UserEntry, UpstreamState, DailyUsage, RequestLogEntry } from "./types";
 
 // ── Runtime state (in-memory) ─────────────────────────────────────────────────
 export const tokens: Record<string, TokenEntry> = {};
@@ -10,7 +10,6 @@ export const dailyUsage: DailyUsage = {};
 export const recentLogs: RequestLogEntry[] = [];
 export let totalTokensAllTime = 0;
 export const allTimePerUser: Record<string, number> = {};
-export const modelRoutes: Record<string, ModelRoute> = {};
 export const settings: Record<string, string> = {};
 
 export const upstream: UpstreamState = {
@@ -47,6 +46,7 @@ export function deriveNameFromKey(key: string): string {
 }
 
 export function resolveTokenName(key: string, tk?: TokenEntry): string {
+  if (tk?.label) return tk.label;
   if (tk?.user_id && users[tk.user_id]) {
     return users[tk.user_id].name || users[tk.user_id].email || tk.user_id;
   }
@@ -91,6 +91,7 @@ export async function dbInsertEnvToken(key: string, entry: TokenEntry) {
       lim: toLim(entry.limit), win: BigInt(entry.window), used: BigInt(entry.used),
       window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: false, provider: entry.provider || "inherit",
+      label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
     },
     update: {}, // do nothing on conflict
   });
@@ -105,6 +106,7 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
       window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
       provider: entry.provider || "inherit",
+      label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
     },
     update: {
       name: entry.name, user_id: entry.user_id || "",
@@ -112,8 +114,17 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
       window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
       provider: entry.provider || "inherit",
+      label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
     },
   });
+}
+
+export async function dbUpdateTokenMeta(key: string, label: string, description: string) {
+  await prisma.tokens.update({ where: { key }, data: { label, description } });
+}
+
+export async function dbUpdatePinnedModel(key: string, pinned_model: string) {
+  await prisma.tokens.update({ where: { key }, data: { pinned_model } });
 }
 
 export async function dbUpdateProvider(key: string, provider: string) {
@@ -231,15 +242,6 @@ export async function dbSaveUpstream() {
       opus_resets_at:       upstream.sevenDayOpus?.resets_at     ?? null,
     },
   });
-}
-
-export async function dbSaveRoutes(routes: ModelRoute[]) {
-  await prisma.model_routes.deleteMany({});
-  if (routes.length > 0) {
-    await prisma.model_routes.createMany({ data: routes });
-  }
-  for (const k of Object.keys(modelRoutes)) delete modelRoutes[k];
-  for (const r of routes) modelRoutes[r.model_id] = r;
 }
 
 export async function dbSaveSetting(key: string, value: string) {
@@ -369,16 +371,19 @@ export async function loadFromDb() {
     const ws      = Number(row.window_start);
     const expired = now - ws >= win;
     tokens[row.key] = {
-      limit:       fromLim(row.lim),
-      window:      win,
-      used:        expired ? 0 : Number(row.used),
-      windowStart: expired ? now : ws,
-      paused:      row.paused,
-      dynamic:     row.dynamic,
-      mode:        "inherit",
-      provider:    (row.provider as import("./types").TokenProvider) || "inherit",
-      name:        row.name || deriveNameFromKey(row.key),
-      user_id:     row.user_id || "",
+      limit:        fromLim(row.lim),
+      window:       win,
+      used:         expired ? 0 : Number(row.used),
+      windowStart:  expired ? now : ws,
+      paused:       row.paused,
+      dynamic:      row.dynamic,
+      mode:         "inherit",
+      provider:     (row.provider as import("./types").TokenProvider) || "inherit",
+      name:         row.name || deriveNameFromKey(row.key),
+      user_id:      row.user_id || "",
+      label:        (row as any).label || "",
+      description:  (row as any).description || "",
+      pinned_model: (row as any).pinned_model || "",
     };
     if (!row.name) {
       await prisma.tokens.update({ where: { key: row.key }, data: { name: tokens[row.key]!.name } });
@@ -403,18 +408,6 @@ export async function loadFromDb() {
       for (const tk of Object.values(tokens)) tk.window = wms;
     }
   }
-
-  // Load model routes
-  const routeRows = await prisma.model_routes.findMany();
-  for (const row of routeRows) {
-    modelRoutes[row.model_id] = {
-      model_id:    row.model_id,
-      threshold:   row.threshold,
-      action:      row.action as "redirect" | "block",
-      fallback_to: row.fallback_to || null,
-    };
-  }
-  if (routeRows.length) console.log(`Model routes loaded: ${routeRows.length} rule(s)`);
 
   // Load settings
   const settingRows = await prisma.settings.findMany();

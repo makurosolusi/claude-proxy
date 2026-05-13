@@ -17,7 +17,9 @@ export interface OauthCredential {
 
 // Mutex: prevent concurrent refresh calls (refresh tokens are single-use)
 let isRefreshing = false;
-let lastUtilAlertPct = 0; // track last utilization threshold that triggered a system message
+let lastUtilAlertPct   = 0; // track last 5h utilization threshold that triggered a system message
+let lastSonnetAlertPct = 0; // track last sonnet 7d threshold
+let lastOpusAlertPct   = 0; // track last opus 7d threshold
 
 export function getOauthCredential(): OauthCredential | null {
   const now = Date.now();
@@ -198,7 +200,9 @@ export async function poll() {
         }
         console.log("[upstream] Window rotated → reset all users. resets_at:", newResetsAt);
         broadcastSystemMsg("🔄 Window reset — usage counters cleared");
-        lastUtilAlertPct = 0;
+        lastUtilAlertPct   = 0;
+        lastSonnetAlertPct = 0;
+        lastOpusAlertPct   = 0;
         upstream.lastKnownResetsAt = newResetsAt;
         dbResetAllTokens(win, resetsAtMs - win).catch(e => console.error("[upstream] dbResetAllTokens error:", e));
         dbSaveUpstream().catch(e => console.error("[upstream] dbSaveUpstream error:", e));
@@ -235,6 +239,32 @@ export async function poll() {
         lastUtilAlertPct = 80;
       } else if (util < 70 && lastUtilAlertPct > 0) {
         lastUtilAlertPct = 0; // reset so next crossing triggers again
+      }
+    }
+
+    // Model-level alerts — help admin decide when to bulk-pin to another model
+    if (data.seven_day_sonnet) {
+      const sUtil = data.seven_day_sonnet.utilization as number;
+      if (sUtil >= 95 && lastSonnetAlertPct < 95) {
+        broadcastSystemMsg(`🔴 Sonnet weekly quota ${sUtil.toFixed(0)}% — consider Pin All → Opus or Haiku`);
+        lastSonnetAlertPct = 95;
+      } else if (sUtil >= 80 && lastSonnetAlertPct < 80) {
+        broadcastSystemMsg(`🟠 Sonnet weekly quota ${sUtil.toFixed(0)}% — nearing limit`);
+        lastSonnetAlertPct = 80;
+      } else if (sUtil < 70 && lastSonnetAlertPct > 0) {
+        lastSonnetAlertPct = 0;
+      }
+    }
+    if (data.seven_day_opus) {
+      const oUtil = data.seven_day_opus.utilization as number;
+      if (oUtil >= 95 && lastOpusAlertPct < 95) {
+        broadcastSystemMsg(`🔴 Opus weekly quota ${oUtil.toFixed(0)}% — consider Pin All → Sonnet`);
+        lastOpusAlertPct = 95;
+      } else if (oUtil >= 80 && lastOpusAlertPct < 80) {
+        broadcastSystemMsg(`🟠 Opus weekly quota ${oUtil.toFixed(0)}% — nearing limit`);
+        lastOpusAlertPct = 80;
+      } else if (oUtil < 70 && lastOpusAlertPct > 0) {
+        lastOpusAlertPct = 0;
       }
     }
   } catch (e: any) {

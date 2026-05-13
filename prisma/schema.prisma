@@ -21,6 +21,9 @@ model tokens {
   dynamic      Boolean  @default(false)
   deleted      Boolean  @default(false)
   provider     String   @default("inherit")
+  label        String   @default("")
+  description  String   @default("")
+  pinned_model String   @default("")
 }
 
 model request_logs {
@@ -81,13 +84,6 @@ model users {
   created_at  BigInt
   role        String @default("USER")
   status      String @default("pending")
-}
-
-model model_routes {
-  model_id    String  @id
-  threshold   Float   @default(0.90)
-  action      String  @default("block")
-  fallback_to String?
 }
 
 model settings {

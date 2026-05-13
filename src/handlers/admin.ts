@@ -1,10 +1,15 @@
-import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
 import { prisma } from "../prisma";
 import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
+import { randomBytes } from "crypto";
 import type { TokenEntry } from "../types";
+
+function generateApiKey(): string {
+  return "sk-cp-" + randomBytes(24).toString("base64url");
+}
 
 async function parseForm(req: Request): Promise<FormData | null> {
   const ct = req.headers.get("content-type") || "";
@@ -46,10 +51,13 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   }
 
   if (pathname === "/admin/token/add" && req.method === "POST") {
-    const newKey    = String(form?.get("token")   || "").trim();
+    let newKey      = String(form?.get("token")   || "").trim();
     const newLimit  = String(form?.get("limit")   || "40000").trim();
     const userId    = String(form?.get("user_id") || "").trim();
-    if (!newKey)        return new Response("Key required\n",          { status: 400 });
+    if (!newKey) {
+      // Auto-generate unique key
+      do { newKey = generateApiKey(); } while (tokens[newKey]);
+    }
     if (tokens[newKey]) return new Response("Token already exists\n", { status: 409 });
     const parsed      = newLimit === "unlimited" ? Infinity : parseInt(newLimit);
     const customName  = String(form?.get("name") || "").trim();
@@ -65,14 +73,28 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       }
     }
 
+    const label       = String(form?.get("label")       || "").trim();
+    const description = String(form?.get("description") || "").trim();
     const entry: TokenEntry = {
       limit: parsed, window: config.windowMs,
       used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit", provider: "inherit",
       name: users[uid]?.name ?? displayName,
       user_id: uid,
+      label, description, pinned_model: "",
     };
     tokens[newKey] = entry;
     await dbInsertToken(newKey, entry);
+    return redirect();
+  }
+
+  if (pathname === "/admin/token/meta" && req.method === "POST") {
+    const target      = String(form?.get("token")       || "").trim();
+    const label       = String(form?.get("label")       || "").trim();
+    const description = String(form?.get("description") || "").trim();
+    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
+    tokens[target].label       = label;
+    tokens[target].description = description;
+    await dbUpdateTokenMeta(target, label, description);
     return redirect();
   }
 
@@ -148,6 +170,26 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     clearInFlight(target);
     delete tokens[target];
     return Response.json({ ok: true, newKey });
+  }
+
+  if (pathname === "/admin/token/pin-model" && req.method === "POST") {
+    const target = String(form?.get("token") || "").trim();
+    const model  = String(form?.get("model") || "").trim();
+    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
+    tokens[target].pinned_model = model;
+    await dbUpdatePinnedModel(target, model);
+    return redirect();
+  }
+
+  if (pathname === "/admin/token/pin-all" && req.method === "POST") {
+    const model  = String(form?.get("model")   || "").trim();
+    const userId = String(form?.get("user_id") || "").trim();
+    for (const [k, tk] of Object.entries(tokens)) {
+      if (userId && tk.user_id !== userId) continue;
+      tk.pinned_model = model;
+      await dbUpdatePinnedModel(k, model);
+    }
+    return redirect();
   }
 
   if (pathname === "/admin/token/provider" && req.method === "POST") {

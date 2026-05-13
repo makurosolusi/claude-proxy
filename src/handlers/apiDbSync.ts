@@ -1,5 +1,5 @@
 import { prisma } from "../prisma";
-import { loadFromDb, backfillUsers, tokens, users, upstream, modelRoutes, settings } from "../state";
+import { loadFromDb, backfillUsers, tokens, users, upstream, settings } from "../state";
 
 // ── In-memory sync token store (TTL 1 jam) ───────────────────────────────────
 
@@ -59,7 +59,6 @@ export async function handleDbExport(req: Request): Promise<Response> {
     logsRows,
     dailyRows,
     upstreamRow,
-    modelRoutesRows,
     settingsRows,
   ] = await Promise.all([
     prisma.users.findMany(),
@@ -67,7 +66,6 @@ export async function handleDbExport(req: Request): Promise<Response> {
     prisma.request_logs.findMany({ orderBy: { ts: "desc" }, take: 10_000 }),
     prisma.daily_usage.findMany(),
     prisma.upstream_state.findUnique({ where: { id: 1 } }),
-    prisma.model_routes.findMany(),
     prisma.settings.findMany(),
   ]);
 
@@ -93,7 +91,6 @@ export async function handleDbExport(req: Request): Promise<Response> {
       request_logs:   serialize(logsRows),
       daily_usage:    serialize(dailyRows),
       upstream_state: upstreamRow ? serialize(upstreamRow) : null,
-      model_routes:   serialize(modelRoutesRows),
       settings:       serialize(settingsRows),
     },
   }, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -107,7 +104,7 @@ interface SyncPayload {
   tables?: string[]; // optional: subset tabel, default semua
 }
 
-const ALL_TABLES = ["users", "tokens", "request_logs", "daily_usage", "upstream_state", "model_routes", "settings"] as const;
+const ALL_TABLES = ["users", "tokens", "request_logs", "daily_usage", "upstream_state", "settings"] as const;
 type TableName = typeof ALL_TABLES[number];
 
 export async function handleDbSync(req: Request): Promise<Response> {
@@ -201,12 +198,6 @@ export async function handleDbSync(req: Request): Promise<Response> {
       } else {
         stats[tbl] = 0;
       }
-    }
-
-    else if (tbl === "model_routes") {
-      await prisma.model_routes.deleteMany({});
-      if (rows.length) await prisma.model_routes.createMany({ data: rows as any });
-      stats[tbl] = rows.length;
     }
 
     else if (tbl === "settings") {

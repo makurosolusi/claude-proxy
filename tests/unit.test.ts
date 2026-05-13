@@ -171,6 +171,7 @@ function makeToken(overrides: Partial<TokenEntry> = {}): TokenEntry {
     windowStart: Date.now() - 19_000_000,
     paused: false, dynamic: false, mode: "inherit",
     provider: "inherit", name: "test", user_id: "",
+    label: "", description: "", pinned_model: "",
     ...overrides,
   };
 }

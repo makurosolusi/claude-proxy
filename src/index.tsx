@@ -7,7 +7,7 @@ const APP_VERSION: string = JSON.parse(
 ).version;
 import { config }           from "./config";
 import { prisma }           from "./prisma";
-import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, dbSetUserStatus, dbSaveSetting, modelRoutes, settings, resolveTokenName } from "./state";
+import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, dbSetUserStatus, dbSaveSetting, settings, resolveTokenName } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
 import { handleApiStatus } from "./handlers/apiStatus";
@@ -26,7 +26,6 @@ import { handleDebugQuery } from "./handlers/apiDebug";
 import { handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure } from "./handlers/apiDebugExtra";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
-import { handleApiModelRoutes } from "./handlers/apiModelRoutes";
 import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, handleDbSync } from "./handlers/apiDbSync";
 import { handleProxy }     from "./handlers/proxy";
 import { auth } from "./auth";
@@ -292,7 +291,6 @@ function buildStatusPayload(isAdmin: boolean) {
       sevenDaySonnet: upstream.sevenDaySonnet,
       sevenDayOpus:   upstream.sevenDayOpus,
     },
-    modelRoutes:      Object.values(modelRoutes),
     userImages:       userImagesCache,
   };
 }
@@ -720,12 +718,6 @@ server = serve({
       return Response.json({ ok: true });
     },
 
-    // Model routing (admin only)
-    "/api/admin/model-routes": async req => {
-      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-      return handleApiModelRoutes(req, new URL(req.url));
-    },
-
     "/api/admin/broadcast/refresh": async req => {
       if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -753,6 +745,9 @@ server = serve({
     "/admin/token/rotate":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/rename":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/provider":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/meta":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/pin-model":    async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/pin-all":      async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/user/edit":          async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/user/set-email":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/users/purge-orphans": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },

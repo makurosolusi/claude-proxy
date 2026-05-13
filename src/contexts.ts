@@ -1,5 +1,4 @@
 import { createContext, useContext } from "react";
-import type { ModelRoute } from "./types";
 
 export interface TokenStatus {
   label: string; name: string; user_id: string;
@@ -15,6 +14,7 @@ export interface UpstreamData {
   pollAge: string | null; nextPoll: string | null;
   fiveHour: UpstreamPeriod | null; sevenDay: UpstreamPeriod | null;
   sevenDaySonnet: UpstreamPeriod | null;
+  sevenDayOpus:   UpstreamPeriod | null;
   fallbackProvider: string | null;
   activeProvider:   string | null;
   activeModel:      string | null;
@@ -63,7 +63,6 @@ export interface StatusResponse {
   contextAlerts:   ContextAlert[];
   thresholdAlerts: ThresholdAlert[];
   insights:        Record<string, UserInsight>;
-  modelRoutes:      ModelRoute[];
   userImages:       Record<string, string>;
 }
 export interface LogEntry {

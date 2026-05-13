@@ -1,10 +1,3 @@
-export interface ModelRoute {
-  model_id:    string;   // canonical Anthropic model ID: "claude-sonnet-4-6", "claude-opus-4-7", or "*" for 5h global
-  threshold:   number;   // 0–1 (0.90 = 90%)
-  action:      "redirect" | "block";
-  fallback_to: string | null;  // model_id tujuan redirect
-}
-
 export type UserRole   = "SUPER_ADMIN" | "ADMIN" | "USER";
 export type UserStatus = "pending" | "approved" | "blocked";
 
@@ -21,16 +14,19 @@ export interface UserEntry {
 export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter";
 
 export interface TokenEntry {
-  limit:       number;   // Infinity = unlimited
-  window:      number;   // ms
-  used:        number;
-  windowStart: number;   // epoch ms
-  paused:      boolean;
-  dynamic:     boolean;
-  mode:        "inherit" | "direct" | "cliproxy";
-  provider:    TokenProvider;
-  name:        string;   // display name, mirrors user.name for active tokens
-  user_id:     string;   // references users.id
+  limit:        number;   // Infinity = unlimited
+  window:       number;   // ms
+  used:         number;
+  windowStart:  number;   // epoch ms
+  paused:       boolean;
+  dynamic:      boolean;
+  mode:         "inherit" | "direct" | "cliproxy";
+  provider:     TokenProvider;
+  name:         string;   // display name, mirrors user.name for active tokens
+  user_id:      string;   // references users.id
+  label:        string;   // admin-set label (preferred over name when displaying)
+  description:  string;   // admin-set description
+  pinned_model: string;   // if non-empty, force this model for all requests on this token
 }
 
 

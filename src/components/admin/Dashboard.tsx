@@ -9,7 +9,7 @@ import {
   IconSitemap, IconExternalLink, IconSun, IconMoon,
   IconChevronsLeft, IconChevronsRight,
   IconPlugConnected, IconKey, IconLogout,
-  IconRoute, IconCloud, IconChartLine, IconDatabase,
+  IconCloud, IconChartLine, IconDatabase,
   IconAlertTriangle, IconHistory,
 } from "@tabler/icons-react";
 import { pctColor } from "../../utils";
@@ -21,12 +21,11 @@ import { AdminOverview } from "./Overview";
 import { AdminUsers } from "./Users";
 import { AdminTest } from "./Test";
 import { AdminAccounts } from "./Accounts";
-import { AdminModelRouting } from "./ModelRouting";
 import { AdminProviders } from "./Providers";
 import { AdminUserActivity } from "./UserActivity";
 import { AdminDatabase } from "./Database";
 
-type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "routing" | "providers" | "test" | "accounts" | "database";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "providers" | "test" | "accounts" | "database";
 
 interface NavGroup {
   label: string;
@@ -84,7 +83,6 @@ export function AdminDashboard() {
       label: "Manage",
       items: [
         { id: "users",     label: "Users",         icon: <IconUsers           size={SZ} />, desc: "Token & quota management"        },
-        { id: "routing",   label: "Routing",       icon: <IconRoute           size={SZ} />, desc: "Model fallback rules"            },
         { id: "providers", label: "Providers",     icon: <IconCloud           size={SZ} />, desc: "Claude Max, OpenRouter & DS"     },
         { id: "accounts",  label: "Credentials",   icon: <IconKey             size={SZ} />, desc: "API keys & OAuth accounts"       },
       ],
@@ -316,7 +314,6 @@ export function AdminDashboard() {
           {section === "logs"       && <RequestLog isAdmin={true} allowDestructive={true} />}
           {section === "stats"      && <AdminStats userImages={userImages} />}
           {section === "activity"   && <AdminUserActivity />}
-          {section === "routing"    && <AdminModelRouting />}
           {section === "providers"  && <AdminProviders />}
           {section === "test"       && <AdminTest />}
           {section === "accounts"   && <AdminAccounts />}

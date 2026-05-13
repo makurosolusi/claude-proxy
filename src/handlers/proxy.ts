@@ -1,5 +1,5 @@
 import { config }          from "../config";
-import { upstream, dbLogRequest, dailyUsage, modelRoutes, settings, tokens, resolveTokenName } from "../state";
+import { upstream, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName } from "../state";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
@@ -78,49 +78,6 @@ function extractSystem(body: any): string {
   if (typeof s === "string") return s.slice(0, 500);
   if (Array.isArray(s)) return s.filter((b: any) => b.type === "text").map((b: any) => b.text || "").join("\n").slice(0, 500);
   return "";
-}
-
-// ── Model routing ─────────────────────────────────────────────────────────────
-// Maps model_id to the upstream utilization metric used for threshold checks.
-function getModelUtil(modelId: string): number | null {
-  if (modelId === "*")                    return upstream.fiveHour?.utilization ?? null;
-  if (modelId === "claude-sonnet-4-6")    return upstream.sevenDaySonnet?.utilization ?? null;
-  if (modelId === "claude-opus-4-7")      return upstream.sevenDayOpus?.utilization ?? null;
-  if (modelId === "claude-haiku-4-5-20251001") return upstream.sevenDay?.utilization ?? null;
-  return upstream.sevenDay?.utilization ?? null;
-}
-
-// Traverse fallback chain. Returns the final model to use, or null if blocked.
-// max 5 hops, cycle detection via visited set.
-function resolveModelRoute(model: string): { rewritten: string | null; blocked: boolean; reason?: string } {
-  if (Object.keys(modelRoutes).length === 0) return { rewritten: null, blocked: false };
-
-  let current = model;
-  const visited = new Set<string>();
-  let hops = 0;
-
-  while (hops < 5) {
-    if (visited.has(current)) return { rewritten: null, blocked: true, reason: "Circular routing configuration detected." };
-    visited.add(current);
-    hops++;
-
-    const rule = modelRoutes[current];
-    if (!rule) return { rewritten: current !== model ? current : null, blocked: false };
-
-    const util = getModelUtil(current);
-    if (util === null) return { rewritten: current !== model ? current : null, blocked: false };
-
-    // util is 0–100 from upstream API; rule.threshold is 0–1 from UI (90% = 0.9)
-    if (util < rule.threshold * 100) return { rewritten: current !== model ? current : null, blocked: false };
-
-    if (rule.action === "block" || !rule.fallback_to) {
-      return { rewritten: null, blocked: true, reason: `Model ${current} at ${util.toFixed(0)}% (threshold ${(rule.threshold * 100).toFixed(0)}%).` };
-    }
-
-    current = rule.fallback_to;
-  }
-
-  return { rewritten: null, blocked: true, reason: "Too many routing hops (max 5)." };
 }
 
 // Detect if conversation history contains thinking blocks — used to catch orphaned
@@ -358,28 +315,15 @@ export async function handleProxy(
     bodyText = JSON.stringify(bodyJson);
   }
 
-  // Model routing — check thresholds and follow fallback chain
+  // Per-token pinned model — forces all requests on this token to a specific model
   let fallbackModel: string | null = null;
   const originalModel = model;
-  if (model && upstream.lastPollOk && Object.keys(modelRoutes).length > 0) {
-    const routing = resolveModelRoute(model);
-    if (routing.blocked) {
-      if (autoFallback && override !== "anthropic") {
-        provider = openrouter ? "openrouter" : "deepseek";
-        console.log(`[proxy] Model routing blocked → ${provider} fallback [${key.slice(-6)}]`);
-      } else {
-        return Response.json({
-          error: { type: "rate_limit_error", message: routing.reason || "All models at capacity." }
-        }, { status: 429, headers: { "retry-after": "60" } });
-      }
-    }
-    if (routing.rewritten) {
-      fallbackModel = routing.rewritten;
-      model = routing.rewritten;
-      bodyJson.model = routing.rewritten;
-      bodyText = JSON.stringify(bodyJson);
-      console.log(`[proxy] Model fallback: ${originalModel} → ${routing.rewritten} [${key.slice(-6)}]`);
-    }
+  if (t.pinned_model && t.pinned_model !== model && bodyJson) {
+    fallbackModel = t.pinned_model;
+    model = t.pinned_model;
+    bodyJson.model = t.pinned_model;
+    bodyText = JSON.stringify(bodyJson);
+    console.log(`[proxy] Token pinned: ${originalModel} → ${t.pinned_model} [${key.slice(-6)}]`);
   }
 
   // Strip model-specific incompatible params — must run AFTER routing rewrite

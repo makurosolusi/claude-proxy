@@ -34,7 +34,29 @@ Bandingkan `resets_at` dari upstream dengan threshold **> 30 menit**. Saat rotas
 **Stale display**: Jika `resets_at` sudah lewat tapi poll belum berhasil, tampilkan ring sebagai 0%/gray ("waiting for poll") bukan data stale.
 
 ## Soft Cap
-Kalau upstream 5-hour utilization ≥ `UPSTREAM_HARD_CAP_PCT`, semua request diblok dengan `429` + `retry-after`.
+Kalau upstream 5-hour utilization ≥ `UPSTREAM_HARD_CAP_PCT` dan **tidak ada provider fallback** (DeepSeek/OpenRouter belum configured), semua request diblok dengan `429` + `retry-after`. Kalau fallback ada → auto-route ke OpenRouter (priority) atau DeepSeek.
+
+## Provider Selection (priority order)
+
+Urutan penentuan provider untuk tiap request di `proxy.ts:222-264`:
+
+1. **Per-token override** (`tokens.provider !== "inherit"`) — paksa provider untuk token ini. Kalau provider belum configured (API key kosong) → 503.
+2. **Global override** (`settings.provider_override`) — set lewat Providers tab. Bisa `"anthropic"`, `"deepseek"`, `"openrouter"`, atau `""` (auto).
+3. **Auto-fallback** — kalau 5h util ≥ `UPSTREAM_HARD_CAP_PCT` AND fallback configured → switch ke OpenRouter atau DeepSeek.
+4. **Default** — Claude (anthropic).
+
+**429 retry chain**: Kalau Claude balas 429 saat forward, code retry sekali dengan fallback provider (`proxy.ts:413`). Tidak ada chain berlapis — satu fallback attempt saja.
+
+## Pinned Model per Token
+
+`tokens.pinned_model` (nullable) — kalau di-set, semua request untuk token ini di-rewrite ke model itu, **mengabaikan** model yang dikirim client.
+
+- **Berlaku saat** `provider = "inherit"` atau `"anthropic"` (Claude).
+- **Diabaikan saat** provider non-anthropic — DeepSeek/OpenRouter pakai model dari `settings.deepseek_model` / `openrouter_model`.
+- **Bulk action**: `POST /admin/token/pin-all` dengan `model` (kosong = clear) + optional `user_id` filter.
+- **Per-user reset**: tombol "Reset Pinned" di card tiap user — call `pin-all` dengan `model=""` + `user_id=u.id`.
+
+UI menampilkan **state agregat**: kalau semua token di-pin ke model sama → tombol itu yang aktif (✓). Kalau campur → "Mixed" indicator, tidak ada tombol aktif.
 
 ## Poll Backoff
 HTTP 429 dari usage endpoint → backoff minimum 5 menit. Saat 401 pada poll → auto-refresh OAuth token dan retry.

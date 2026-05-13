@@ -31,6 +31,8 @@ export async function handleApiUsers(
             paused: tk.paused, provider: tk.provider,
             dynamic: tk.dynamic,
             pct, today: todayV, alltime,
+            label: tk.label || "", description: tk.description || "",
+            pinned_model: tk.pinned_model || "",
           };
         });
       return { ...u, created_at: Number(u.created_at), status: u.status || "pending", tokens: userTokens };

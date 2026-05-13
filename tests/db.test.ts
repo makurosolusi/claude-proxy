@@ -33,6 +33,7 @@ function makeTokenEntry(overrides: Partial<TokenEntry> = {}): TokenEntry {
     limit: 50000, window: 18_000_000, used: 0,
     windowStart: Date.now(), paused: false, dynamic: true,
     mode: "inherit", provider: "inherit", name: "test-fixture", user_id: TEST_UID,
+    label: "", description: "", pinned_model: "",
     ...overrides,
   };
 }

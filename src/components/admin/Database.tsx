@@ -19,11 +19,11 @@ interface SyncTokenInfo { token: string; expires_at: string; }
 interface SyncStats {
   users?: number; tokens?: number; request_logs?: number;
   daily_usage?: number; upstream_state?: number;
-  model_routes?: number; settings?: number;
+  settings?: number;
 }
 interface DbStats { rows: number; size_bytes: string; rows_with_messages: number; }
 
-const ALL_TABLES = ["users", "tokens", "request_logs", "daily_usage", "upstream_state", "model_routes", "settings"] as const;
+const ALL_TABLES = ["users", "tokens", "request_logs", "daily_usage", "upstream_state", "settings"] as const;
 type TableName = typeof ALL_TABLES[number];
 
 const TABLE_LABELS: Record<TableName, { label: string; desc: string; risk: "low" | "med" | "high" }> = {
@@ -32,7 +32,6 @@ const TABLE_LABELS: Record<TableName, { label: string; desc: string; risk: "low"
   request_logs:   { label: "Request Logs",   desc: "Up to 10,000 recent requests",  risk: "low"  },
   daily_usage:    { label: "Daily Usage",    desc: "Per-token daily counters",       risk: "low"  },
   upstream_state: { label: "Upstream State", desc: "Claude quota snapshot",         risk: "low"  },
-  model_routes:   { label: "Model Routes",   desc: "Fallback routing rules",        risk: "low"  },
   settings:       { label: "Settings",       desc: "App settings",                  risk: "med"  },
 };
 

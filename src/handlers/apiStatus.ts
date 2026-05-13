@@ -1,4 +1,4 @@
-import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, modelRoutes, settings, resolveTokenName } from "../state";
+import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, settings, resolveTokenName } from "../state";
 import type { ContextAlert, ThresholdAlert, UserInsight, UserProfile } from "../contexts";
 import { todayKey } from "../tokens";
 
@@ -253,7 +253,6 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
         return null;
       })(),
     },
-    modelRoutes: Object.values(modelRoutes),
     userImages,
   }, { headers: { "Cache-Control": "no-store" } });
 }

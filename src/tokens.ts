@@ -10,16 +10,19 @@ export function initFromEnv() {
     if (!key) continue;
     if (tokens[key]) continue;
     const entry: TokenEntry = {
-      limit:       limit === "unlimited" ? Infinity : parseInt(limit),
-      window:      parseInt(win || String(config.windowMs)),
-      used:        0,
-      windowStart: now,
-      paused:      false,
-      dynamic:     false,
-      mode:        "inherit",
-      provider:    "inherit",
-      name:        deriveNameFromKey(key),
-      user_id:     "",
+      limit:        limit === "unlimited" ? Infinity : parseInt(limit),
+      window:       parseInt(win || String(config.windowMs)),
+      used:         0,
+      windowStart:  now,
+      paused:       false,
+      dynamic:      false,
+      mode:         "inherit",
+      provider:     "inherit",
+      name:         deriveNameFromKey(key),
+      user_id:      "",
+      label:        "",
+      description:  "",
+      pinned_model: "",
     };
     tokens[key] = entry;
     inserts.push(dbInsertEnvToken(key, entry));
