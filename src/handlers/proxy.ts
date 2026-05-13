@@ -110,10 +110,11 @@ function resolveModelRoute(model: string): { rewritten: string | null; blocked: 
     const util = getModelUtil(current);
     if (util === null) return { rewritten: current !== model ? current : null, blocked: false };
 
-    if (util < rule.threshold) return { rewritten: current !== model ? current : null, blocked: false };
+    // util is 0–100 from upstream API; rule.threshold is 0–1 from UI (90% = 0.9)
+    if (util < rule.threshold * 100) return { rewritten: current !== model ? current : null, blocked: false };
 
     if (rule.action === "block" || !rule.fallback_to) {
-      return { rewritten: null, blocked: true, reason: `Model ${current} at ${(util * 100).toFixed(0)}% (threshold ${(rule.threshold * 100).toFixed(0)}%).` };
+      return { rewritten: null, blocked: true, reason: `Model ${current} at ${util.toFixed(0)}% (threshold ${(rule.threshold * 100).toFixed(0)}%).` };
     }
 
     current = rule.fallback_to;
@@ -354,11 +355,6 @@ export async function handleProxy(
       delete bodyJson.thinking;
       console.log(`[proxy] Stripped orphaned thinking param (no thinking blocks in history) [${key.slice(-6)}]`);
     }
-    // Opus 4.7 deprecated `temperature` — upstream returns 400 if present
-    if (bodyJson.model === "claude-opus-4-7" && "temperature" in bodyJson) {
-      delete bodyJson.temperature;
-      console.log(`[proxy] Stripped deprecated temperature param for opus-4-7 [${key.slice(-6)}]`);
-    }
     bodyText = JSON.stringify(bodyJson);
   }
 
@@ -384,6 +380,14 @@ export async function handleProxy(
       bodyText = JSON.stringify(bodyJson);
       console.log(`[proxy] Model fallback: ${originalModel} → ${routing.rewritten} [${key.slice(-6)}]`);
     }
+  }
+
+  // Strip model-specific incompatible params — must run AFTER routing rewrite
+  // so the final model (post-redirect) is what's checked.
+  if (bodyJson && bodyJson.model === "claude-opus-4-7" && "temperature" in bodyJson) {
+    delete bodyJson.temperature;
+    bodyText = JSON.stringify(bodyJson);
+    console.log(`[proxy] Stripped deprecated temperature param for opus-4-7 [${key.slice(-6)}]`);
   }
 
   // Map model name for non-Anthropic providers
