@@ -21,11 +21,12 @@ import { handleApiAnalytics }    from "./handlers/apiAnalytics";
 import { handleApiUserActivity } from "./handlers/apiUserActivity";
 import { handleApiCompetition }  from "./handlers/apiCompetition";
 import { handleApiTest }   from "./handlers/apiTest";
-import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove } from "./handlers/apiAuth";
+import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove, handleAuthImport } from "./handlers/apiAuth";
 import { handleDebugQuery } from "./handlers/apiDebug";
 import { handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure } from "./handlers/apiDebugExtra";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
+import { handleApiModels } from "./handlers/apiModels";
 import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, handleDbSync } from "./handlers/apiDbSync";
 import { handleProxy }     from "./handlers/proxy";
 import { auth } from "./auth";
@@ -633,6 +634,18 @@ server = serve({
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return Response.json(settings);
     },
+    "/api/admin/models/anthropic":  async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiModels(req, new URL(req.url));
+    },
+    "/api/admin/models/deepseek":   async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiModels(req, new URL(req.url));
+    },
+    "/api/admin/models/openrouter": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiModels(req, new URL(req.url));
+    },
     "/api/admin/credentials": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthStatus();
@@ -648,6 +661,10 @@ server = serve({
     "/admin/auth/exchange": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthExchange(req);
+    },
+    "/admin/auth/import": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleAuthImport(req);
     },
     "/api/stats": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -756,6 +773,7 @@ server = serve({
     "/admin/user/set-status":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/demo":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/poll-interval": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/settings/provider-model": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
 
     // Proxy endpoints
     "/v1/models": async req => {

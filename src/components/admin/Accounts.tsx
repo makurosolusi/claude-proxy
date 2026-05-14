@@ -2,268 +2,19 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Stack, Text, Paper, Group, Button, TextInput, Badge,
   ActionIcon, Tooltip, Center, Loader, Code, ThemeIcon,
-  PasswordInput, SimpleGrid, Divider,
+  Divider, Modal, Textarea, Alert,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   IconExternalLink, IconCircleCheck, IconKey, IconPlayerStop,
   IconUserCircle, IconPlugConnected, IconAlertTriangle,
-  IconRobot, IconCloud, IconWifi, IconAi,
+  IconAi, IconFileImport,
 } from "@tabler/icons-react";
+import { ApiKeyProvider } from "./ApiKeyProvider";
 
 interface CredentialInfo { file: string; email: string; disabled: boolean; active: boolean; }
 type ConnectStep = "idle" | "authorizing" | "done";
 
-interface SettingsData {
-  deepseek_api_key?: string;
-  deepseek_base_url?: string;
-  deepseek_model?: string;
-  openrouter_api_key?: string;
-  openrouter_base_url?: string;
-  openrouter_model?: string;
-}
-
-function DeepSeekCredentials() {
-  const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; latency: number; detail?: string; error?: string } | null>(null);
-
-  useEffect(() => {
-    fetch("/api/admin/settings")
-      .then(r => r.json())
-      .then((d: SettingsData) => {
-        if (d.deepseek_api_key) setApiKey(d.deepseek_api_key);
-        if (d.deepseek_base_url) setBaseUrl(d.deepseek_base_url);
-        if (d.deepseek_model) setModel(d.deepseek_model);
-      })
-      .catch(() => {});
-  }, []);
-
-  const save = async () => {
-    setSaving(true);
-    const form = new URLSearchParams();
-    if (apiKey) form.set("api_key", apiKey);
-    if (baseUrl) form.set("base_url", baseUrl);
-    if (model) form.set("model", model);
-    try {
-      const r = await fetch("/admin/settings/deepseek", { method: "POST", body: form });
-      const d = await r.json() as any;
-      if (d.ok) { notifications.show({ color: "teal", message: "DeepSeek credentials saved", autoClose: 2000 }); }
-    } finally { setSaving(false); }
-  };
-
-  const test = async () => {
-    setTesting(true); setTestResult(null);
-    try {
-      const r = await fetch("/api/admin/test/deepseek");
-      setTestResult(await r.json());
-    } catch (e: any) {
-      setTestResult({ ok: false, latency: 0, error: e.message });
-    } finally { setTesting(false); }
-  };
-
-  const configured = !!apiKey;
-
-  return (
-    <Paper withBorder p="lg" radius="md">
-      <Group gap="sm" mb="lg">
-        <ThemeIcon variant="light" color="violet" size="lg" radius="md">
-          <IconRobot size={18} />
-        </ThemeIcon>
-        <div style={{ flex: 1 }}>
-          <Text size="sm" fw={700}>DeepSeek</Text>
-          <Text size="xs" c="dimmed">Anthropic-compatible API — fallback provider</Text>
-        </div>
-        {configured && <Badge color="violet" variant="light" size="sm">configured</Badge>}
-      </Group>
-      <Stack gap="sm">
-        <PasswordInput
-          label="API Key"
-          description="DeepSeek API token — stored encrypted in local database"
-          placeholder="sk-..."
-          value={apiKey}
-          onChange={e => setApiKey(e.currentTarget.value)}
-          size="sm"
-        />
-        <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-          <TextInput
-            label="Base URL"
-            description="Anthropic-compatible endpoint"
-            placeholder="https://api.deepseek.com/anthropic"
-            value={baseUrl}
-            onChange={e => setBaseUrl(e.currentTarget.value)}
-            size="sm"
-          />
-          <TextInput
-            label="Model ID"
-            description="DeepSeek model name"
-            placeholder="deepseek-v4-pro[1m]"
-            value={model}
-            onChange={e => setModel(e.currentTarget.value)}
-            size="sm"
-          />
-        </SimpleGrid>
-        <Group justify="space-between" align="center" mt={4}>
-          <Text size="xs" c={configured ? "teal" : "red"}>
-            {configured ? `Key: ...${apiKey.slice(-8)}` : "API key required to enable fallback"}
-          </Text>
-          <Group gap="xs">
-            <Button
-              size="xs" variant="light" color="gray" radius="md"
-              onClick={test} loading={testing} disabled={!configured}
-              leftSection={testing ? undefined : <IconWifi size={13} />}
-            >
-              Test
-            </Button>
-            <Button size="xs" onClick={save} loading={saving} radius="md">Save</Button>
-          </Group>
-        </Group>
-        {testResult && (
-          <Paper withBorder p="sm" radius="md" style={{
-            borderColor: `var(--mantine-color-${testResult.ok ? "teal" : "red"}-4)`,
-            background: `var(--mantine-color-${testResult.ok ? "teal" : "red"}-light)`,
-          }}>
-            <Group gap="sm" wrap="nowrap">
-              <ThemeIcon variant="light" color={testResult.ok ? "teal" : "red"} size="sm" radius="sm">
-                {testResult.ok ? <IconCircleCheck size={14} /> : <IconAlertTriangle size={14} />}
-              </ThemeIcon>
-              <Text size="xs" ff="monospace" c={testResult.ok ? "teal" : "red"} style={{ flex: 1 }}>
-                {testResult.ok ? testResult.detail : (testResult.error || "Connection failed")}
-              </Text>
-              {testResult.latency > 0 && (
-                <Badge size="xs" variant="outline" color="gray">{testResult.latency}ms</Badge>
-              )}
-            </Group>
-          </Paper>
-        )}
-      </Stack>
-    </Paper>
-  );
-}
-
-function OpenRouterCredentials() {
-  const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; latency: number; detail?: string; error?: string } | null>(null);
-
-  useEffect(() => {
-    fetch("/api/admin/settings")
-      .then(r => r.json())
-      .then((d: SettingsData) => {
-        if (d.openrouter_api_key) setApiKey(d.openrouter_api_key);
-        if (d.openrouter_base_url) setBaseUrl(d.openrouter_base_url);
-        if (d.openrouter_model) setModel(d.openrouter_model);
-      })
-      .catch(() => {});
-  }, []);
-
-  const save = async () => {
-    setSaving(true);
-    const form = new URLSearchParams();
-    if (apiKey) form.set("api_key", apiKey);
-    if (baseUrl) form.set("base_url", baseUrl);
-    if (model) form.set("model", model);
-    try {
-      const r = await fetch("/admin/settings/openrouter", { method: "POST", body: form });
-      const d = await r.json() as any;
-      if (d.ok) { notifications.show({ color: "teal", message: "OpenRouter credentials saved", autoClose: 2000 }); }
-    } finally { setSaving(false); }
-  };
-
-  const test = async () => {
-    setTesting(true); setTestResult(null);
-    try {
-      const r = await fetch("/api/admin/test/openrouter");
-      setTestResult(await r.json());
-    } catch (e: any) {
-      setTestResult({ ok: false, latency: 0, error: e.message });
-    } finally { setTesting(false); }
-  };
-
-  const configured = !!apiKey;
-
-  return (
-    <Paper withBorder p="lg" radius="md">
-      <Group gap="sm" mb="lg">
-        <ThemeIcon variant="light" color="orange" size="lg" radius="md">
-          <IconCloud size={18} />
-        </ThemeIcon>
-        <div style={{ flex: 1 }}>
-          <Text size="sm" fw={700}>OpenRouter</Text>
-          <Text size="xs" c="dimmed">Gateway — 200+ models via Anthropic-compatible API</Text>
-        </div>
-        {configured && <Badge color="orange" variant="light" size="sm">configured</Badge>}
-      </Group>
-      <Stack gap="sm">
-        <PasswordInput
-          label="API Key"
-          description="OpenRouter API token"
-          placeholder="sk-or-v1-..."
-          value={apiKey}
-          onChange={e => setApiKey(e.currentTarget.value)}
-          size="sm"
-        />
-        <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-          <TextInput
-            label="Base URL"
-            description="OpenRouter endpoint"
-            placeholder="https://openrouter.ai/api"
-            value={baseUrl}
-            onChange={e => setBaseUrl(e.currentTarget.value)}
-            size="sm"
-          />
-          <TextInput
-            label="Model ID"
-            description="Default model for requests"
-            placeholder="anthropic/claude-sonnet-4"
-            value={model}
-            onChange={e => setModel(e.currentTarget.value)}
-            size="sm"
-          />
-        </SimpleGrid>
-        <Group justify="space-between" align="center" mt={4}>
-          <Text size="xs" c={configured ? "teal" : "red"}>
-            {configured ? `Key: ...${apiKey.slice(-8)}` : "API key required to enable OpenRouter"}
-          </Text>
-          <Group gap="xs">
-            <Button
-              size="xs" variant="light" color="gray" radius="md"
-              onClick={test} loading={testing} disabled={!configured}
-              leftSection={testing ? undefined : <IconWifi size={13} />}
-            >
-              Test
-            </Button>
-            <Button size="xs" onClick={save} loading={saving} radius="md">Save</Button>
-          </Group>
-        </Group>
-        {testResult && (
-          <Paper withBorder p="sm" radius="md" style={{
-            borderColor: `var(--mantine-color-${testResult.ok ? "teal" : "red"}-4)`,
-            background: `var(--mantine-color-${testResult.ok ? "teal" : "red"}-light)`,
-          }}>
-            <Group gap="sm" wrap="nowrap">
-              <ThemeIcon variant="light" color={testResult.ok ? "teal" : "red"} size="sm" radius="sm">
-                {testResult.ok ? <IconCircleCheck size={14} /> : <IconAlertTriangle size={14} />}
-              </ThemeIcon>
-              <Text size="xs" ff="monospace" c={testResult.ok ? "teal" : "red"} style={{ flex: 1 }}>
-                {testResult.ok ? testResult.detail : (testResult.error || "Connection failed")}
-              </Text>
-              {testResult.latency > 0 && (
-                <Badge size="xs" variant="outline" color="gray">{testResult.latency}ms</Badge>
-              )}
-            </Group>
-          </Paper>
-        )}
-      </Stack>
-    </Paper>
-  );
-}
 
 export function AdminAccounts() {
   const [creds, setCreds]       = useState<CredentialInfo[] | null>(null);
@@ -276,6 +27,11 @@ export function AdminAccounts() {
   const [callbackUrl, setCallbackUrl] = useState("");
   const [exchanging, setExchanging]   = useState(false);
   const [connectErr, setConnectErr]   = useState<string | null>(null);
+
+  const [importOpen, setImportOpen]       = useState(false);
+  const [importContent, setImportContent] = useState("");
+  const [importing, setImporting]         = useState(false);
+  const [importErr, setImportErr]         = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -336,6 +92,26 @@ export function AdminAccounts() {
     setStep("idle"); setAuthUrl(""); setCallbackUrl(""); setConnectErr(null);
   };
 
+  const doImport = async () => {
+    setImporting(true); setImportErr(null);
+    try {
+      const r = await fetch("/admin/auth/import", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: importContent.trim() }),
+      });
+      const d = await r.json() as any;
+      if (!d.ok) {
+        setImportErr(d.error || "Import failed");
+        return;
+      }
+      notifications.show({ color: "teal", message: `Credential imported: ${d.email}`, autoClose: 2500 });
+      setImportOpen(false);
+      setImportContent("");
+      load();
+    } catch (e: any) { setImportErr(e.message); }
+    finally { setImporting(false); }
+  };
+
   const activeCount = creds?.filter(c => c.active).length ?? 0;
 
   return (
@@ -370,9 +146,14 @@ export function AdminAccounts() {
             </div>
           </Group>
           {step === "idle" && (
-            <Button leftSection={<IconPlugConnected size={16} />} onClick={startConnect} size="sm" radius="md">
-              Connect Account
-            </Button>
+            <Group gap="xs">
+              <Button variant="default" leftSection={<IconFileImport size={16} />} onClick={() => setImportOpen(true)} size="sm" radius="md">
+                Import JSON
+              </Button>
+              <Button leftSection={<IconPlugConnected size={16} />} onClick={startConnect} size="sm" radius="md">
+                Connect Account
+              </Button>
+            </Group>
           )}
         </Group>
 
@@ -523,9 +304,45 @@ export function AdminAccounts() {
       {/* ── API Key Providers ─────────────────────────────── */}
       <Divider label="API Key Providers" labelPosition="left" />
 
-      <DeepSeekCredentials />
+      <ApiKeyProvider provider="deepseek" />
 
-      <OpenRouterCredentials />
+      <ApiKeyProvider provider="openrouter" />
+
+      {/* Import Credential Modal */}
+      <Modal opened={importOpen} onClose={() => { setImportOpen(false); setImportContent(""); setImportErr(null); }}
+        title="Import Claude Credential" size="lg">
+        <Stack gap="md">
+          <Text size="xs" c="dimmed" style={{ lineHeight: 1.55 }}>
+            Paste the full content of a <Code>claude-*.json</Code> file (or the credential JSON from Claude Code CLI / another machine).
+            The file will be saved to <Code>{"CLIPROXY_AUTH_DIR"}</Code> and immediately used by the proxy.
+          </Text>
+          <Textarea
+            label="JSON content"
+            description="Required fields: access_token, refresh_token. Email is auto-resolved if missing."
+            placeholder={'{\n  "access_token": "sk-ant-oat01-…",\n  "refresh_token": "sk-ant-ort01-…",\n  "email": "user@example.com"\n}'}
+            value={importContent}
+            onChange={e => setImportContent(e.currentTarget.value)}
+            minRows={8} maxRows={16} autosize
+            styles={{ input: { fontFamily: "monospace", fontSize: 12 } }}
+          />
+          {importErr && (
+            <Alert color="red" variant="light" icon={<IconAlertTriangle size={14} />} p="sm">
+              <Text size="xs">{importErr}</Text>
+            </Alert>
+          )}
+          <Group justify="flex-end" gap="xs">
+            <Button variant="subtle" color="gray" onClick={() => { setImportOpen(false); setImportContent(""); setImportErr(null); }}>
+              Cancel
+            </Button>
+            <Button color="blue" loading={importing}
+              disabled={!importContent.trim()}
+              onClick={doImport}
+              leftSection={<IconFileImport size={14} />}>
+              Import
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

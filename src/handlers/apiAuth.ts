@@ -199,6 +199,64 @@ export function handleAuthStatus(): Response {
   }
 }
 
+// Import an existing claude-*.json credential by pasting its JSON content directly.
+// Useful for migrating credentials from another machine without redoing OAuth.
+export async function handleAuthImport(req: Request): Promise<Response> {
+  let body: any;
+  try { body = await req.json(); }
+  catch { return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 }); }
+
+  // Accept either the credential object directly, or wrapped as { content: "<json string>" }
+  let cred = body;
+  if (typeof body?.content === "string") {
+    try { cred = JSON.parse(body.content); }
+    catch { return Response.json({ ok: false, error: "content field is not valid JSON" }, { status: 400 }); }
+  }
+
+  const accessToken  = String(cred?.access_token  || "").trim();
+  const refreshToken = String(cred?.refresh_token || "").trim();
+  let   email        = String(cred?.email         || "").trim();
+
+  if (!accessToken || !refreshToken) {
+    return Response.json({ ok: false, error: "access_token and refresh_token are required" }, { status: 400 });
+  }
+
+  // Resolve email from JWT or profile endpoint if missing/invalid
+  if (!email || !email.includes("@")) {
+    email = await resolveEmail(accessToken);
+  }
+
+  const safeFile = `claude-${email.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`;
+  const filePath = path.join(config.authDir, safeFile);
+
+  try {
+    fs.mkdirSync(config.authDir, { recursive: true });
+    const exists = fs.existsSync(filePath);
+    const now = new Date().toISOString();
+    let existing: any = {};
+    if (exists) {
+      try { existing = JSON.parse(fs.readFileSync(filePath, "utf-8")); } catch {}
+    }
+    fs.writeFileSync(filePath, JSON.stringify({
+      ...existing,
+      access_token:  accessToken,
+      refresh_token: refreshToken,
+      email,
+      expires_in:    cred.expires_in || existing.expires_in || null,
+      created_at:    existing.created_at || cred.created_at || now,
+      updated_at:    now,
+      imported_at:   now,
+      disabled:      false,
+    }, null, 2), "utf-8");
+  } catch (e: any) {
+    return Response.json({ ok: false, error: "Save failed: " + e.message }, { status: 500 });
+  }
+
+  upstream.tokenCache = { value: null, readAt: 0, email: null };
+  console.log(`[auth] Credential imported → ${safeFile}`);
+  return Response.json({ ok: true, email, file: safeFile });
+}
+
 export async function handleAuthRemove(req: Request): Promise<Response> {
   const body = await req.json() as any;
   const file = body?.file as string | undefined;

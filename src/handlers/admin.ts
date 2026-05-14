@@ -182,10 +182,22 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   }
 
   if (pathname === "/admin/token/pin-all" && req.method === "POST") {
-    const model  = String(form?.get("model")   || "").trim();
-    const userId = String(form?.get("user_id") || "").trim();
+    const model         = String(form?.get("model")          || "").trim();
+    const userId        = String(form?.get("user_id")        || "").trim();
+    const providerScope = String(form?.get("provider_scope") || "").trim();
+    // providerScope semantics:
+    //  - ""           = all tokens (legacy behavior)
+    //  - "anthropic"  = tokens with provider in ["inherit", "anthropic"]
+    //  - "deepseek"   = tokens with provider = "deepseek"
+    //  - "openrouter" = tokens with provider = "openrouter"
+    const inScope = (p: string) => {
+      if (!providerScope) return true;
+      if (providerScope === "anthropic") return p === "inherit" || p === "anthropic" || !p;
+      return p === providerScope;
+    };
     for (const [k, tk] of Object.entries(tokens)) {
       if (userId && tk.user_id !== userId) continue;
+      if (!inScope(tk.provider || "inherit")) continue;
       tk.pinned_model = model;
       await dbUpdatePinnedModel(k, model);
     }
@@ -290,6 +302,16 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   if (pathname === "/admin/settings/demo" && req.method === "POST") {
     const demo = String(form?.get("demo") || "false").trim();
     await dbSaveSetting("demo_mode", demo === "true" ? "true" : "false");
+    return redirect();
+  }
+
+  if (pathname === "/admin/settings/provider-model" && req.method === "POST") {
+    const provider = String(form?.get("provider") || "").trim();
+    const model    = String(form?.get("model")    || "").trim();
+    if (provider !== "deepseek" && provider !== "openrouter") {
+      return Response.json({ ok: false, error: "Provider must be 'deepseek' or 'openrouter'" }, { status: 400 });
+    }
+    await dbSaveSetting(`${provider}_model`, model);
     return redirect();
   }
 

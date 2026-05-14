@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Stack, Text, Group, Paper, TextInput, Textarea, Box, Badge, Button,
-  Modal, Switch, Select, SegmentedControl, Divider, Loader, Progress, Alert,
+  Modal, Switch, Select, SegmentedControl, Divider, Loader, Progress,
+  ActionIcon, Tooltip,
 } from "@mantine/core";
 import {
-  IconKey, IconRotate, IconTrash, IconPlayerPause, IconPlayerPlay, IconAlertTriangle,
+  IconKey, IconRotate, IconTrash, IconPlayerPause, IconPlayerPlay, IconRefresh,
 } from "@tabler/icons-react";
 import { adminPost } from "../../utils";
 import { notifications } from "@mantine/notifications";
@@ -14,12 +15,9 @@ import type { ApiToken } from "./UserModals";
 
 function nf(n: number) { return n.toLocaleString(); }
 
-const PIN_MODEL_OPTIONS = [
-  { label: "Auto",   value: "" },
-  { label: "Haiku",  value: "claude-haiku-4-5-20251001" },
-  { label: "Sonnet", value: "claude-sonnet-4-6" },
-  { label: "Opus",   value: "claude-opus-4-7" },
-];
+type EffectiveProvider = "anthropic" | "deepseek" | "openrouter";
+
+interface ModelEntry { id: string; display_name: string; }
 
 interface Props {
   token:         ApiToken;
@@ -44,6 +42,31 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
   const [savingProvider, setSavingProvider] = useState(false);
   const [savingPinModel, setSavingPinModel] = useState(false);
   const [busyAction, setBusyAction]     = useState<"pause" | "delete" | null>(null);
+
+  // Provider-aware model list
+  const effectiveProvider: EffectiveProvider =
+    providerValue === "deepseek" ? "deepseek"
+    : providerValue === "openrouter" ? "openrouter"
+    : "anthropic"; // inherit + anthropic both → anthropic
+
+  const [modelList, setModelList]     = useState<ModelEntry[]>([]);
+  const [loadingModels, setLoading]   = useState(false);
+  const [modelFilter, setModelFilter] = useState("");
+
+  const fetchModels = useCallback(async (p: EffectiveProvider, force = false) => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/admin/models/${p}${force ? "?refresh=1" : ""}`, { credentials: "include" });
+      const d = await r.json() as any;
+      setModelList(Array.isArray(d?.models) ? d.models : []);
+    } catch { setModelList([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    setModelFilter("");
+    fetchModels(effectiveProvider);
+  }, [effectiveProvider, fetchModels]);
 
   const metaDirty  = label !== (tk.label || "") || description !== (tk.description || "");
   const limitDirty = unlimited !== (tk.limit === null) ||
@@ -210,22 +233,42 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
               />
             </Box>
             <Box>
-              <Group gap="xs" mb={4}>
-                <Text size="xs" c="dimmed">Pinned Model</Text>
-                {savingPinModel && <Loader size={10} />}
+              <Group gap="xs" mb={4} justify="space-between">
+                <Group gap="xs">
+                  <Text size="xs" c="dimmed">Pinned Model</Text>
+                  {savingPinModel && <Loader size={10} />}
+                </Group>
+                <Tooltip label="Refresh model list from provider" withArrow>
+                  <ActionIcon size="xs" variant="subtle" color="gray"
+                    loading={loadingModels}
+                    onClick={() => fetchModels(effectiveProvider, true)}>
+                    <IconRefresh size={11} />
+                  </ActionIcon>
+                </Tooltip>
               </Group>
-              <SegmentedControl size="xs" fullWidth value={pinValue} disabled={savingPinModel || providerValue !== "inherit" && providerValue !== "anthropic"}
-                onChange={changePinModel}
-                data={PIN_MODEL_OPTIONS}
-              />
-              {providerValue !== "inherit" && providerValue !== "anthropic" && (
-                <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={14} />} mt={6} p="xs">
-                  <Text size="xs">
-                    Pinned Model only applies when Provider = <b>Auto</b> or <b>Claude</b>.
-                    With <b>{providerValue}</b>, model is forced to the provider's configured model.
-                  </Text>
-                </Alert>
-              )}
+              <Group gap={6} wrap="nowrap">
+                <Select
+                  size="xs"
+                  placeholder={loadingModels ? "Loading…" : `Pick a ${effectiveProvider} model`}
+                  searchable
+                  clearable
+                  data={[
+                    { value: "", label: "Auto (no pin)" },
+                    ...modelList.map(m => ({ value: m.id, label: m.display_name })),
+                  ]}
+                  value={pinValue}
+                  disabled={savingPinModel || loadingModels}
+                  onChange={v => changePinModel(v || "")}
+                  searchValue={modelFilter}
+                  onSearchChange={setModelFilter}
+                  nothingFoundMessage={loadingModels ? "Loading…" : "No models match"}
+                  comboboxProps={{ withinPortal: true }}
+                  style={{ flex: 1 }}
+                />
+              </Group>
+              <Text size="xs" c="dimmed" mt={6}>
+                Pin will override whichever model the client requests. {modelList.length} {effectiveProvider} model{modelList.length !== 1 ? "s" : ""} available.
+              </Text>
             </Box>
           </Stack>
         </Paper>

@@ -5,7 +5,7 @@ import {
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
-  IconPlus, IconSearch, IconArrowsSort, IconLayoutGrid, IconList, IconPin, IconCheck,
+  IconPlus, IconSearch, IconArrowsSort, IconLayoutGrid, IconList,
 } from "@tabler/icons-react";
 import { adminPost } from "../../utils";
 import { useStatus } from "../../contexts";
@@ -27,7 +27,6 @@ type SortKey = "name" | "usage" | "tokens" | "newest";
 export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, TokenStatus> }) {
   const status = useStatus();
   const userImages = status?.userImages ?? {};
-  const upstreamData = status?.upstream;
   const [apiUsers, setApiUsers]       = useState<ApiUser[] | null>(null);
   const [editUser, setEditUser]           = useState<ApiUser | null>(null);
   const [deleteUser, setDeleteUser]       = useState<ApiUser | null>(null);
@@ -44,7 +43,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   });
   const [rowAction, setRowAction]           = useState<{ key: string; act: string } | null>(null);
   const [bulkAction, setBulkAction]         = useState<"reset" | "pause" | "purge" | null>(null);
-  const [bulkPinModel, setBulkPinModel]     = useState(false);
   const [statusBusy, setStatusBusy]         = useState<string | null>(null);
   const [demoMode, setDemoMode]             = useState(false);
   const [demoSaving, setDemoSaving]         = useState(false);
@@ -103,17 +101,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     } catch (e: any) {
       notifications.show({ color: "red", title: "Error", message: e.message || "Action failed", autoClose: 4000 });
     } finally { setBulkAction(null); }
-  };
-
-  const bulkPinAll = async (model: string) => {
-    setBulkPinModel(true);
-    try {
-      await adminPost("/admin/token/pin-all", { model });
-      await reload();
-      notifications.show({ color: "teal", message: model ? `All tokens pinned to ${model.split("-")[1] || model}` : "All pins cleared", autoClose: 2000 });
-    } catch (e: any) {
-      notifications.show({ color: "red", title: "Error", message: e.message || "Failed bulk pin", autoClose: 4000 });
-    } finally { setBulkPinModel(false); }
   };
 
   const resetUserPins = (u: ApiUser) => {
@@ -186,16 +173,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const total      = entries.length;
   const paused     = entries.filter(([, t]) => t.paused).length;
   const overLimit  = entries.filter(([, t]) => t.pct > 100).length;
-
-  // Aggregate pinned_model across all tokens — null if mixed, "" if all Auto, else the unanimous model
-  const pinnedSummary = useMemo(() => {
-    if (!apiUsers) return { active: null as string | null, mixed: false };
-    const allPins = apiUsers.flatMap(u => u.tokens.map(t => t.pinned_model || ""));
-    if (allPins.length === 0) return { active: "", mixed: false };
-    const unique = new Set(allPins);
-    if (unique.size === 1) return { active: allPins[0]!, mixed: false };
-    return { active: null, mixed: true };
-  }, [apiUsers]);
 
   const cardActions: UserCardActions = {
     rowAction, statusBusy,
@@ -270,66 +247,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
         </Group>
       </Paper>
 
-      {/* Pin All Tokens — full-width, model-routing action */}
-      <Paper withBorder p="md" radius="md">
-        <Group gap="sm" wrap="nowrap" align="center" mb="sm">
-          <ThemeIcon variant="light" color="violet" size="lg" radius="md"><IconPin size={18} /></ThemeIcon>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Text size="sm" fw={600}>Pin All Tokens</Text>
-            <Text size="xs" c="dimmed">
-              {pinnedSummary.mixed
-                ? <>Tokens have <b>mixed</b> pin settings — click any below to unify</>
-                : pinnedSummary.active === ""
-                  ? <>All tokens currently on <b>Auto</b> (no pin)</>
-                  : <>All tokens currently pinned to <b>{pinnedSummary.active?.split("-")[1] || pinnedSummary.active}</b></>
-              }
-            </Text>
-          </div>
-          {bulkPinModel && <Loader size={16} />}
-        </Group>
-        <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
-          {[
-            { value: "",                            label: "Auto",   util: null as number | null },
-            { value: "claude-haiku-4-5-20251001",   label: "Haiku",  util: upstreamData?.sevenDay?.utilization ?? null },
-            { value: "claude-sonnet-4-6",           label: "Sonnet", util: upstreamData?.sevenDaySonnet?.utilization ?? null },
-            { value: "claude-opus-4-7",             label: "Opus",   util: upstreamData?.sevenDayOpus?.utilization ?? null },
-          ].map(({ value, label, util }) => {
-            const isActive = !pinnedSummary.mixed && pinnedSummary.active === value;
-            const hot = util !== null && util >= 90;
-            const warm = util !== null && util >= 70 && util < 90;
-            const subText = util !== null
-              ? `${util.toFixed(0)}% used`
-              : value === ""
-                ? "no pin"
-                : "—";
-            return (
-              <Button key={value} size="sm"
-                variant={isActive ? "filled" : "default"}
-                color={isActive ? "violet" : undefined}
-                disabled={bulkPinModel}
-                leftSection={isActive ? <IconCheck size={14} /> : null}
-                onClick={() => modals.openConfirmModal({
-                  title: "Pin All Tokens",
-                  children: <Text size="sm">Apply <b>{label}</b> as pinned model for <b>every token</b>? This overrides per-token settings.</Text>,
-                  labels: { confirm: value ? `Pin to ${label}` : "Clear all pins", cancel: "Cancel" },
-                  confirmProps: { color: "violet" },
-                  onConfirm: () => bulkPinAll(value),
-                })}>
-                <Stack gap={0} align="center">
-                  <Group gap={4} wrap="nowrap" align="center">
-                    <Text size="sm" fw={600}>{label}</Text>
-                    {hot  && <Box w={6} h={6} style={{ borderRadius: "50%", background: "var(--mantine-color-red-5)" }} />}
-                    {warm && <Box w={6} h={6} style={{ borderRadius: "50%", background: "var(--mantine-color-orange-5)" }} />}
-                  </Group>
-                  <Text size="xs"
-                    c={isActive ? undefined : hot ? "red" : warm ? "orange" : "dimmed"}
-                    opacity={isActive ? 0.85 : 1}>{subText}</Text>
-                </Stack>
-              </Button>
-            );
-          })}
-        </SimpleGrid>
-      </Paper>
 
       {/* Token lifecycle actions — 2x2 grid */}
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">

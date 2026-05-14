@@ -315,7 +315,8 @@ export async function handleProxy(
     bodyText = JSON.stringify(bodyJson);
   }
 
-  // Per-token pinned model — forces all requests on this token to a specific model
+  // Per-token pinned model — forces all requests on this token to a specific model.
+  // Now provider-agnostic: works for Claude, DeepSeek, and OpenRouter.
   let fallbackModel: string | null = null;
   const originalModel = model;
   if (t.pinned_model && t.pinned_model !== model && bodyJson) {
@@ -326,7 +327,7 @@ export async function handleProxy(
     console.log(`[proxy] Token pinned: ${originalModel} → ${t.pinned_model} [${key.slice(-6)}]`);
   }
 
-  // Strip model-specific incompatible params — must run AFTER routing rewrite
+  // Strip model-specific incompatible params — must run AFTER pinned model rewrite
   // so the final model (post-redirect) is what's checked.
   if (bodyJson && bodyJson.model === "claude-opus-4-7" && "temperature" in bodyJson) {
     delete bodyJson.temperature;
@@ -334,9 +335,10 @@ export async function handleProxy(
     console.log(`[proxy] Stripped deprecated temperature param for opus-4-7 [${key.slice(-6)}]`);
   }
 
-  // Map model name for non-Anthropic providers
+  // For non-Anthropic providers: if no pinned_model, fall back to provider's configured default.
+  // If pinned_model is set, use it as-is (provider-native model ID expected).
   if (provider !== "anthropic") {
-    const pm = toProviderModel(model, provider);
+    const pm = t.pinned_model || toProviderModel(model, provider);
     if (bodyJson) {
       bodyJson.model = pm;
       bodyText = JSON.stringify(bodyJson);
