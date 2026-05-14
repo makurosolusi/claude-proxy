@@ -5,6 +5,7 @@ export interface TokenStatus {
   used: number; limit: number | null;
   remaining: number | null; pct: number; paused: boolean; today: number; alltime: number;
   provider:       string;
+  pinned_model:   string;
   activeProvider: string;
   activeModel:    string | null;
 }
@@ -77,7 +78,11 @@ export interface LogEntry {
 export interface ProfileToken {
   key: string; name: string; used: number; limit: number | null;
   remaining: number | null; pct: number; paused: boolean;
-  provider: string; today: number; alltime: number;
+  provider:           string;
+  effective_provider: string;   // resolved routing (provider/inherit + global override)
+  pinned_model:       string;   // model forced for this token (if any)
+  today:   number;
+  alltime: number;
 }
 
 export interface ProfileResponse {
@@ -89,6 +94,7 @@ export interface ProfileResponse {
   role?:     "SUPER_ADMIN" | "ADMIN" | "USER";
   status?:   "pending" | "approved" | "blocked";
   tokens?:   Record<string, ProfileToken>;
+  custom_providers?: { id: string; name: string; color: string; type: "anthropic" | "openai" }[];
 }
 export interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
 export interface ChatCtxType { messages: ChatMsg[]; send: (nick: string, text: string) => void; }

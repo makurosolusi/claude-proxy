@@ -27,6 +27,7 @@ import { handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure 
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModels } from "./handlers/apiModels";
+import { handleApiCustomProviders } from "./handlers/apiCustomProviders";
 import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, handleDbSync } from "./handlers/apiDbSync";
 import { handleProxy }     from "./handlers/proxy";
 import { auth } from "./auth";
@@ -60,6 +61,89 @@ async function handleDeepSeekTest(): Promise<Response> {
       const text = d?.content?.[0]?.text ?? "";
       const toks = (d?.usage?.input_tokens ?? 0) + (d?.usage?.output_tokens ?? 0);
       return Response.json({ ok: true, latency: lat, detail: `"${text.slice(0, 40)}" · ${toks} tokens` });
+    }
+    const d = await r.json().catch(() => ({})) as any;
+    return Response.json({ ok: false, latency: lat, error: d?.error?.message ?? `HTTP ${r.status}` });
+  } catch (e: any) {
+    return Response.json({ ok: false, latency: Date.now() - t0, error: e.message });
+  }
+}
+
+async function fetchFirstModel(baseUrl: string, apiKey: string, type: "anthropic" | "openai"): Promise<string | null> {
+  try {
+    const url = baseUrl.replace(/\/$/, "") + "/v1/models";
+    const headers: Record<string, string> = {
+      "Authorization": "Bearer " + apiKey,
+      "Accept":        "application/json",
+    };
+    if (type === "anthropic") headers["anthropic-version"] = "2023-06-01";
+    const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const d = await r.json() as any;
+    const first = Array.isArray(d?.data) && d.data.length > 0 ? d.data[0] : null;
+    return first?.id ?? null;
+  } catch { return null; }
+}
+
+async function handleCustomProviderTest(id: string): Promise<Response> {
+  const { getCustomProvider } = await import("./customProviders");
+  const cp = getCustomProvider(id);
+  if (!cp) return Response.json({ ok: false, error: `Custom provider "${id}" not found` });
+  if (!cp.api_key) return Response.json({ ok: false, error: "No API key configured" });
+
+  // Auto-discover a model from /v1/models for the test request
+  const testModel = await fetchFirstModel(cp.base_url, cp.api_key, cp.type);
+  if (!testModel) {
+    return Response.json({ ok: false, error: "Failed to fetch models from /v1/models — cannot run test" });
+  }
+
+  const t0 = Date.now();
+  try {
+    if (cp.type === "openai") {
+      const r = await fetch(cp.base_url + "/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": "Bearer " + cp.api_key,
+        },
+        body: JSON.stringify({
+          model: testModel,
+          messages: [{ role: "user", content: "Reply with exactly the word: OK" }],
+          max_tokens: 12,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const lat = Date.now() - t0;
+      if (r.ok) {
+        const d = await r.json() as any;
+        const text = d?.choices?.[0]?.message?.content ?? "";
+        const toks = (d?.usage?.prompt_tokens ?? 0) + (d?.usage?.completion_tokens ?? 0);
+        return Response.json({ ok: true, latency: lat, detail: `"${text.slice(0, 40)}" · ${toks} tokens · model: ${testModel} (openai)` });
+      }
+      const d = await r.json().catch(() => ({})) as any;
+      return Response.json({ ok: false, latency: lat, error: d?.error?.message ?? `HTTP ${r.status}` });
+    }
+    // anthropic-like
+    const r = await fetch(cp.base_url + "/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type":      "application/json",
+        "Authorization":     "Bearer " + cp.api_key,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: testModel,
+        max_tokens: 12,
+        messages: [{ role: "user", content: "Reply with exactly the word: OK" }],
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const lat = Date.now() - t0;
+    if (r.ok) {
+      const d = await r.json() as any;
+      const text = d?.content?.[0]?.text ?? "";
+      const toks = (d?.usage?.input_tokens ?? 0) + (d?.usage?.output_tokens ?? 0);
+      return Response.json({ ok: true, latency: lat, detail: `"${text.slice(0, 40)}" · ${toks} tokens · model: ${testModel} (anthropic)` });
     }
     const d = await r.json().catch(() => ({})) as any;
     return Response.json({ ok: false, latency: lat, error: d?.error?.message ?? `HTTP ${r.status}` });
@@ -468,21 +552,38 @@ server = serve({
       const u = await checkUser(req);
       if (!u) return Response.json({ authenticated: false }, { status: 401 });
       const today = todayKey();
+
+      // Resolve global effective provider — mirrors proxy.ts logic so user sees actual routing
+      const { getCustomProvider } = await import("./customProviders");
+      const globalOverride = settings["provider_override"] || "";
+      const dsConfigured = !!settings["deepseek_api_key"];
+      const orConfigured = !!settings["openrouter_api_key"];
+      const overrideValid =
+        globalOverride === "anthropic" ||
+        (globalOverride === "deepseek"   && dsConfigured) ||
+        (globalOverride === "openrouter" && orConfigured) ||
+        (globalOverride !== "" && !!getCustomProvider(globalOverride)?.api_key);
+      const globalEffective = overrideValid ? globalOverride : (upstream.fallbackProvider ?? "anthropic");
+
       const userTokens: Record<string, any> = {};
       for (const [k, tk] of Object.entries(tokens)) {
         if (tk.user_id === u.userId) {
           const limit = tk.limit === Infinity ? null : tk.limit;
+          const tokenProvider = tk.provider || "inherit";
+          const effectiveProvider = tokenProvider === "inherit" ? globalEffective : tokenProvider;
           userTokens[k] = {
-            key:       k,
-            name:      resolveTokenName(k, tk),
-            used:      tk.used,
+            key:                k,
+            name:               resolveTokenName(k, tk),
+            used:               tk.used,
             limit,
-            remaining: limit ? Math.max(0, limit - tk.used) : null,
-            pct:       limit ? Math.round((tk.used / limit) * 100) : 0,
-            paused:    tk.paused,
-            provider:  tk.provider || "inherit",
-            today:     (dailyUsage[today] || {})[k] || 0,
-            alltime:   allTimePerUser[u.userId] || 0,
+            remaining:          limit ? Math.max(0, limit - tk.used) : null,
+            pct:                limit ? Math.round((tk.used / limit) * 100) : 0,
+            paused:             tk.paused,
+            provider:           tokenProvider,
+            effective_provider: effectiveProvider,
+            pinned_model:       tk.pinned_model || "",
+            today:              (dailyUsage[today] || {})[k] || 0,
+            alltime:            allTimePerUser[u.userId] || 0,
           };
         }
       }
@@ -491,6 +592,11 @@ server = serve({
       const demoMode   = settings["demo_mode"] === "true";
       const effectiveStatus = demoMode && userStatus === "pending" ? "approved" : userStatus;
       const baUser = await prisma.user.findFirst({ where: { email: u.email }, select: { image: true } });
+      // Custom providers — only id/name/color/type (no api_key) so users can display labels
+      const { getCustomProviders } = await import("./customProviders");
+      const customProvidersList = getCustomProviders().map(p => ({
+        id: p.id, name: p.name, color: p.color || "gray", type: p.type,
+      }));
       return Response.json({
         authenticated: true,
         userId:   u.userId,
@@ -500,6 +606,7 @@ server = serve({
         role:     userEntry?.role || "USER",
         status:   effectiveStatus,
         tokens:   userTokens,
+        custom_providers: customProvidersList,
       });
     },
 
@@ -630,6 +737,12 @@ server = serve({
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleOpenRouterTest();
     },
+    "/api/admin/test/:id": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const m = new URL(req.url).pathname.match(/^\/api\/admin\/test\/([a-z][a-z0-9-]*)$/);
+      if (!m) return Response.json({ error: "Bad provider id" }, { status: 400 });
+      return handleCustomProviderTest(m[1]!);
+    },
     "/api/admin/settings": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return Response.json(settings);
@@ -645,6 +758,18 @@ server = serve({
     "/api/admin/models/openrouter": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiModels(req, new URL(req.url));
+    },
+    "/api/admin/models/:id": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiModels(req, new URL(req.url));
+    },
+    "/api/admin/custom-providers": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiCustomProviders(req, new URL(req.url));
+    },
+    "/api/admin/custom-providers/:id": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiCustomProviders(req, new URL(req.url));
     },
     "/api/admin/credentials": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -774,6 +899,7 @@ server = serve({
     "/admin/settings/demo":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/poll-interval": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/provider-model": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/settings/provider-override": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
 
     // Proxy endpoints
     "/v1/models": async req => {

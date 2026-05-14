@@ -15,6 +15,49 @@ import type { ApiUser, ApiToken } from "./UserModals";
 const ACT = 15;
 function nf(n: number) { return n.toLocaleString(); }
 
+// Shared metadata for built-in providers + lookup of custom providers passed in.
+export interface ProviderInfo { id: string; name: string; color: string; }
+
+const BUILTIN_PROVIDER_MAP: Record<string, ProviderInfo> = {
+  inherit:    { id: "inherit",    name: "Auto",       color: "gray"   },
+  anthropic:  { id: "anthropic",  name: "Claude",     color: "blue"   },
+  deepseek:   { id: "deepseek",   name: "DeepSeek",   color: "violet" },
+  openrouter: { id: "openrouter", name: "OpenRouter", color: "orange" },
+};
+
+function resolveProvider(id: string, customProviders: ProviderInfo[]): ProviderInfo {
+  if (BUILTIN_PROVIDER_MAP[id]) return BUILTIN_PROVIDER_MAP[id];
+  const found = customProviders.find(p => p.id === id);
+  if (found) return found;
+  return { id, name: id, color: "gray" }; // orphaned (e.g., deleted custom provider)
+}
+
+// Smart model-name shortening — works for any provider style.
+function shortenModel(m: string): string {
+  if (!m) return "";
+  const stripped = m.includes("/") ? (m.split("/").pop() || m) : m;
+  if (stripped.length <= 20) return stripped;
+  return stripped.slice(0, 17) + "…";
+}
+
+function RoutingBadge({ tk, customProviders }: { tk: ApiToken; customProviders: ProviderInfo[] }) {
+  const info  = resolveProvider(tk.provider || "inherit", customProviders);
+  const model = tk.pinned_model ? shortenModel(tk.pinned_model) : null;
+  const isOrphan = !BUILTIN_PROVIDER_MAP[tk.provider || "inherit"] && !customProviders.find(p => p.id === tk.provider);
+  return (
+    <Tooltip
+      label={isOrphan
+        ? `Provider "${tk.provider}" no longer exists — token may fail. Re-assign in Token Details.`
+        : `Provider: ${info.name}${model ? ` · Pinned: ${tk.pinned_model}` : " · No pin"}`}
+      withArrow>
+      <Badge size="xs" variant={isOrphan ? "outline" : "light"} color={isOrphan ? "red" : info.color}>
+        {isOrphan && <IconAlertTriangle size={10} style={{ marginRight: 4, verticalAlign: -1 }} />}
+        {info.name}{model ? ` · ${model}` : ""}
+      </Badge>
+    </Tooltip>
+  );
+}
+
 export function userAggregates(u: ApiUser) {
   const active = u.tokens.filter(t => !t.paused);
   const totalUsed   = u.tokens.reduce((a, t) => a + t.used, 0);
@@ -32,6 +75,7 @@ export function userAggregates(u: ApiUser) {
 export interface UserCardActions {
   rowAction: { key: string; act: string } | null;
   statusBusy: string | null;
+  customProviders: ProviderInfo[];  // for routing badge resolution
   onEditUser: (u: ApiUser) => void;
   onDeleteUser: (u: ApiUser) => void;
   onSetStatus: (userId: string, status: "pending" | "approved" | "blocked") => void;
@@ -45,12 +89,6 @@ export interface UserCardActions {
 interface TokenRowProps {
   token: ApiToken;
   actions: UserCardActions;
-}
-
-function PinBadge({ model }: { model: string }) {
-  if (!model) return null;
-  const short = model.includes("haiku") ? "Haiku" : model.includes("sonnet") ? "Sonnet" : model.includes("opus") ? "Opus" : model;
-  return <Badge size="xs" variant="light" color="violet">{short}</Badge>;
 }
 
 function ResetButton({ tk, actions, size }: { tk: ApiToken; actions: UserCardActions; size: "sm" | "xs" }) {
@@ -82,7 +120,7 @@ function TokenTableRow({ token: tk, actions }: TokenRowProps) {
           {tk.label && (
             <Group gap={4} wrap="nowrap">
               <Text size="sm" fw={600}>{tk.label}</Text>
-              <PinBadge model={tk.pinned_model} />
+              <RoutingBadge tk={tk} customProviders={actions.customProviders} />
               {tk.paused && <Badge size="xs" color="gray">paused</Badge>}
             </Group>
           )}
@@ -90,7 +128,7 @@ function TokenTableRow({ token: tk, actions }: TokenRowProps) {
             <IconKey size={12} color="var(--mantine-color-dimmed)" />
             <Text size="xs" ff="monospace" c="dimmed" style={{ letterSpacing: "0.1em" }}>••••••••••••••••</Text>
             <Box onClick={e => e.stopPropagation()}><CopyButton value={tk.key} /></Box>
-            {!tk.label && <PinBadge model={tk.pinned_model} />}
+            {!tk.label && <RoutingBadge tk={tk} customProviders={actions.customProviders} />}
             {!tk.label && tk.paused && <Badge size="xs" color="gray">paused</Badge>}
           </Group>
           {tk.description && <Text size="xs" c="dimmed" lineClamp={1}>{tk.description}</Text>}
@@ -118,7 +156,7 @@ function TokenGridCard({ token: tk, actions }: TokenRowProps) {
         {tk.label && (
           <Group gap={4} wrap="nowrap">
             <Text size="xs" fw={600} truncate style={{ flex: 1 }}>{tk.label}</Text>
-            <PinBadge model={tk.pinned_model} />
+            <RoutingBadge tk={tk} customProviders={actions.customProviders} />
           </Group>
         )}
         <Group justify="space-between" wrap="nowrap" gap="xs">
@@ -126,7 +164,7 @@ function TokenGridCard({ token: tk, actions }: TokenRowProps) {
             <IconKey size={10} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
             <Text size="xs" ff="monospace" c="dimmed" style={{ letterSpacing: "0.06em", flexShrink: 0 }}>••••••••••••</Text>
             <Box onClick={e => e.stopPropagation()}><CopyButton value={tk.key} /></Box>
-            {!tk.label && <PinBadge model={tk.pinned_model} />}
+            {!tk.label && <RoutingBadge tk={tk} customProviders={actions.customProviders} />}
             {tk.paused && <Badge size="xs" color="gray">paused</Badge>}
           </Group>
           <Box onClick={e => e.stopPropagation()}>

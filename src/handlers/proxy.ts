@@ -3,6 +3,8 @@ import { upstream, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName 
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
+import { getCustomProvider } from "../customProviders";
+import { anthropicToOpenAi, openAiToAnthropic, translateOpenAiStreamToAnthropic } from "../openaiTranslate";
 import type { TokenEntry } from "../types";
 
 function pushAlert(msg: string) { broadcastSystemMsg(`⚡ ${msg}`); }
@@ -111,13 +113,14 @@ function getOpenRouterConfig(): { apiKey: string; baseUrl: string; model: string
 }
 
 // Build headers + body for upstream forward. Returns null if no credential available.
+// translatedToOpenAi=true → upstream is OpenAI-compatible; caller must translate response back.
 function buildUpstreamRequest(
-  provider: "anthropic" | "deepseek" | "openrouter",
+  provider: string, // "anthropic" | "deepseek" | "openrouter" | custom slug
   reqHeaders: Headers,
   pathname: string,
   bodyText: string,
   model: string,
-): { url: string; headers: Headers; body: string } | null {
+): { url: string; headers: Headers; body: string; translatedToOpenAi: boolean } | null {
   const headers = new Headers(reqHeaders);
   headers.delete("host");
   headers.delete("x-api-key");
@@ -127,7 +130,7 @@ function buildUpstreamRequest(
     if (!ds) return null;
     headers.set("authorization", "Bearer " + ds.apiKey);
     headers.set("anthropic-version", "2023-06-01");
-    return { url: ds.baseUrl + pathname, headers, body: bodyText };
+    return { url: ds.baseUrl + pathname, headers, body: bodyText, translatedToOpenAi: false };
   }
 
   if (provider === "openrouter") {
@@ -136,18 +139,52 @@ function buildUpstreamRequest(
     headers.set("authorization", "Bearer " + or.apiKey);
     headers.set("anthropic-version", "2023-06-01");
     headers.set("HTTP-Referer", "https://claude-proxy.wibudev.com");
-    return { url: or.baseUrl + pathname, headers, body: bodyText };
+    return { url: or.baseUrl + pathname, headers, body: bodyText, translatedToOpenAi: false };
   }
 
+  // Custom provider (anthropic-like OR openai-like)
+  if (provider !== "anthropic") {
+    const cp = getCustomProvider(provider);
+    if (!cp || !cp.api_key) return null;
+
+    headers.set("authorization", "Bearer " + cp.api_key);
+    headers.set("content-type", "application/json");
+
+    if (cp.type === "openai") {
+      // Translate Anthropic body → OpenAI body, change endpoint to /v1/chat/completions
+      headers.delete("anthropic-version");
+      headers.delete("anthropic-beta");
+      let openAiBody: string;
+      try {
+        const anthrBody = JSON.parse(bodyText);
+        openAiBody = JSON.stringify(anthropicToOpenAi(anthrBody, model));
+      } catch {
+        return null;
+      }
+      return {
+        url: cp.base_url + "/v1/chat/completions",
+        headers,
+        body: openAiBody,
+        translatedToOpenAi: true,
+      };
+    }
+
+    // type === "anthropic" → forward as-is (Anthropic-compatible endpoint)
+    headers.set("anthropic-version", "2023-06-01");
+    return { url: cp.base_url + pathname, headers, body: bodyText, translatedToOpenAi: false };
+  }
+
+  // Built-in Anthropic (Claude Max OAuth)
   const cred = getOauthCredential();
   if (!cred) return null;
   headers.set("authorization", "Bearer " + cred.token);
   headers.set("anthropic-version", "2023-06-01");
   headers.set("anthropic-beta", "oauth-2025-04-20");
-  return { url: config.anthropicUrl + pathname, headers, body: bodyText };
+  return { url: config.anthropicUrl + pathname, headers, body: bodyText, translatedToOpenAi: false };
 }
 
-// Translate Claude model name to provider-specific model
+// Translate Claude model name to provider-specific model (fallback when no pinned_model).
+// Returns "" for custom providers — admin must pin a model explicitly via Pin All Tokens.
 function toProviderModel(model: string, provider: string): string {
   if (provider === "deepseek") {
     const ds = getDeepSeekConfig();
@@ -220,12 +257,12 @@ export async function handleProxy(
   }
 
   // Provider selection: per-token > global override > auto fallback
-  type Provider = "anthropic" | "deepseek" | "openrouter";
-  let provider: Provider = "anthropic";
+  // provider is a string slug: "anthropic" | "deepseek" | "openrouter" | custom slug
+  let provider: string = "anthropic";
   const fh = upstream.fiveHour;
   const deepseek   = getDeepSeekConfig();
   const openrouter = getOpenRouterConfig();
-  const override = settings["provider_override"] || ""; // "" | "deepseek" | "openrouter" | "anthropic"
+  const override = settings["provider_override"] || ""; // "" | "deepseek" | "openrouter" | "anthropic" | custom
   const tokenProvider = t.provider || "inherit";
 
   // Auto-fallback order: openrouter first (cheaper/faster), then deepseek
@@ -243,8 +280,15 @@ export async function handleProxy(
         error: { type: "api_error", message: "Provider 'openrouter' is set for this token but not configured. Contact admin." }
       }, { status: 503 });
       provider = "openrouter";
+    } else if (tokenProvider === "anthropic") {
+      provider = "anthropic";
     } else {
-      provider = "anthropic"; // tokenProvider === "anthropic"
+      // Custom provider — verify it exists and has api_key
+      const cp = getCustomProvider(tokenProvider);
+      if (!cp || !cp.api_key) return Response.json({
+        error: { type: "api_error", message: `Custom provider '${tokenProvider}' is set for this token but not configured. Contact admin.` }
+      }, { status: 503 });
+      provider = tokenProvider;
     }
   } else if (override === "deepseek" && deepseek) {
     provider = "deepseek";
@@ -252,6 +296,10 @@ export async function handleProxy(
     provider = "openrouter";
   } else if (override === "anthropic") {
     provider = "anthropic";
+  } else if (override && override !== "anthropic" && override !== "deepseek" && override !== "openrouter") {
+    // Custom provider override
+    const cp = getCustomProvider(override);
+    if (cp && cp.api_key) provider = override;
   } else if (upstream.lastPollOk && fh && fh.utilization >= config.capPct) {
     // Auto mode: soft cap triggers fallback — try openrouter first, then deepseek
     if (autoFallback) {
@@ -336,9 +384,18 @@ export async function handleProxy(
   }
 
   // For non-Anthropic providers: if no pinned_model, fall back to provider's configured default.
-  // If pinned_model is set, use it as-is (provider-native model ID expected).
+  // Custom providers have NO fallback — admin must pin a model explicitly.
   if (provider !== "anthropic") {
     const pm = t.pinned_model || toProviderModel(model, provider);
+    if (!pm) {
+      const cp = getCustomProvider(provider);
+      return Response.json({
+        error: {
+          type: "invalid_request_error",
+          message: `No pinned model for token using "${cp?.name || provider}". Set Pinned Model in Token Details, or use Pin All Tokens in the Providers tab.`,
+        },
+      }, { status: 400 });
+    }
     if (bodyJson) {
       bodyJson.model = pm;
       bodyText = JSON.stringify(bodyJson);
@@ -383,12 +440,14 @@ export async function handleProxy(
     }
   }
 
-  let upstreamUrl = built.url;
-  let headers = built.headers;
+  let upstreamUrl  = built.url;
+  let headers      = built.headers;
+  let upstreamBody = built.body;
+  let translatedToOpenAi = built.translatedToOpenAi;
 
   // ── Forward & respond — reservation ALWAYS released via try-finally ─────────
   try {
-    let resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
+    let resp = await fetch(upstreamUrl, { method: "POST", headers, body: upstreamBody });
 
     // 401 → refresh Anthropic token → retry once (Anthropic only)
     if (provider === "anthropic" && resp.status === 401) {
@@ -397,7 +456,7 @@ export async function handleProxy(
         const newToken = await refreshOauthToken(cred.filePath, cred.refreshToken);
         if (newToken) {
           headers.set("authorization", "Bearer " + newToken);
-          resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
+          resp = await fetch(upstreamUrl, { method: "POST", headers, body: upstreamBody });
         }
       }
     }
@@ -409,10 +468,38 @@ export async function handleProxy(
       if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
       const fbBuilt = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
       if (fbBuilt) {
-        upstreamUrl = fbBuilt.url;
-        headers = fbBuilt.headers;
+        upstreamUrl  = fbBuilt.url;
+        headers      = fbBuilt.headers;
+        upstreamBody = fbBuilt.body;
+        translatedToOpenAi = fbBuilt.translatedToOpenAi;
         console.log(`[proxy] Anthropic 429 → ${provider} fallback [${key.slice(-6)}]`);
-        resp = await fetch(upstreamUrl, { method: "POST", headers, body: bodyText });
+        resp = await fetch(upstreamUrl, { method: "POST", headers, body: upstreamBody });
+      }
+    }
+
+    // ── OpenAI-like translation: wrap response in Anthropic format ────────────
+    // After translation, the rest of the code path treats it as a normal Anthropic
+    // response (SSE parsing, JSON shape, usage tracking).
+    if (translatedToOpenAi && resp.ok) {
+      const ct = resp.headers.get("content-type") || "";
+      if (ct.includes("text/event-stream")) {
+        // Streaming: pipe through translator
+        const translated = translateOpenAiStreamToAnthropic(resp.body!, originalModel || model);
+        const newHeaders = new Headers(resp.headers);
+        newHeaders.set("content-type", "text/event-stream");
+        resp = new Response(translated, { status: resp.status, headers: newHeaders });
+      } else {
+        // Non-streaming JSON: translate body then re-wrap
+        try {
+          const openAiJson  = await resp.json() as any;
+          const anthropicJson = openAiToAnthropic(openAiJson, originalModel || model);
+          const newHeaders = new Headers(resp.headers);
+          newHeaders.set("content-type", "application/json");
+          newHeaders.delete("content-length");
+          resp = new Response(JSON.stringify(anthropicJson), { status: resp.status, headers: newHeaders });
+        } catch (e: any) {
+          console.error("[proxy] OpenAI→Anthropic translation failed:", e.message);
+        }
       }
     }
 

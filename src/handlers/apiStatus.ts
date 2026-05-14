@@ -1,6 +1,7 @@
 import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, settings, resolveTokenName } from "../state";
 import type { ContextAlert, ThresholdAlert, UserInsight, UserProfile } from "../contexts";
 import { todayKey } from "../tokens";
+import { getCustomProvider } from "../customProviders";
 
 function avg(arr: number[]): number {
   return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
@@ -104,22 +105,26 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
   const now   = Date.now();
   const today = todayKey();
 
-  // Resolved global active provider (same logic as proxy.ts + apiStatus activeProvider)
+  // Resolved global active provider (same logic as proxy.ts).
+  // Handles built-in + custom providers via getCustomProvider lookup.
   const globalOverride = settings["provider_override"] || "";
-  const globalActiveProvider: string =
-    globalOverride === "deepseek"   ? "deepseek"   :
-    globalOverride === "openrouter" ? "openrouter"  :
-    globalOverride === "anthropic"  ? "anthropic"   :
-    upstream.fallbackProvider ?? "anthropic";
+  const isOverrideValid =
+    ["anthropic", "deepseek", "openrouter"].includes(globalOverride) ||
+    (globalOverride !== "" && !!getCustomProvider(globalOverride)?.api_key);
+  const globalActiveProvider: string = isOverrideValid
+    ? globalOverride
+    : (upstream.fallbackProvider ?? "anthropic");
 
   const tokenData: Record<string, any> = {};
   for (const [k, tk] of Object.entries(tokens)) {
     const tp = tk.provider || "inherit";
     const effectiveProvider = tp === "inherit" ? globalActiveProvider : tp;
-    const activeModel =
-      effectiveProvider === "deepseek"   ? (settings["deepseek_model"]   || "deepseek-v4-pro[1m]") :
-      effectiveProvider === "openrouter" ? (settings["openrouter_model"] || "anthropic/claude-sonnet-4") :
-      null;
+    // active model: pinned_model wins; else provider's default
+    const activeModel = tk.pinned_model
+      ? tk.pinned_model
+      : effectiveProvider === "deepseek"   ? (settings["deepseek_model"]   || "deepseek-v4-pro[1m]")
+      : effectiveProvider === "openrouter" ? (settings["openrouter_model"] || "anthropic/claude-sonnet-4")
+      : null;
     const resolvedName = resolveTokenName(k, tk);
     tokenData[k] = {
       label:           resolvedName,
@@ -132,6 +137,7 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
       today:           (dailyUsage[today] || {})[k] || 0,
       alltime:         allTimePerUser[k] || 0,
       provider:        tp,
+      pinned_model:    tk.pinned_model || "",
       activeProvider:  effectiveProvider,
       activeModel,
     };

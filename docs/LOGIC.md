@@ -38,25 +38,75 @@ Kalau upstream 5-hour utilization ≥ `UPSTREAM_HARD_CAP_PCT` dan **tidak ada pr
 
 ## Provider Selection (priority order)
 
-Urutan penentuan provider untuk tiap request di `proxy.ts:222-264`:
+Urutan penentuan provider untuk tiap request di `proxy.ts`:
 
-1. **Per-token override** (`tokens.provider !== "inherit"`) — paksa provider untuk token ini. Kalau provider belum configured (API key kosong) → 503.
-2. **Global override** (`settings.provider_override`) — set lewat Providers tab. Bisa `"anthropic"`, `"deepseek"`, `"openrouter"`, atau `""` (auto).
-3. **Auto-fallback** — kalau 5h util ≥ `UPSTREAM_HARD_CAP_PCT` AND fallback configured → switch ke OpenRouter atau DeepSeek.
+1. **Per-token override** (`tokens.provider !== "inherit"`) — paksa provider untuk token ini. Termasuk custom provider slug (e.g. "groq"). Kalau provider belum configured (API key kosong) → 503.
+2. **Global override** (`settings.provider_override`) — set lewat Providers tab. Bisa `"anthropic"`, `"deepseek"`, `"openrouter"`, custom slug, atau `""` (auto).
+3. **Auto-fallback** — kalau 5h util ≥ `UPSTREAM_HARD_CAP_PCT` AND built-in fallback configured → switch ke OpenRouter atau DeepSeek. Custom providers **TIDAK** ikut auto-fallback (admin harus pick explicit).
 4. **Default** — Claude (anthropic).
 
-**429 retry chain**: Kalau Claude balas 429 saat forward, code retry sekali dengan fallback provider (`proxy.ts:413`). Tidak ada chain berlapis — satu fallback attempt saja.
+**429 retry chain**: Kalau Claude balas 429 saat forward, code retry sekali dengan built-in fallback provider. Tidak ada chain berlapis — satu fallback attempt saja.
+
+## Custom Providers
+
+Selain built-in (Claude/DS/OR), admin bisa add custom API-key providers via `Credentials → Custom Providers`:
+
+- Storage: JSON di `settings.custom_providers` (id, name, type, base_url, api_key, color)
+- Types:
+  - **anthropic-like**: forward `/v1/messages` as-is ke `base_url`
+  - **openai-like**: proxy translate request body Anthropic → OpenAI `/v1/chat/completions`, lalu translate response SSE stream balik ke Anthropic format. Implementation di `src/openaiTranslate.ts`.
+- API endpoints:
+  - `GET/POST /api/admin/custom-providers` — CRUD (api_key di-mask di GET)
+  - `DELETE /api/admin/custom-providers/:id`
+  - `GET /api/admin/models/:id` — fetch `/v1/models` dari provider, cache 30 menit
+  - `GET /api/admin/test/:id` — generic test, auto-pick model pertama dari `/v1/models`
 
 ## Pinned Model per Token
 
 `tokens.pinned_model` (nullable) — kalau di-set, semua request untuk token ini di-rewrite ke model itu, **mengabaikan** model yang dikirim client.
 
-- **Berlaku saat** `provider = "inherit"` atau `"anthropic"` (Claude).
-- **Diabaikan saat** provider non-anthropic — DeepSeek/OpenRouter pakai model dari `settings.deepseek_model` / `openrouter_model`.
-- **Bulk action**: `POST /admin/token/pin-all` dengan `model` (kosong = clear) + optional `user_id` filter.
+- **Universal**: berlaku untuk semua provider (Claude, DS, OR, custom). Untuk OpenAI-like custom provider, pin diteruskan ke `model` field di OpenAI body.
+- **Wajib untuk custom provider** — kalau token pakai custom + tidak ada pin → request gagal 400 dengan pesan jelas (built-in DS/OR ada fallback default `toProviderModel()`).
+- **Bulk action**: `POST /admin/token/pin-all` dengan `model` (kosong = clear) + optional `user_id` filter + optional `provider_scope` (effective routing match).
 - **Per-user reset**: tombol "Reset Pinned" di card tiap user — call `pin-all` dengan `model=""` + `user_id=u.id`.
+- **Backend response**: `{ ok: true, count: N }` — jumlah token actual yang ter-pin (frontend tampilkan jika 0).
 
-UI menampilkan **state agregat**: kalau semua token di-pin ke model sama → tombol itu yang aktif (✓). Kalau campur → "Mixed" indicator, tidak ada tombol aktif.
+UI menampilkan **state agregat** via effective routing (mirrors proxy.ts): kalau semua token effective ke provider X dengan pin yang sama → tombol itu aktif (✓). Kalau campur → "Mixed". Effective routing = `tokenProvider !== "inherit" ? tokenProvider : globalOverride || "anthropic"` (dengan configured check).
+
+## OpenAI ↔ Anthropic Translation
+
+Custom provider type `"openai"` butuh translation karena client Claude Code mengirim request format Anthropic, tapi provider expect OpenAI format.
+
+**Request translation** (`anthropicToOpenAi`):
+- `system` (top-level atau content blocks) → first `system` message di OpenAI `messages` array
+- `messages[].content` (array atau string) — diekstrak text content saja (tool_use/result tidak supported di MVP)
+- `max_tokens`, `temperature`, `top_p` di-pass through
+
+**Response translation** (non-streaming, `openAiToAnthropic`):
+- `choices[0].message.content` → `content: [{ type: "text", text }]`
+- `finish_reason` map: `stop` → `end_turn`, `length` → `max_tokens`, dll
+- `usage.prompt_tokens` → `usage.input_tokens`, `completion_tokens` → `output_tokens`
+
+**Response translation** (streaming, `translateOpenAiStreamToAnthropic`):
+- OpenAI SSE `data:` chunks → Anthropic SSE events: `message_start` → `content_block_start` → `content_block_delta` (text_delta) → `content_block_stop` → `message_delta` (stop_reason) → `message_stop`
+- Text-content only di MVP — tool_use/thinking blocks tidak ditranslate
+
+## Settings Storage
+
+Key settings di tabel `settings` (`{ key, value }`):
+
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `provider_override` | string | `""` (auto) | Global routing target |
+| `poll_interval_ms` | string (ms) | `60000` | Upstream `/api/oauth/usage` poll frequency |
+| `deepseek_api_key` | string | — | DS Bearer token |
+| `deepseek_base_url` | string | env default | DS endpoint |
+| `deepseek_model` | string | hardcoded fallback | DS default model (no UI edit, set via env or DB direct) |
+| `openrouter_api_key` | string | — | OR Bearer token |
+| `openrouter_base_url` | string | env default | OR endpoint |
+| `openrouter_model` | string | hardcoded fallback | OR default model (no UI edit) |
+| `custom_providers` | JSON array | `[]` | Custom provider list (id/name/type/base_url/api_key/color) |
+| `demo_mode` | "true"\|"false" | `"false"` | Auto-approve pending users |
 
 ## Poll Backoff
 HTTP 429 dari usage endpoint → backoff minimum 5 menit. Saat 401 pada poll → auto-refresh OAuth token dan retry.

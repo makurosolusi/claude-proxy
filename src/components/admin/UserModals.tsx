@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Stack, Text, Group, Paper, TextInput, Textarea,
-  Box, ActionIcon, Modal, Button, Alert, Switch,
+  ActionIcon, Modal, Button, Alert, Switch,
 } from "@mantine/core";
 import {
   IconAlertTriangle, IconPlus, IconCopy, IconCheck, IconTrash,

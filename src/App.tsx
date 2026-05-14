@@ -22,6 +22,7 @@ import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
 import { notifications } from "@mantine/notifications";
 import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
+import { resolveProvider, shortenModel, type ProviderInfo } from "./providerDisplay";
 import { useStatus } from "./contexts";
 import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, BlockedPage, UpstreamSection } from "./components/shared";
 import { CompetitionPanel } from "./components/CompetitionPanel";
@@ -439,12 +440,13 @@ function SonnetCriticalAlert({ pct }: { pct: number }) {
   );
 }
 
-function TokenDetailModal({ tokenKey, tk, ins, opened, onClose }: {
+function TokenDetailModal({ tokenKey, tk, ins, opened, onClose, customProviders = [] }: {
   tokenKey: string;
   tk: import("./contexts").TokenStatus;
   ins: import("./contexts").UserInsight | undefined;
   opened: boolean;
   onClose: () => void;
+  customProviders?: ProviderInfo[];
 }) {
   const nfm = new Intl.NumberFormat();
   const pct = tk.limit == null ? 0 : Math.min(100, Math.round((tk.used / tk.limit) * 100));
@@ -461,10 +463,9 @@ function TokenDetailModal({ tokenKey, tk, ins, opened, onClose }: {
   const qs = ins?.quotaSuggestion;
   const qsColor = qs?.action === "increase" ? "red" : qs?.action === "decrease" ? "blue" : "teal";
 
-  const providerName = tk.activeProvider === "deepseek" ? "DeepSeek"
-    : tk.activeProvider === "openrouter" ? "OpenRouter" : "Claude Max";
-  const providerColor = tk.activeProvider === "deepseek" ? "violet"
-    : tk.activeProvider === "openrouter" ? "orange" : "blue";
+  const providerInfo = resolveProvider(tk.activeProvider || "anthropic", customProviders);
+  const providerName  = providerInfo.name;
+  const providerColor = providerInfo.color;
 
   return (
     <Modal opened={opened} onClose={onClose} title={
@@ -648,6 +649,9 @@ function ProfilePage() {
       .catch(() => setLoading(false));
   }, []);
 
+  const customProviders: ProviderInfo[] = (profile?.custom_providers ?? [])
+    .map(p => ({ id: p.id, name: p.name, color: p.color || "gray" }));
+
   if (loading) return (
     <Box style={{ minHeight: "100vh", background: isDark ? "#0f1012" : "#f0f2f5" }}>
       <Container size="sm" py={{ base: "md", sm: "xl" }} px={{ base: "sm", sm: "md" }}>
@@ -735,8 +739,13 @@ function ProfilePage() {
               {tkEntries.map(([key, tk]) => {
                 const pct   = tk.limit == null ? 0 : Math.min(100, tk.pct);
                 const color = tk.paused ? "gray" : pct >= 95 ? "red" : pct >= 75 ? "orange" : pct >= 50 ? "yellow" : "teal";
-                const pn    = tk.provider === "deepseek" ? "DeepSeek" : tk.provider === "openrouter" ? "OpenRouter" : tk.provider === "anthropic" ? "Claude Max" : "Auto";
-                const pc    = tk.provider === "deepseek" ? "violet" : tk.provider === "openrouter" ? "orange" : tk.provider === "anthropic" ? "blue" : "gray";
+                const literalInfo   = resolveProvider(tk.provider || "inherit", customProviders);
+                const effectiveInfo = resolveProvider(tk.effective_provider || "anthropic", customProviders);
+                // If literal === "inherit", show effective (more useful). Else show literal.
+                const showInfo = tk.provider === "inherit" ? effectiveInfo : literalInfo;
+                const pn = showInfo.name;
+                const pc = showInfo.color;
+                const showEffectiveTooltip = tk.provider === "inherit" && tk.effective_provider !== "anthropic";
                 return (
                   <Paper key={key} withBorder p="md" radius="md"
                     style={{ borderColor: tk.paused ? "var(--mantine-color-orange-4)" : undefined, opacity: tk.paused ? 0.85 : 1 }}>
@@ -759,7 +768,22 @@ function ProfilePage() {
                         </Group>
                         <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
                           <CopyButton value={key} />
-                          <Badge size="xs" color={pc} variant="light">{pn}</Badge>
+                          <Tooltip
+                            withArrow
+                            label={tk.provider === "inherit"
+                              ? `Provider: Auto (routes to ${effectiveInfo.name})`
+                              : `Provider: ${pn} (explicitly assigned)`}>
+                            <Badge size="xs" color={pc} variant={showEffectiveTooltip ? "outline" : "light"}>
+                              {tk.provider === "inherit" ? `Auto → ${effectiveInfo.name}` : pn}
+                            </Badge>
+                          </Tooltip>
+                          {tk.pinned_model && (
+                            <Tooltip withArrow label={`Pinned model: ${tk.pinned_model}`}>
+                              <Badge size="xs" color={pc} variant="outline">
+                                {shortenModel(tk.pinned_model, 16)}
+                              </Badge>
+                            </Tooltip>
+                          )}
                           <Badge size="xs" color={tk.paused ? "orange" : "teal"} variant="light">
                             {tk.paused ? "Inactive" : "Active"}
                           </Badge>
@@ -1291,6 +1315,19 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
     fetch("/api/analytics").then(r => r.json()).then(setAnalytics).catch(() => {});
   }, []);
 
+  // Custom providers for display name/color resolution
+  const [customProviders, setCustomProviders] = useState<ProviderInfo[]>([]);
+  useEffect(() => {
+    fetch("/api/admin/custom-providers", { credentials: "include" })
+      .then(r => r.ok ? r.json() : { providers: [] })
+      .then((d: any) => {
+        const list: ProviderInfo[] = (Array.isArray(d?.providers) ? d.providers : [])
+          .map((p: any) => ({ id: p.id, name: p.name, color: p.color || "gray" }));
+        setCustomProviders(list);
+      })
+      .catch(() => {});
+  }, []);
+
 
   const [anomalyPage, setAnomalyPage] = useState(1);
   const [selectedToken, setSelectedToken] = useState<{ key: string; tk: import("./contexts").TokenStatus } | null>(null);
@@ -1341,10 +1378,16 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
     {/* ── Sticky Header (Navbar + Sub-header) ─────────────── */}
     {(() => {
       const ap         = upstream?.activeProvider;
-      const isFallback = !!ap;
-      const provName   = ap === "deepseek" ? "DeepSeek" : ap === "openrouter" ? "OpenRouter" : "Claude Max";
-      const provDot    = ap === "deepseek" ? "#7c3aed" : ap === "openrouter" ? "#f97316" : upstream?.ok ? "#0d9488" : "#71717a";
-      const modelLabel = (upstream?.activeModel ?? "claude-sonnet-4-6").replace(/^claude-/, "").replace(/-\d{8}$/, "");
+      const isFallback = !!ap && ap !== "anthropic";
+      const provInfo   = resolveProvider(ap || "anthropic", customProviders);
+      const provName   = provInfo.name;
+      const colorMap: Record<string, string> = {
+        blue:   "#3b82f6", violet: "#7c3aed", orange: "#f97316", teal: "#0d9488",
+        gray:   "#71717a", pink:   "#ec4899", cyan:   "#06b6d4", yellow: "#eab308",
+        lime:   "#84cc16", indigo: "#6366f1", red:    "#ef4444",
+      };
+      const provDot    = upstream?.ok ? (colorMap[provInfo.color] || "#3b82f6") : "#71717a";
+      const modelLabel = shortenModel(upstream?.activeModel ?? "claude-sonnet-4-6", 20);
       const roleColor  = profile?.role === "SUPER_ADMIN" ? "red" : profile?.role === "ADMIN" ? "orange" : "blue";
       const roleLabel  = profile?.role === "SUPER_ADMIN" ? "Super Admin" : profile?.role === "ADMIN" ? "Admin" : "User";
       const myTokens   = Object.values(profile?.tokens || {});
@@ -2242,6 +2285,7 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
           ins={insights[selectedToken.key]}
           opened={!!selectedToken}
           onClose={() => setSelectedToken(null)}
+          customProviders={customProviders}
         />
       )}
 

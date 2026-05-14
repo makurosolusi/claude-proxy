@@ -1,8 +1,9 @@
 import { config } from "../config";
 import { settings } from "../state";
 import { getOauthCredential } from "../upstream";
+import { getCustomProvider } from "../customProviders";
 
-type Provider = "anthropic" | "deepseek" | "openrouter";
+type Provider = string; // built-in or custom slug
 
 interface ModelEntry {
   id:           string;
@@ -87,18 +88,52 @@ async function fetchOpenRouterModels(): Promise<ModelEntry[]> {
   }));
 }
 
-const fetchers: Record<Provider, () => Promise<ModelEntry[]>> = {
+async function fetchCustomModels(id: string): Promise<ModelEntry[]> {
+  const cp = getCustomProvider(id);
+  if (!cp) throw new Error(`Custom provider "${id}" not found`);
+  if (!cp.api_key) throw new Error(`Custom provider "${id}" has no API key`);
+
+  // For both anthropic-like and openai-like, /v1/models is the standard endpoint
+  const url = cp.base_url.replace(/\/$/, "") + "/v1/models";
+  const headers: Record<string, string> = {
+    "Authorization": "Bearer " + cp.api_key,
+    "Accept":        "application/json",
+  };
+  // OpenRouter-like providers may want anthropic-version header; harmless to include
+  if (cp.type === "anthropic") headers["anthropic-version"] = "2023-06-01";
+
+  const r = await fetch(url, { headers });
+  if (!r.ok) throw new Error(`${cp.name} /v1/models HTTP ${r.status}`);
+  const d = await r.json() as any;
+  if (!Array.isArray(d?.data)) throw new Error(`${cp.name} /v1/models: unexpected response`);
+  return d.data.map((m: any) => ({
+    id:           m.id,
+    display_name: m.display_name || m.name || m.id,
+  }));
+}
+
+const builtinFetchers: Record<string, () => Promise<ModelEntry[]>> = {
   anthropic:  fetchAnthropicModels,
   deepseek:   fetchDeepSeekModels,
   openrouter: fetchOpenRouterModels,
 };
 
-export async function handleApiModels(req: Request, url: URL): Promise<Response> {
-  const m = url.pathname.match(/^\/api\/admin\/models\/(anthropic|deepseek|openrouter)$/);
-  if (!m) return Response.json({ error: "Not found" }, { status: 404 });
-  const provider = m[1] as Provider;
-  const force = url.searchParams.get("refresh") === "1";
+function getFetcher(provider: string): () => Promise<ModelEntry[]> {
+  if (provider in builtinFetchers) return builtinFetchers[provider]!;
+  return () => fetchCustomModels(provider);
+}
 
+export async function handleApiModels(req: Request, url: URL): Promise<Response> {
+  const m = url.pathname.match(/^\/api\/admin\/models\/([a-z][a-z0-9-]*)$/);
+  if (!m) return Response.json({ error: "Not found" }, { status: 404 });
+  const provider = m[1]!;
+
+  // Validate provider exists (builtin or custom)
+  if (!(provider in builtinFetchers) && !getCustomProvider(provider)) {
+    return Response.json({ error: `Unknown provider "${provider}"` }, { status: 404 });
+  }
+
+  const force = url.searchParams.get("refresh") === "1";
   const now = Date.now();
   const c = cache[provider];
   if (!force && c && now - c.fetchedAt < TTL_MS && !c.error) {
@@ -111,7 +146,7 @@ export async function handleApiModels(req: Request, url: URL): Promise<Response>
   }
 
   try {
-    const models = await fetchers[provider]();
+    const models = await getFetcher(provider)();
     cache[provider] = { models, fetchedAt: now };
     return Response.json({
       provider, models,
@@ -120,7 +155,6 @@ export async function handleApiModels(req: Request, url: URL): Promise<Response>
       age_seconds: 0,
     });
   } catch (e: any) {
-    // Serve stale cache if available, mark with error
     if (c) {
       return Response.json({
         provider, models: c.models,

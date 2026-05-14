@@ -11,6 +11,7 @@ import {
   IconAi, IconFileImport,
 } from "@tabler/icons-react";
 import { ApiKeyProvider } from "./ApiKeyProvider";
+import { CustomProvidersSection } from "./CustomProviders";
 
 interface CredentialInfo { file: string; email: string; disabled: boolean; active: boolean; }
 type ConnectStep = "idle" | "authorizing" | "done";
@@ -301,12 +302,17 @@ export function AdminAccounts() {
         )}
       </Paper>
 
-      {/* ── API Key Providers ─────────────────────────────── */}
-      <Divider label="API Key Providers" labelPosition="left" />
+      {/* ── API Key Providers (built-in) ───────────────────── */}
+      <Divider label="Built-in API Key Providers" labelPosition="left" />
 
       <ApiKeyProvider provider="deepseek" />
 
       <ApiKeyProvider provider="openrouter" />
+
+      {/* ── Custom Providers ────────────────────────────────── */}
+      <Divider label="Custom Providers" labelPosition="left" />
+
+      <CustomProvidersSection />
 
       {/* Import Credential Modal */}
       <Modal opened={importOpen} onClose={() => { setImportOpen(false); setImportContent(""); setImportErr(null); }}

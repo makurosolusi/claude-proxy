@@ -4,6 +4,7 @@ import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
+import { getCustomProvider } from "../customProviders";
 import { randomBytes } from "crypto";
 import type { TokenEntry } from "../types";
 
@@ -185,23 +186,45 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     const model         = String(form?.get("model")          || "").trim();
     const userId        = String(form?.get("user_id")        || "").trim();
     const providerScope = String(form?.get("provider_scope") || "").trim();
-    // providerScope semantics:
-    //  - ""           = all tokens (legacy behavior)
-    //  - "anthropic"  = tokens with provider in ["inherit", "anthropic"]
-    //  - "deepseek"   = tokens with provider = "deepseek"
-    //  - "openrouter" = tokens with provider = "openrouter"
-    const inScope = (p: string) => {
-      if (!providerScope) return true;
-      if (providerScope === "anthropic") return p === "inherit" || p === "anthropic" || !p;
-      return p === providerScope;
+    // providerScope semantics — uses EFFECTIVE routing (matches what proxy.ts does at runtime).
+    //  - ""           = all tokens (no scope filter)
+    //  - "anthropic"  = tokens that effectively route to Claude
+    //  - "deepseek"   = tokens that effectively route to DeepSeek
+    //  - "openrouter" = tokens that effectively route to OpenRouter
+    //  - custom slug  = tokens that effectively route to that custom provider
+    const globalOverride = settings["provider_override"] || "";
+    const deepseekConfigured   = !!(settings["deepseek_api_key"]   || config.deepseekApiKey);
+    const openrouterConfigured = !!(settings["openrouter_api_key"] || config.openrouterApiKey);
+    const isConfigured = (id: string): boolean => {
+      if (id === "anthropic" || id === "" || id === "inherit") return true;
+      if (id === "deepseek")   return deepseekConfigured;
+      if (id === "openrouter") return openrouterConfigured;
+      const cp = getCustomProvider(id);
+      return !!(cp && cp.api_key);
     };
+    const effectiveProviderOf = (tokenProvider: string): string => {
+      if (tokenProvider && tokenProvider !== "inherit") {
+        return isConfigured(tokenProvider) ? tokenProvider : "anthropic";
+      }
+      if (globalOverride) {
+        return isConfigured(globalOverride) ? globalOverride : "anthropic";
+      }
+      return "anthropic";
+    };
+    const inScope = (tokenProvider: string) => {
+      if (!providerScope) return true;
+      return effectiveProviderOf(tokenProvider) === providerScope;
+    };
+    let pinnedCount = 0;
     for (const [k, tk] of Object.entries(tokens)) {
       if (userId && tk.user_id !== userId) continue;
       if (!inScope(tk.provider || "inherit")) continue;
       tk.pinned_model = model;
       await dbUpdatePinnedModel(k, model);
+      pinnedCount++;
     }
-    return redirect();
+    triggerBroadcast();
+    return Response.json({ ok: true, count: pinnedCount });
   }
 
   if (pathname === "/admin/token/provider" && req.method === "POST") {
@@ -253,25 +276,28 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   }
 
   if (pathname === "/admin/settings/deepseek" && req.method === "POST") {
-    const apiKey   = String(form?.get("api_key")   || "").trim();
-    const baseUrl  = String(form?.get("base_url")  || "").trim();
-    const model    = String(form?.get("model")     || "").trim();
-    const override = String(form?.get("provider_override") || "");
+    const apiKey  = String(form?.get("api_key")  || "").trim();
+    const baseUrl = String(form?.get("base_url") || "").trim();
+    const model   = String(form?.get("model")    || "").trim();
     if (apiKey)  await dbSaveSetting("deepseek_api_key", apiKey);
     if (baseUrl) await dbSaveSetting("deepseek_base_url", baseUrl);
     if (model)   await dbSaveSetting("deepseek_model", model);
-    await dbSaveSetting("provider_override", override);
     return redirect();
   }
 
   if (pathname === "/admin/settings/openrouter" && req.method === "POST") {
-    const apiKey   = String(form?.get("api_key")   || "").trim();
-    const baseUrl  = String(form?.get("base_url")  || "").trim();
-    const model    = String(form?.get("model")     || "").trim();
-    const override = String(form?.get("provider_override") || "");
+    const apiKey  = String(form?.get("api_key")  || "").trim();
+    const baseUrl = String(form?.get("base_url") || "").trim();
+    const model   = String(form?.get("model")    || "").trim();
     if (apiKey)  await dbSaveSetting("openrouter_api_key", apiKey);
     if (baseUrl) await dbSaveSetting("openrouter_base_url", baseUrl);
     if (model)   await dbSaveSetting("openrouter_model", model);
+    return redirect();
+  }
+
+  if (pathname === "/admin/settings/provider-override" && req.method === "POST") {
+    const override = String(form?.get("override") || "").trim();
+    // Accept: "" (auto), "anthropic", "deepseek", "openrouter", or custom provider slug
     await dbSaveSetting("provider_override", override);
     return redirect();
   }
@@ -317,8 +343,8 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
 
   if (pathname === "/admin/settings/poll-interval" && req.method === "POST") {
     const seconds = parseInt(String(form?.get("seconds") || "").trim());
-    if (!Number.isFinite(seconds) || seconds < 10 || seconds > 1800) {
-      return Response.json({ ok: false, error: "Seconds must be 10–1800 (10s to 30 min)" }, { status: 400 });
+    if (!Number.isFinite(seconds) || seconds < 10 || seconds > 300) {
+      return Response.json({ ok: false, error: "Seconds must be 10–300 (10s to 5 min)" }, { status: 400 });
     }
     await dbSaveSetting("poll_interval_ms", String(seconds * 1000));
     return redirect();

@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Stack, SimpleGrid, Text, Group, Paper, TextInput, ThemeIcon, Box,
-  Loader, Select, Switch, SegmentedControl, Button,
+  Stack, SimpleGrid, Text, Group, Paper, TextInput, ThemeIcon,
+  Loader, Select, Switch, SegmentedControl,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
-  IconPlus, IconSearch, IconArrowsSort, IconLayoutGrid, IconList,
+  IconSearch, IconArrowsSort, IconLayoutGrid, IconList,
 } from "@tabler/icons-react";
 import { adminPost } from "../../utils";
 import { useStatus } from "../../contexts";
@@ -18,7 +18,7 @@ import {
 } from "./UserModals";
 import type { ApiUser, ApiToken } from "./UserModals";
 import { UserCard, userAggregates } from "./UserCard";
-import type { UserCardActions } from "./UserCard";
+import type { UserCardActions, ProviderInfo } from "./UserCard";
 import { TokenDetailModal } from "./TokenDetailModal";
 
 type UserStatus = "pending" | "approved" | "blocked";
@@ -46,6 +46,18 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [statusBusy, setStatusBusy]         = useState<string | null>(null);
   const [demoMode, setDemoMode]             = useState(false);
   const [demoSaving, setDemoSaving]         = useState(false);
+  const [customProviders, setCustomProviders] = useState<ProviderInfo[]>([]);
+
+  useEffect(() => {
+    fetch("/api/admin/custom-providers")
+      .then(r => r.ok ? r.json() : { providers: [] })
+      .then((d: any) => {
+        const list: ProviderInfo[] = (Array.isArray(d?.providers) ? d.providers : [])
+          .map((p: any) => ({ id: p.id, name: p.name, color: p.color || "gray" }));
+        setCustomProviders(list);
+      })
+      .catch(() => {});
+  }, []);
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/admin/users");
@@ -175,7 +187,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const overLimit  = entries.filter(([, t]) => t.pct > 100).length;
 
   const cardActions: UserCardActions = {
-    rowAction, statusBusy,
+    rowAction, statusBusy, customProviders,
     onEditUser: setEditUser,
     onDeleteUser: setDeleteUser,
     onSetStatus: setUserStatus,

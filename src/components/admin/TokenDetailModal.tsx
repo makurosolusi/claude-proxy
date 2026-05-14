@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Stack, Text, Group, Paper, TextInput, Textarea, Box, Badge, Button,
-  Modal, Switch, Select, SegmentedControl, Divider, Loader, Progress,
-  ActionIcon, Tooltip,
+  Modal, Switch, Select, Divider, Loader, Progress,
+  ActionIcon, Tooltip, Code,
 } from "@mantine/core";
 import {
   IconKey, IconRotate, IconTrash, IconPlayerPause, IconPlayerPlay, IconRefresh,
@@ -15,9 +15,15 @@ import type { ApiToken } from "./UserModals";
 
 function nf(n: number) { return n.toLocaleString(); }
 
-type EffectiveProvider = "anthropic" | "deepseek" | "openrouter";
-
 interface ModelEntry { id: string; display_name: string; }
+interface CustomProviderInfo { id: string; name: string; type: "anthropic" | "openai"; color?: string; api_key_set?: boolean; }
+
+function shortenModel(m: string): string {
+  if (!m) return "";
+  const stripped = m.includes("/") ? (m.split("/").pop() || m) : m;
+  if (stripped.length <= 24) return stripped;
+  return stripped.slice(0, 21) + "…";
+}
 
 interface Props {
   token:         ApiToken;
@@ -44,16 +50,43 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
   const [busyAction, setBusyAction]     = useState<"pause" | "delete" | null>(null);
 
   // Provider-aware model list
-  const effectiveProvider: EffectiveProvider =
-    providerValue === "deepseek" ? "deepseek"
-    : providerValue === "openrouter" ? "openrouter"
-    : "anthropic"; // inherit + anthropic both → anthropic
+  // effectiveProvider = the provider whose model list to fetch.
+  // For "inherit" we default to "anthropic" (Claude is the default fallback).
+  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
+  const [deepseekConfigured,   setDeepseekConfigured]   = useState(false);
+  const [openrouterConfigured, setOpenrouterConfigured] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/admin/custom-providers")
+      .then(r => r.ok ? r.json() : { providers: [] })
+      .then((d: any) => setCustomProviders(Array.isArray(d.providers) ? d.providers : []))
+      .catch(() => {});
+    fetch("/api/admin/settings")
+      .then(r => r.ok ? r.json() : {})
+      .then((d: any) => {
+        setDeepseekConfigured(!!d?.deepseek_api_key);
+        setOpenrouterConfigured(!!d?.openrouter_api_key);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Detect orphan: token references a custom provider that no longer exists
+  const isOrphanProvider =
+    providerValue !== "inherit" &&
+    providerValue !== "anthropic" &&
+    providerValue !== "deepseek" &&
+    providerValue !== "openrouter" &&
+    !customProviders.find(c => c.id === providerValue);
+
+  const effectiveProvider: string =
+    providerValue === "inherit" || providerValue === "anthropic" ? "anthropic"
+    : providerValue;
 
   const [modelList, setModelList]     = useState<ModelEntry[]>([]);
   const [loadingModels, setLoading]   = useState(false);
   const [modelFilter, setModelFilter] = useState("");
 
-  const fetchModels = useCallback(async (p: EffectiveProvider, force = false) => {
+  const fetchModels = useCallback(async (p: string, force = false) => {
     setLoading(true);
     try {
       const r = await fetch(`/api/admin/models/${p}${force ? "?refresh=1" : ""}`, { credentials: "include" });
@@ -129,7 +162,11 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
     try {
       await adminPost("/admin/token/pin-model", { token: tk.key, model });
       await onSaved();
-      notifications.show({ color: "teal", message: model ? `Pinned to ${model.split("-")[1] || model}` : "Pin cleared", autoClose: 2000 });
+      notifications.show({
+        color: "teal",
+        message: model ? `Pinned to ${shortenModel(model)}` : "Pin cleared",
+        autoClose: 2000,
+      });
     } catch (e: any) {
       setPinValue(tk.pinned_model || "");
       notifications.show({ color: "red", message: e.message || "Failed", autoClose: 3000 });
@@ -222,15 +259,39 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
                 <Text size="xs" c="dimmed">Provider</Text>
                 {savingProvider && <Loader size={10} />}
               </Group>
-              <SegmentedControl size="xs" fullWidth value={providerValue} disabled={savingProvider}
-                onChange={changeProvider}
+              <Select size="xs"
+                value={providerValue}
+                disabled={savingProvider}
+                onChange={v => changeProvider(v || "inherit")}
+                allowDeselect={false}
+                comboboxProps={{ withinPortal: true }}
                 data={[
-                  { label: "Auto", value: "inherit" },
-                  { label: "Claude", value: "anthropic" },
-                  { label: "DeepSeek", value: "deepseek" },
-                  { label: "OpenRouter", value: "openrouter" },
+                  { group: "Built-in", items: [
+                    { value: "inherit",    label: "Auto (follow global routing)" },
+                    { value: "anthropic",  label: "Claude Max" },
+                    { value: "deepseek",   label: deepseekConfigured   ? "DeepSeek"   : "DeepSeek (not configured)",   disabled: !deepseekConfigured },
+                    { value: "openrouter", label: openrouterConfigured ? "OpenRouter" : "OpenRouter (not configured)", disabled: !openrouterConfigured },
+                  ] },
+                  ...(customProviders.length > 0 ? [{
+                    group: "Custom",
+                    items: customProviders.map(p => ({
+                      value: p.id,
+                      label: `${p.name} (${p.type === "openai" ? "OpenAI-like" : "Anthropic-like"})${p.api_key_set ? "" : " — no key"}`,
+                      disabled: !p.api_key_set,
+                    })),
+                  }] : []),
+                  // If current token references an orphan custom provider, show it so the value still renders
+                  ...(isOrphanProvider ? [{
+                    group: "Orphan",
+                    items: [{ value: providerValue, label: `${providerValue} (no longer exists)`, disabled: true }],
+                  }] : []),
                 ]}
               />
+              {isOrphanProvider && (
+                <Text size="xs" c="red" mt={4}>
+                  Provider <Code>{providerValue}</Code> no longer exists. Pick another provider to fix this token.
+                </Text>
+              )}
             </Box>
             <Box>
               <Group gap="xs" mb={4} justify="space-between">
