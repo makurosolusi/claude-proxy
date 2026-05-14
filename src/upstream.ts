@@ -273,7 +273,19 @@ export async function poll() {
   }
 }
 
+// Reads current poll interval from settings, falls back to config (env), floor 10s, ceiling 30 min
+function getCurrentPollMs(): number {
+  const raw = settings["poll_interval_ms"];
+  const n   = raw ? parseInt(raw) : NaN;
+  if (!Number.isFinite(n) || n < 10_000) return Math.max(10_000, config.pollMs);
+  if (n > 30 * 60_000) return 30 * 60_000;
+  return n;
+}
+
 export function startPoller() {
-  poll();
-  setInterval(poll, config.pollMs);
+  const tick = async () => {
+    try { await poll(); } catch (e) { console.error("[upstream] poll error:", e); }
+    setTimeout(tick, getCurrentPollMs());
+  };
+  tick();
 }

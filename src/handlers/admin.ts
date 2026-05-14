@@ -293,6 +293,15 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
+  if (pathname === "/admin/settings/poll-interval" && req.method === "POST") {
+    const seconds = parseInt(String(form?.get("seconds") || "").trim());
+    if (!Number.isFinite(seconds) || seconds < 10 || seconds > 1800) {
+      return Response.json({ ok: false, error: "Seconds must be 10–1800 (10s to 30 min)" }, { status: 400 });
+    }
+    await dbSaveSetting("poll_interval_ms", String(seconds * 1000));
+    return redirect();
+  }
+
   if (pathname === "/admin/logs/clear" && req.method === "POST") {
     const user = form ? String(form.get("user") || "").trim() : "";
     await dbClearLogs(user || undefined);
