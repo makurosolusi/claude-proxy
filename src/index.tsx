@@ -27,8 +27,9 @@ import { handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure 
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModels } from "./handlers/apiModels";
+import { handleApiCredits } from "./handlers/apiCredits";
 import { handleApiCustomProviders } from "./handlers/apiCustomProviders";
-import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, handleDbSync } from "./handlers/apiDbSync";
+import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, handleDbSync, loadSyncTokens } from "./handlers/apiDbSync";
 import { handleProxy }     from "./handlers/proxy";
 import { auth } from "./auth";
 import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
@@ -189,6 +190,7 @@ async function handleOpenRouterTest(): Promise<Response> {
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 await loadFromDb();
+loadSyncTokens();
 initFromEnv();
 await backfillUsers();
 process.on("SIGTERM", () => onShutdown("SIGTERM"));
@@ -727,6 +729,14 @@ server = serve({
       const m = new URL(req.url).pathname.match(/^\/api\/admin\/test\/([a-z][a-z0-9-]*)$/);
       if (!m) return Response.json({ error: "Bad provider id" }, { status: 400 });
       return handleCustomProviderTest(m[1]!);
+    },
+    "/api/admin/credits/deepseek": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiCredits(req, new URL(req.url));
+    },
+    "/api/admin/credits/openrouter": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiCredits(req, new URL(req.url));
     },
     "/api/admin/settings": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });

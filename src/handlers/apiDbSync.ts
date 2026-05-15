@@ -1,21 +1,50 @@
 import { prisma } from "../prisma";
-import { loadFromDb, backfillUsers, tokens, users, upstream, settings } from "../state";
+import { loadFromDb, backfillUsers, tokens, users, upstream, settings, dbSaveSetting } from "../state";
 
-// ── In-memory sync token store ────────────────────────────────────────────────
-// Tokens persist indefinitely; super-admin revokes manually. Single-operator
-// instance, so no automatic expiry needed.
+// ── Sync token store ──────────────────────────────────────────────────────────
+// Tokens persist indefinitely AND survive restarts (stored in `settings`
+// under SYNC_TOKENS_KEY as JSON). Super-admin revokes manually.
+// Single-operator instance — no concurrency hazards with this approach.
 
 interface SyncToken {
   token:      string;
   created_at: number;
 }
 
+const SYNC_TOKENS_KEY = "sync_tokens_v1";
 const syncTokens = new Map<string, SyncToken>();
+
+// Hydrate in-memory map from persisted settings. Called once from index.tsx
+// after the main state.loadFromDb() populates the `settings` cache.
+export function loadSyncTokens() {
+  syncTokens.clear();
+  const raw = settings[SYNC_TOKENS_KEY];
+  if (!raw) return;
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    for (const t of arr) {
+      if (t && typeof t.token === "string" && typeof t.created_at === "number") {
+        syncTokens.set(t.token, t);
+      }
+    }
+  } catch {}
+}
+
+// Fire-and-forget persistence. Failure here doesn't block the response —
+// worst case is a token that works in-memory until next restart.
+function persistAsync() {
+  const arr = [...syncTokens.values()];
+  dbSaveSetting(SYNC_TOKENS_KEY, JSON.stringify(arr)).catch(e =>
+    console.error("[apiDbSync] persist failed:", e.message)
+  );
+}
 
 export function generateSyncToken(): SyncToken {
   const token      = "sync-" + crypto.randomUUID().replace(/-/g, "");
   const entry: SyncToken = { token, created_at: Date.now() };
   syncTokens.set(token, entry);
+  persistAsync();
   return entry;
 }
 
@@ -24,7 +53,7 @@ export function validateSyncToken(token: string): boolean {
 }
 
 export function revokeSyncToken(token: string) {
-  syncTokens.delete(token);
+  if (syncTokens.delete(token)) persistAsync();
 }
 
 export function listSyncTokens(): SyncToken[] {
@@ -36,7 +65,7 @@ export function listSyncTokens(): SyncToken[] {
 export async function handleDbExport(req: Request): Promise<Response> {
   const token = new URL(req.url).searchParams.get("token") || "";
   if (!validateSyncToken(token)) {
-    return Response.json({ error: "Invalid or expired sync token" }, { status: 401 });
+    return Response.json({ error: "Invalid sync token" }, { status: 401 });
   }
 
   // Fetch semua tabel yang relevan secara paralel

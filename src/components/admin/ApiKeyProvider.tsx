@@ -6,7 +6,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import {
   IconWifi, IconCircleCheck, IconAlertTriangle, IconFileImport,
-  IconRobot, IconCloud,
+  IconRobot, IconCloud, IconCoin,
 } from "@tabler/icons-react";
 
 type ProviderId = "deepseek" | "openrouter";
@@ -59,6 +59,22 @@ const PROVIDERS: Record<ProviderId, ProviderConfig> = {
 
 interface SettingsData { [key: string]: string | undefined; }
 type TestResult = { ok: boolean; latency: number; detail?: string; error?: string };
+type BalanceResult = {
+  ok: boolean;
+  currency?:  string;
+  total?:     number | null;
+  used?:      number | null;
+  remaining?: number;
+  granted?:   number | null;
+  topped_up?: number | null;
+  error?:     string;
+};
+
+const fmtMoney = (n: number | null | undefined, cur = "USD"): string => {
+  if (n == null) return "—";
+  const sym = cur === "USD" ? "$" : cur === "CNY" ? "¥" : cur + " ";
+  return `${sym}${n.toFixed(2)}`;
+};
 
 export function ApiKeyProvider({ provider }: { provider: ProviderId }) {
   const cfg = PROVIDERS[provider];
@@ -68,6 +84,8 @@ export function ApiKeyProvider({ provider }: { provider: ProviderId }) {
   const [saving, setSaving]   = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [balance, setBalance]       = useState<BalanceResult | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
 
   const [importOpen, setImportOpen]       = useState(false);
   const [importContent, setImportContent] = useState("");
@@ -78,8 +96,23 @@ export function ApiKeyProvider({ provider }: { provider: ProviderId }) {
     fetch("/api/admin/settings")
       .then(r => r.json())
       .then((d: SettingsData) => {
-        if (d[cfg.settingsApiKeyField])  setApiKey(d[cfg.settingsApiKeyField] || "");
-        if (d[cfg.settingsBaseUrlField]) setBaseUrl(d[cfg.settingsBaseUrlField] || "");
+        const key = d[cfg.settingsApiKeyField] || "";
+        const url = d[cfg.settingsBaseUrlField] || "";
+        if (key) setApiKey(key);
+        if (url) setBaseUrl(url);
+        // Auto-fetch balance on mount when provider is configured.
+        // Cheap one-shot (no polling) — admin can manually refresh anytime.
+        if (key) {
+          setBalanceLoading(true);
+          fetch(`/api/admin/credits/${cfg.id}`)
+            .then(async r => {
+              const data = await r.json() as any;
+              if (!r.ok) setBalance({ ok: false, error: data.error || `HTTP ${r.status}` });
+              else       setBalance({ ok: true, ...data });
+            })
+            .catch(e => setBalance({ ok: false, error: e.message }))
+            .finally(() => setBalanceLoading(false));
+        }
       })
       .catch(() => {});
   }, [cfg]);
@@ -106,6 +139,18 @@ export function ApiKeyProvider({ provider }: { provider: ProviderId }) {
     } catch (e: any) {
       setTestResult({ ok: false, latency: 0, error: e.message });
     } finally { setTesting(false); }
+  };
+
+  const checkBalance = async () => {
+    setBalanceLoading(true); setBalance(null);
+    try {
+      const r = await fetch(`/api/admin/credits/${cfg.id}`);
+      const d = await r.json() as any;
+      if (!r.ok) setBalance({ ok: false, error: d.error || `HTTP ${r.status}` });
+      else       setBalance({ ok: true, ...d });
+    } catch (e: any) {
+      setBalance({ ok: false, error: e.message });
+    } finally { setBalanceLoading(false); }
   };
 
   const doImport = async () => {
@@ -176,6 +221,13 @@ export function ApiKeyProvider({ provider }: { provider: ProviderId }) {
           </Text>
           <Group gap="xs">
             <Button
+              size="xs" variant="light" color={cfg.color} radius="md"
+              onClick={checkBalance} loading={balanceLoading} disabled={!configured}
+              leftSection={balanceLoading ? undefined : <IconCoin size={13} />}
+            >
+              Check Balance
+            </Button>
+            <Button
               size="xs" variant="light" color="gray" radius="md"
               onClick={test} loading={testing} disabled={!configured}
               leftSection={testing ? undefined : <IconWifi size={13} />}
@@ -185,6 +237,61 @@ export function ApiKeyProvider({ provider }: { provider: ProviderId }) {
             <Button size="xs" onClick={() => save()} loading={saving} radius="md">Save</Button>
           </Group>
         </Group>
+        {balance && (
+          <Paper withBorder p="sm" radius="md" style={{
+            borderColor: `var(--mantine-color-${balance.ok ? cfg.color : "red"}-4)`,
+            background: `var(--mantine-color-${balance.ok ? cfg.color : "red"}-light)`,
+          }}>
+            {balance.ok ? (
+              <Stack gap={6}>
+                <Group gap="sm" wrap="nowrap" justify="space-between">
+                  <Group gap={6} wrap="nowrap">
+                    <ThemeIcon variant="light" color={cfg.color} size="sm" radius="sm">
+                      <IconCoin size={14} />
+                    </ThemeIcon>
+                    <Text size="xs" fw={700}>Sisa kredit</Text>
+                  </Group>
+                  <Text size="md" fw={700} ff="monospace" c={cfg.color}>
+                    {fmtMoney(balance.remaining, balance.currency)}
+                  </Text>
+                </Group>
+                <Group gap="lg" wrap="wrap">
+                  {balance.total != null && (
+                    <div>
+                      <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Total</Text>
+                      <Text size="xs" ff="monospace">{fmtMoney(balance.total, balance.currency)}</Text>
+                    </div>
+                  )}
+                  {balance.used != null && (
+                    <div>
+                      <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Terpakai</Text>
+                      <Text size="xs" ff="monospace">{fmtMoney(balance.used, balance.currency)}</Text>
+                    </div>
+                  )}
+                  {balance.granted != null && balance.granted > 0 && (
+                    <div>
+                      <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Granted</Text>
+                      <Text size="xs" ff="monospace">{fmtMoney(balance.granted, balance.currency)}</Text>
+                    </div>
+                  )}
+                  {balance.topped_up != null && balance.topped_up > 0 && (
+                    <div>
+                      <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Top-up</Text>
+                      <Text size="xs" ff="monospace">{fmtMoney(balance.topped_up, balance.currency)}</Text>
+                    </div>
+                  )}
+                </Group>
+              </Stack>
+            ) : (
+              <Group gap="sm" wrap="nowrap">
+                <ThemeIcon variant="light" color="red" size="sm" radius="sm">
+                  <IconAlertTriangle size={14} />
+                </ThemeIcon>
+                <Text size="xs" ff="monospace" c="red">{balance.error}</Text>
+              </Group>
+            )}
+          </Paper>
+        )}
         {testResult && (
           <Paper withBorder p="sm" radius="md" style={{
             borderColor: `var(--mantine-color-${testResult.ok ? "teal" : "red"}-4)`,
