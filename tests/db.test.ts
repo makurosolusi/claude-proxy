@@ -15,7 +15,7 @@ import { prisma } from "../src/prisma";
 import {
   tokens, users, dailyUsage,
   dbInsertToken, dbInsertEnvToken, dbUpdateToken, dbSoftDelete, dbResetToken,
-  dbResetAllTokens, dbAlignAllTokens, dbRenameToken, dbUpdateUsage, dbUpdateProvider,
+  dbResetAllTokens, dbAlignAllTokens, dbUpdateUsage, dbUpdateProvider,
   dbUpsertUser, dbUpdateUser, dbDeleteUser, dbLinkTokenToUser, dbSetUserRole,
   dbUpsertDailyUsage, dbSaveSetting, dbGetSetting, dbLogRequest,
   dbQueryLogs, dbCountLogs, dbGetLog, dbClearLogs, dbGetTokenNames, dbGetTokenKeys,
@@ -32,8 +32,8 @@ function makeTokenEntry(overrides: Partial<TokenEntry> = {}): TokenEntry {
   return {
     limit: 50000, window: 18_000_000, used: 0,
     windowStart: Date.now(), paused: false, dynamic: true,
-    mode: "inherit", provider: "inherit", name: "test-fixture", user_id: TEST_UID,
-    label: "", description: "", pinned_model: "",
+    mode: "inherit", provider: "inherit", user_id: TEST_UID,
+    label: "test-fixture", description: "", pinned_model: "",
     ...overrides,
   };
 }
@@ -77,7 +77,7 @@ describe("dbInsertToken / dbInsertEnvToken", () => {
     await dbInsertToken(TEST_KEY, entry);
     const row = await prisma.tokens.findUnique({ where: { key: TEST_KEY } });
     expect(row).not.toBeNull();
-    expect(row!.name).toBe("test-fixture");
+    expect(row!.label).toBe("test-fixture");
     expect(Number(row!.lim)).toBe(50000);
   });
 
@@ -103,7 +103,7 @@ describe("dbInsertToken / dbInsertEnvToken", () => {
   });
 });
 
-describe("dbUpdateToken / dbUpdateUsage / dbRenameToken", () => {
+describe("dbUpdateToken / dbUpdateUsage / dbUpdateProvider", () => {
   beforeAll(async () => {
     await dbInsertToken(TEST_KEY, makeTokenEntry());
   });
@@ -123,12 +123,6 @@ describe("dbUpdateToken / dbUpdateUsage / dbRenameToken", () => {
     await dbUpdateUsage(TEST_KEY, 12345);
     const row = await prisma.tokens.findUnique({ where: { key: TEST_KEY } });
     expect(Number(row!.used)).toBe(12345);
-  });
-
-  test("dbRenameToken updates name", async () => {
-    await dbRenameToken(TEST_KEY, "renamed-token");
-    const row = await prisma.tokens.findUnique({ where: { key: TEST_KEY } });
-    expect(row!.name).toBe("renamed-token");
   });
 
   test("dbUpdateProvider changes provider", async () => {
@@ -267,7 +261,7 @@ describe("dbLogRequest / dbQueryLogs / dbCountLogs / dbGetLog", () => {
     // Ensure token exists for foreign key if needed
     await prisma.tokens.upsert({
       where: { key: LOG_KEY },
-      create: { key: LOG_KEY, name: "log-test", user_id: "log-user", win: BigInt(18_000_000), window_start: BigInt(Date.now()) },
+      create: { key: LOG_KEY, label: "log-test", user_id: "log-user", win: BigInt(18_000_000), window_start: BigInt(Date.now()) },
       update: {},
     });
   });
@@ -357,8 +351,8 @@ describe("dbGetTokenNames / dbGetTokenKeys", () => {
   beforeAll(async () => {
     await prisma.tokens.upsert({
       where: { key: TEST_KEY },
-      create: { key: TEST_KEY, name: "fixture-name", user_id: "", win: BigInt(18_000_000), window_start: BigInt(Date.now()) },
-      update: { name: "fixture-name" },
+      create: { key: TEST_KEY, label: "fixture-name", user_id: "", win: BigInt(18_000_000), window_start: BigInt(Date.now()) },
+      update: { label: "fixture-name" },
     });
     await prisma.request_logs.create({
       data: {

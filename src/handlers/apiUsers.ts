@@ -27,7 +27,7 @@ export async function handleApiUsers(
           const alltime = allTimePerUser[u.id] ?? allTimePerUser[key] ?? 0;
           return {
             key,
-            name: tk.name, used: tk.used, limit,
+            used: tk.used, limit,
             paused: tk.paused, provider: tk.provider,
             dynamic: tk.dynamic,
             pct, today: todayV, alltime,
@@ -64,13 +64,6 @@ export async function handleApiUsers(
     users[id].name = newName;
     users[id].description = newDesc;
     await dbUpdateUser(id, newName, newDesc);
-    // Update display name on active tokens for this user
-    for (const [key, tk] of Object.entries(tokens)) {
-      if (tk.user_id === id) {
-        tk.name = newName;
-        await prisma.tokens.update({ where: { key }, data: { name: newName } });
-      }
-    }
     triggerBroadcast();
     return Response.json({ ok: true });
   }

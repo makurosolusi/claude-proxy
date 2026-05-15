@@ -45,24 +45,48 @@ export function deriveNameFromKey(key: string): string {
   return parts[parts.length - 1] || key;
 }
 
+// Best-effort display name combining label + owner. Used where a single string
+// is needed (logs, alerts). Public/Live Feed views should prefer the explicit
+// resolveOwnerName + resolveTokenLabel pair for the user→token hierarchy.
 export function resolveTokenName(key: string, tk?: TokenEntry): string {
   if (tk?.label) return tk.label;
-  if (tk?.user_id && users[tk.user_id]) {
-    return users[tk.user_id].name || users[tk.user_id].email || tk.user_id;
-  }
-  if (tk?.name) return tk.name;
+  const owner = resolveOwnerName(tk);
+  if (owner) return owner;
   return deriveNameFromKey(key);
+}
+
+// Owner identity — name of the human who owns the token. Empty when orphan/anonymous.
+// Image lookup is done at the frontend via userImages map keyed by owner name.
+export function resolveOwnerName(tk?: TokenEntry): string {
+  if (tk?.user_id && users[tk.user_id]) {
+    return users[tk.user_id].name || users[tk.user_id].email || "";
+  }
+  return "";
+}
+
+// Token routing label — distinct from owner identity. Returns empty string when
+// no explicit label is set; callers decide how to render unlabeled tokens
+// (typically as model/provider info). NOTE: tk.name is a legacy mirror of
+// user.name and is deliberately NOT used as fallback, since that would duplicate
+// the owner display in the new user→token hierarchy.
+export function resolveTokenLabel(_key: string, tk?: TokenEntry): string {
+  return tk?.label || "";
 }
 
 function rowToLog(r: any): RequestLogEntry {
   const key  = r.token_key || "";
+  const tk   = tokens[key];
   const name = r.name || deriveNameFromKey(key);
+  const ownerName  = resolveOwnerName(tk);
+  const tokenLabel = resolveTokenLabel(key, tk);
   return {
     id:             r.id || 0,
     ts:             typeof r.ts === "bigint" ? Number(r.ts) : (r.ts || 0),
     token_key:      key,
-    user_id:        r.user_id || tokens[key]?.user_id || "",
+    user_id:        r.user_id || tk?.user_id || "",
     name,
+    owner_name:     ownerName,
+    token_label:    tokenLabel,
     model:          r.model || "",
     input_tokens:   r.input_tokens || 0,
     output_tokens:  r.output_tokens || 0,
@@ -87,7 +111,7 @@ export async function dbInsertEnvToken(key: string, entry: TokenEntry) {
   await prisma.tokens.upsert({
     where: { key },
     create: {
-      key, name: entry.name, user_id: entry.user_id || "",
+      key, user_id: entry.user_id || "",
       lim: toLim(entry.limit), win: BigInt(entry.window), used: BigInt(entry.used),
       window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: false, provider: entry.provider || "inherit",
@@ -101,7 +125,7 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
   await prisma.tokens.upsert({
     where: { key },
     create: {
-      key, name: entry.name, user_id: entry.user_id || "",
+      key, user_id: entry.user_id || "",
       lim: toLim(entry.limit), win: BigInt(entry.window), used: BigInt(entry.used),
       window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
@@ -109,7 +133,7 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
       label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
     },
     update: {
-      name: entry.name, user_id: entry.user_id || "",
+      user_id: entry.user_id || "",
       lim: toLim(entry.limit), win: BigInt(entry.window), used: BigInt(entry.used),
       window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
@@ -163,10 +187,6 @@ export async function dbDeleteUser(id: string) {
 
 export async function dbLinkTokenToUser(key: string, userId: string) {
   await prisma.tokens.update({ where: { key }, data: { user_id: userId } });
-}
-
-export async function dbRenameToken(key: string, newName: string) {
-  await prisma.tokens.update({ where: { key }, data: { name: newName } });
 }
 
 export async function dbUpdateUsage(key: string, used: number) {
@@ -258,8 +278,11 @@ export async function dbGetSetting(key: string): Promise<string | null> {
   return row?.value ?? null;
 }
 
-export async function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
-  const uid = tokens[entry.token_key]?.user_id || entry.user_id || entry.token_key;
+// Projection-only fields (owner_name, token_label) are resolved at insert time
+// from runtime token state, not stored in the DB.
+export async function dbLogRequest(entry: Omit<RequestLogEntry, "id" | "owner_name" | "token_label">) {
+  const tk  = tokens[entry.token_key];
+  const uid = tk?.user_id || entry.user_id || entry.token_key;
   const inserted = await prisma.request_logs.create({
     data: {
       ts:             BigInt(entry.ts),
@@ -287,7 +310,13 @@ export async function dbLogRequest(entry: Omit<RequestLogEntry, "id">) {
 
   totalTokensAllTime += entry.input_tokens + entry.output_tokens + (entry.cache_read || 0) + (entry.cache_creation || 0);
   allTimePerUser[uid] = (allTimePerUser[uid] || 0) + entry.input_tokens + entry.output_tokens;
-  const full: RequestLogEntry = { id: inserted.id, ...entry, user_id: uid };
+  const full: RequestLogEntry = {
+    id:          inserted.id,
+    ...entry,
+    user_id:     uid,
+    owner_name:  resolveOwnerName(tk),
+    token_label: resolveTokenLabel(entry.token_key, tk),
+  };
   recentLogs.unshift(full);
   if (recentLogs.length > 200) recentLogs.pop();
 }
@@ -379,15 +408,11 @@ export async function loadFromDb() {
       dynamic:      row.dynamic,
       mode:         "inherit",
       provider:     (row.provider as import("./types").TokenProvider) || "inherit",
-      name:         row.name || deriveNameFromKey(row.key),
       user_id:      row.user_id || "",
       label:        (row as any).label || "",
       description:  (row as any).description || "",
       pinned_model: (row as any).pinned_model || "",
     };
-    if (!row.name) {
-      await prisma.tokens.update({ where: { key: row.key }, data: { name: tokens[row.key]!.name } });
-    }
     if (expired) {
       await prisma.tokens.update({ where: { key: row.key }, data: { used: BigInt(0), window_start: BigInt(now) } });
     }
@@ -429,16 +454,6 @@ export async function loadFromDb() {
   const logCutoff = BigInt(now - 30 * 86400000);
   await prisma.request_logs.deleteMany({ where: { ts: { lt: logCutoff } } });
 
-  // Backfill name in request_logs for old rows
-  const allTokenRows = await prisma.tokens.findMany({ select: { key: true, name: true } });
-  for (const r of allTokenRows) {
-    const n = r.name || deriveNameFromKey(r.key);
-    await prisma.request_logs.updateMany({
-      where: { token_key: r.key, name: "" },
-      data: { name: n },
-    });
-  }
-
   // Load recent logs (last 200)
   const logRows = await prisma.request_logs.findMany({ orderBy: { ts: "desc" }, take: 200 });
   for (const row of logRows) recentLogs.push(rowToLog(row));
@@ -464,53 +479,20 @@ export async function loadFromDb() {
   console.log(`DB loaded: ${tokenRows.length} token(s), ${logRows.length} log(s)`);
 }
 
-// ── Backfill users ────────────────────────────────────────────────────────────
+// ── Backfill user_id on request_logs / daily_usage from tokens.user_id ────────
+// Active tokens have user_id set; this propagates that to log/usage rows that
+// pre-date the user system. Deleted tokens are skipped — without the legacy
+// tokens.name mirror there's no fallback for orphan user seeding.
 export async function backfillUsers() {
-  const now = Date.now();
-
   for (const [key, tk] of Object.entries(tokens)) {
-    let uid = tk.user_id;
-    if (!uid) {
-      const base = slugify(tk.name);
-      uid = users[base] ? base : ensureUniqueSlug(base, users);
-    }
-    if (!users[uid]) {
-      const entry: UserEntry = { id: uid, name: tk.name, email: "", description: "", created_at: now, role: "USER", status: "pending" };
-      users[uid] = entry;
-      await prisma.users.upsert({
-        where: { id: uid },
-        create: { id: uid, name: tk.name, email: "", description: "", created_at: BigInt(now), role: "USER", status: "pending" },
-        update: {},
-      });
-    }
-    if (!tk.user_id) {
-      tk.user_id = uid;
-      await prisma.tokens.update({ where: { key }, data: { user_id: uid } });
-    }
-    await prisma.request_logs.updateMany({
-      where: { token_key: key, user_id: "" },
-      data: { user_id: uid },
-    });
-    await prisma.daily_usage.updateMany({
-      where: { token_key: key, user_id: "" },
-      data: { user_id: uid },
-    });
-  }
-
-  // Deleted tokens backfill
-  const deletedRows = await prisma.tokens.findMany({
-    where: { deleted: true },
-    select: { key: true, name: true, user_id: true },
-  });
-  for (const r of deletedRows) {
-    const uid = r.user_id || slugify(r.name || deriveNameFromKey(r.key));
+    const uid = tk.user_id;
     if (!uid) continue;
     await prisma.request_logs.updateMany({
-      where: { token_key: r.key, user_id: "" },
+      where: { token_key: key, user_id: "" },
       data: { user_id: uid },
     });
     await prisma.daily_usage.updateMany({
-      where: { token_key: r.key, user_id: "" },
+      where: { token_key: key, user_id: "" },
       data: { user_id: uid },
     });
   }

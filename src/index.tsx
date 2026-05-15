@@ -642,17 +642,17 @@ server = serve({
     },
 
     // ── DB Sync ──────────────────────────────────────────────────────────────
-    // Generate one-time sync token (stg side)
+    // Generate sync token (stg side) — persists until revoked
     "/api/admin/db/generate-sync-token": async req => {
       if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       const entry = generateSyncToken();
-      return Response.json({ token: entry.token, expires_at: new Date(entry.expires_at).toISOString() });
+      return Response.json({ token: entry.token, created_at: new Date(entry.created_at).toISOString() });
     },
     // List active sync tokens (stg side)
     "/api/admin/db/sync-tokens": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-      return Response.json({ tokens: listSyncTokens().map(t => ({ token: t.token.slice(0, 12) + "…", expires_at: new Date(t.expires_at).toISOString() })) });
+      return Response.json({ tokens: listSyncTokens().map(t => ({ token: t.token, created_at: new Date(t.created_at).toISOString() })) });
     },
     // Revoke sync token (stg side)
     "/api/admin/db/revoke-sync-token": async req => {
@@ -885,7 +885,6 @@ server = serve({
     "/admin/token/pause":        async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/delete":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/rotate":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/rename":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/provider":     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/meta":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/pin-model":    async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },

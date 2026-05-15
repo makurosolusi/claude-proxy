@@ -22,9 +22,8 @@ export interface TokenEntry {
   dynamic:      boolean;
   mode:         "inherit" | "direct" | "cliproxy";
   provider:     TokenProvider;
-  name:         string;   // display name, mirrors user.name for active tokens
-  user_id:      string;   // references users.id
-  label:        string;   // admin-set label (preferred over name when displaying)
+  user_id:      string;   // references users.id — owner identity comes from here
+  label:        string;   // admin-set explicit label, optional
   description:  string;   // admin-set description
   pinned_model: string;   // if non-empty, force this model for all requests on this token
 }
@@ -60,7 +59,9 @@ export interface RequestLogEntry {
   ts:             number;
   token_key:      string;
   user_id:        string;   // references users.id (backfilled for old rows)
-  name:           string;   // snapshot of token display name at request time
+  name:           string;   // legacy snapshot of token display name at request time
+  owner_name:     string;   // current owner display name (resolved from tokens[].user_id)
+  token_label:    string;   // current token routing label (distinct from owner)
   model:          string;
   input_tokens:   number;
   output_tokens:  number;

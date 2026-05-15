@@ -84,6 +84,16 @@ function groupLogs(logs: LogEntry[], newIds: Set<number>): LogGroup[] {
 }
 
 
+// Derive display identity for a log entry: owner takes precedence over token label.
+// Orphan logs (no owner) fall back to token_label, then legacy name, then last 8 of key.
+function deriveDisplay(l: LogEntry): { primary: string; secondary: string } {
+  const owner   = l.owner_name || "";
+  const tokLbl  = l.token_label || l.name || l.token_key.slice(-8);
+  const primary = owner || tokLbl;
+  const secondary = owner && tokLbl && tokLbl !== owner ? tokLbl : "";
+  return { primary, secondary };
+}
+
 function FeedEntry({
   log: l, isNew, onClick, compact = false, imageUrl,
 }: {
@@ -93,7 +103,7 @@ function FeedEntry({
   const total  = l.input_tokens + l.output_tokens + l.cache_read + l.cache_creation;
   const model  = modelShort(l.model);
   const mColor = modelColor(l.model);
-  const name   = l.name || l.token_key.slice(-8);
+  const { primary, secondary } = deriveDisplay(l);
 
   return (
     <Box
@@ -108,14 +118,21 @@ function FeedEntry({
       }}
     >
       <Group gap={8} wrap="nowrap" align="flex-start">
-        {!compact && <UserAvatar name={name} imageUrl={imageUrl} isErr={isErr} />}
+        {!compact && <UserAvatar name={primary} imageUrl={imageUrl} isErr={isErr} />}
 
         <Box style={{ flex: 1, minWidth: 0 }}>
           <Group justify="space-between" wrap="nowrap" mb={compact ? 0 : 3}>
             {!compact && (
-              <Text fz={12} fw={600} truncate style={{ letterSpacing: "-0.01em", maxWidth: "65%" }}>
-                {name}
-              </Text>
+              <Group gap={6} wrap="nowrap" style={{ maxWidth: "65%", minWidth: 0 }}>
+                <Text fz={12} fw={600} truncate style={{ letterSpacing: "-0.01em" }}>
+                  {primary}
+                </Text>
+                {secondary && (
+                  <Text fz={10} c="dimmed" ff="Geist Mono, monospace" truncate>
+                    via {secondary}
+                  </Text>
+                )}
+              </Group>
             )}
             <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ flexShrink: 0, marginLeft: compact ? "auto" : undefined }}>
               {fmtAge(l.ts)}
@@ -177,7 +194,7 @@ function GroupedEntry({
   const isErr  = l.status >= 400;
   const model  = modelShort(l.model);
   const mColor = modelColor(l.model);
-  const name   = l.name || l.token_key.slice(-8);
+  const { primary, secondary } = deriveDisplay(l);
   const count  = group.entries.length;
   const isNew  = group.hasNew;
 
@@ -190,14 +207,19 @@ function GroupedEntry({
         style={{ padding: "9px 14px", borderBottom: "1px solid var(--cp-border)", cursor: "pointer" }}
       >
         <Group gap={8} wrap="nowrap" align="flex-start">
-          <UserAvatar name={name} imageUrl={imageUrl} isErr={isErr} />
+          <UserAvatar name={primary} imageUrl={imageUrl} isErr={isErr} />
 
           <Box style={{ flex: 1, minWidth: 0 }}>
             <Group justify="space-between" wrap="nowrap" mb={3}>
-              <Group gap={6} wrap="nowrap" style={{ maxWidth: "65%" }}>
+              <Group gap={6} wrap="nowrap" style={{ maxWidth: "65%", minWidth: 0 }}>
                 <Text fz={12} fw={600} truncate style={{ letterSpacing: "-0.01em" }}>
-                  {name}
+                  {primary}
                 </Text>
+                {secondary && (
+                  <Text fz={10} c="dimmed" ff="Geist Mono, monospace" truncate>
+                    via {secondary}
+                  </Text>
+                )}
                 <Badge
                   size="xs" variant="filled" color="gray"
                   style={{ fontSize: 10, fontFamily: "Geist Mono, monospace", cursor: "default", flexShrink: 0 }}
@@ -411,8 +433,8 @@ export function LiveFeed({ wsSignal }: LiveFeedProps) {
           </Stack>
         ) : (
           groups.map(group => {
-            const name = group.head.name || group.head.token_key.slice(-8);
-            const imageUrl = userImages[name];
+            // Image lookup keyed by owner name. Orphan groups (no owner) get no image.
+            const imageUrl = group.head.owner_name ? userImages[group.head.owner_name] : undefined;
             return group.entries.length === 1
               ? <FeedEntry
                   key={group.key}

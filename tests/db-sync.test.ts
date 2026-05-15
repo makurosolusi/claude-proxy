@@ -23,14 +23,7 @@ describe("generateSyncToken", () => {
   test("returns token with correct shape", () => {
     const t = generateSyncToken();
     expect(t.token).toMatch(/^sync-[a-f0-9]{32}$/);
-    expect(t.expires_at).toBeGreaterThan(Date.now());
     expect(t.created_at).toBeLessThanOrEqual(Date.now());
-  });
-
-  test("expires_at is ~1 hour from now", () => {
-    const t = generateSyncToken();
-    const diff = t.expires_at - t.created_at;
-    expect(diff).toBeCloseTo(60 * 60 * 1000, -3); // within 1 second
   });
 
   test("each token is unique", () => {
@@ -71,15 +64,14 @@ describe("revokeSyncToken", () => {
 describe("listSyncTokens", () => {
   beforeEach(() => {
     // revoke all existing tokens untuk isolasi
-    for (const t of listSyncTokens()) revokeSyncToken(t.token.replace("…", ""));
+    for (const t of listSyncTokens()) revokeSyncToken(t.token);
   });
 
-  test("returns only active (non-expired) tokens", () => {
+  test("returns active tokens", () => {
     const { token } = generateSyncToken();
     const list = listSyncTokens();
     expect(list.length).toBeGreaterThanOrEqual(1);
-    // Token di list adalah prefix (masked), cukup cek ada entry
-    expect(list.some(t => t.expires_at > Date.now())).toBe(true);
+    expect(list.some(t => t.token === token)).toBe(true);
     revokeSyncToken(token);
   });
 });
@@ -114,7 +106,7 @@ describe("handleDbExport", () => {
     expect(body.tables).toBeDefined();
 
     // Semua tabel harus ada dalam payload
-    const expectedTables = ["users", "tokens", "request_logs", "daily_usage", "upstream_state", "model_routes", "settings"];
+    const expectedTables = ["users", "tokens", "request_logs", "daily_usage", "upstream_state", "settings"];
     for (const tbl of expectedTables) {
       expect(body.tables).toHaveProperty(tbl);
     }
@@ -132,7 +124,6 @@ describe("handleDbExport", () => {
     expect(Array.isArray(body.tables.tokens)).toBe(true);
     expect(Array.isArray(body.tables.request_logs)).toBe(true);
     expect(Array.isArray(body.tables.daily_usage)).toBe(true);
-    expect(Array.isArray(body.tables.model_routes)).toBe(true);
     expect(Array.isArray(body.tables.settings)).toBe(true);
     // upstream_state: single object or null
     expect(body.tables.upstream_state === null || typeof body.tables.upstream_state === "object").toBe(true);

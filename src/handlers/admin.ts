@@ -1,4 +1,4 @@
-import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbRenameToken, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
 import { prisma } from "../prisma";
 import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
@@ -79,7 +79,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     const entry: TokenEntry = {
       limit: parsed, window: config.windowMs,
       used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit", provider: "inherit",
-      name: users[uid]?.name ?? displayName,
       user_id: uid,
       label, description, pinned_model: "",
     };
@@ -143,16 +142,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
     await dbSoftDelete(target);
     delete tokens[target];
-    return redirect();
-  }
-
-  if (pathname === "/admin/token/rename" && req.method === "POST") {
-    const target  = String(form?.get("token") || "").trim();
-    const newName = String(form?.get("name")  || "").trim();
-    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
-    if (!newName)                   return new Response("Name required\n",   { status: 400 });
-    tokens[target].name = newName;
-    await dbRenameToken(target, newName);
     return redirect();
   }
 
@@ -266,12 +255,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     users[uid].name        = newName;
     users[uid].description = newDesc;
     await dbUpdateUser(uid, newName, newDesc);
-    for (const [key, tk] of Object.entries(tokens)) {
-      if (tk.user_id === uid) {
-        tk.name = newName;
-        await prisma.tokens.update({ where: { key }, data: { name: newName } });
-      }
-    }
     return redirect();
   }
 

@@ -1,4 +1,4 @@
-import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, settings, resolveTokenName } from "../state";
+import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, settings, resolveTokenName, resolveOwnerName, resolveTokenLabel } from "../state";
 import type { ContextAlert, ThresholdAlert, UserInsight, UserProfile } from "../contexts";
 import { todayKey } from "../tokens";
 import { getCustomProvider } from "../customProviders";
@@ -126,9 +126,14 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
       : effectiveProvider === "openrouter" ? (settings["openrouter_model"] || "anthropic/claude-sonnet-4")
       : null;
     const resolvedName = resolveTokenName(k, tk);
+    const ownerName    = resolveOwnerName(tk);
+    const tokenLabel   = resolveTokenLabel(k, tk);
     tokenData[k] = {
       label:           resolvedName,
       name:            resolvedName,
+      user_id:         tk.user_id || "",
+      owner_name:      ownerName,
+      token_label:     tokenLabel,
       used:            tk.used,
       limit:           tk.limit === Infinity ? null : tk.limit,
       remaining:       tk.limit === Infinity ? null : Math.max(0, tk.limit - tk.used),

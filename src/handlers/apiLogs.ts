@@ -1,9 +1,12 @@
-import { dbQueryLogs, dbCountLogs, dbGetLog, dbGetTokenNames, tokens } from "../state";
+import { dbQueryLogs, dbCountLogs, dbGetLog, dbGetTokenNames, tokens, resolveOwnerName } from "../state";
 
 function maskLog(log: any, isAdmin: boolean) {
   return {
     id: log.id, ts: log.ts,
     name: log.name,
+    owner_name:    log.owner_name,
+    token_label:   log.token_label,
+    user_id:       log.user_id,
     token_key:     isAdmin ? log.token_key : log.name,
     model:         log.model,
     input_tokens:  log.input_tokens, output_tokens: log.output_tokens,
@@ -33,8 +36,11 @@ export async function handleApiLogs(req: Request, url: URL, isAdmin = false): Pr
   const limit      = Math.min(100, Math.max(10, parseInt(url.searchParams.get("limit") || "25")));
   const nameFilter = url.searchParams.get("user") || "";
 
+  // Filter by either owner name, token label, or raw key suffix
   const tokenKey = nameFilter
-    ? (Object.entries(tokens).find(([, v]) => v.name === nameFilter)?.[0] ?? nameFilter)
+    ? (Object.entries(tokens).find(([k, v]) =>
+        resolveOwnerName(v) === nameFilter || v.label === nameFilter || k === nameFilter
+      )?.[0] ?? nameFilter)
     : "";
 
   const [logs, total, names] = await Promise.all([

@@ -62,7 +62,7 @@ export const auth = betterAuth({
             window: config.windowMs,
             used: 0, windowStart: Date.now(),
             paused: true, dynamic: true, mode: "inherit", provider: "inherit",
-            name: entry.name, user_id: id,
+            user_id: id,
             label: "", description: "", pinned_model: "",
           };
           tokens[tokenKey] = tokenEntry;

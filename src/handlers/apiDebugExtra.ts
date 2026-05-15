@@ -1,6 +1,6 @@
 import { config }  from "../config";
 import { prisma }  from "../prisma";
-import { tokens, upstream } from "../state";
+import { tokens, upstream, resolveTokenName } from "../state";
 import { getInFlight } from "../tokens";
 
 function checkMcpSecret(req: Request): boolean {
@@ -38,7 +38,7 @@ export async function handleDebugToken(req: Request, url: URL): Promise<Response
 
   return Response.json({
     key_suffix:   key.slice(-8),
-    name:         tk.name,
+    name:         resolveTokenName(key, tk),
     user_id:      tk.user_id,
     provider:     tk.provider,
     paused:       tk.paused,
@@ -137,7 +137,7 @@ export function handleDebugQuotaPressure(req: Request): Response {
       const headroom  = limit === null ? null : Math.max(0, limit - used - inFlight);
       return {
         key_suffix:   key.slice(-8),
-        name:         tk.name,
+        name:         resolveTokenName(key, tk),
         used, limit, remaining,
         in_flight:    inFlight,
         headroom,

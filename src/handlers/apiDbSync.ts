@@ -1,37 +1,25 @@
 import { prisma } from "../prisma";
 import { loadFromDb, backfillUsers, tokens, users, upstream, settings } from "../state";
 
-// ── In-memory sync token store (TTL 1 jam) ───────────────────────────────────
-
-const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+// ── In-memory sync token store ────────────────────────────────────────────────
+// Tokens persist indefinitely; super-admin revokes manually. Single-operator
+// instance, so no automatic expiry needed.
 
 interface SyncToken {
   token:      string;
   created_at: number;
-  expires_at: number;
 }
 
 const syncTokens = new Map<string, SyncToken>();
 
-function pruneExpired() {
-  const now = Date.now();
-  for (const [k, v] of syncTokens) {
-    if (v.expires_at <= now) syncTokens.delete(k);
-  }
-}
-
 export function generateSyncToken(): SyncToken {
-  pruneExpired();
   const token      = "sync-" + crypto.randomUUID().replace(/-/g, "");
-  const created_at = Date.now();
-  const expires_at = created_at + TOKEN_TTL_MS;
-  const entry: SyncToken = { token, created_at, expires_at };
+  const entry: SyncToken = { token, created_at: Date.now() };
   syncTokens.set(token, entry);
   return entry;
 }
 
 export function validateSyncToken(token: string): boolean {
-  pruneExpired();
   return syncTokens.has(token);
 }
 
@@ -40,7 +28,6 @@ export function revokeSyncToken(token: string) {
 }
 
 export function listSyncTokens(): SyncToken[] {
-  pruneExpired();
   return [...syncTokens.values()];
 }
 

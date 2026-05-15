@@ -15,7 +15,7 @@ import { notifications } from "@mantine/notifications";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface SyncTokenInfo { token: string; expires_at: string; }
+interface SyncTokenInfo { token: string; created_at: string; }
 interface SyncStats {
   users?: number; tokens?: number; request_logs?: number;
   daily_usage?: number; upstream_state?: number;
@@ -43,8 +43,10 @@ function fmtBytes(bytes: number) {
   return (bytes / 1024).toFixed(0) + " KB";
 }
 
-function fmtExpiry(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function fmtCreated(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " +
+         d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 // ── Section: Generate sync token ─────────────────────────────────────────────
@@ -52,7 +54,6 @@ function fmtExpiry(iso: string) {
 function GenerateTokenSection() {
   const [loading, setLoading]           = useState(false);
   const [token, setToken]               = useState<string | null>(null);
-  const [expiresAt, setExpiresAt]       = useState<string | null>(null);
   const [activeTokens, setActiveTokens] = useState<SyncTokenInfo[]>([]);
   const [loadingList, setLoadingList]   = useState(false);
 
@@ -71,12 +72,25 @@ function GenerateTokenSection() {
     setLoading(true);
     try {
       const r = await fetch("/api/admin/db/generate-sync-token", { method: "POST" });
-      const d = await r.json() as { token: string; expires_at: string };
-      setToken(d.token); setExpiresAt(d.expires_at);
+      const d = await r.json() as { token: string; created_at: string };
+      setToken(d.token);
       loadTokens();
     } catch {
       notifications.show({ color: "red", message: "Failed to generate token", autoClose: 3000 });
     } finally { setLoading(false); }
+  };
+
+  const revoke = async (tok: string) => {
+    try {
+      await fetch("/api/admin/db/revoke-sync-token", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: tok }),
+      });
+      if (token === tok) setToken(null);
+      loadTokens();
+    } catch {
+      notifications.show({ color: "red", message: "Failed to revoke token", autoClose: 3000 });
+    }
   };
 
   return (
@@ -85,7 +99,7 @@ function GenerateTokenSection() {
         <ThemeIcon variant="light" color="blue" size="lg" radius="md"><IconKey size={18} /></ThemeIcon>
         <div>
           <Text fw={700} size="sm">Generate Sync Token</Text>
-          <Text size="xs" c="dimmed">Token untuk instance lain pull data dari sini</Text>
+          <Text size="xs" c="dimmed">Token untuk instance lain pull data dari sini — persist sampai dihapus manual</Text>
         </div>
       </Group>
 
@@ -95,7 +109,7 @@ function GenerateTokenSection() {
 
       {token && (
         <Alert color="blue" variant="light" icon={<IconShieldCheck size={16} />} mb="md" radius="md">
-          <Text size="xs" fw={600} mb={6}>Salin sekarang — tidak akan ditampilkan lagi:</Text>
+          <Text size="xs" fw={600} mb={6}>Token baru:</Text>
           <Group gap="xs" wrap="nowrap">
             <Code style={{ flex: 1, wordBreak: "break-all", fontSize: 11 }}>{token}</Code>
             <CopyButton value={token}>
@@ -108,7 +122,6 @@ function GenerateTokenSection() {
               )}
             </CopyButton>
           </Group>
-          {expiresAt && <Text size="xs" c="dimmed" mt={4}>Expires {fmtExpiry(expiresAt)} · 1 hour</Text>}
         </Alert>
       )}
 
@@ -122,8 +135,22 @@ function GenerateTokenSection() {
         <Stack gap={6}>
           {activeTokens.map((t, i) => (
             <Group key={i} gap="xs" wrap="nowrap" style={{ background: "var(--mantine-color-default-hover)", borderRadius: 6, padding: "6px 10px" }}>
-              <Code style={{ flex: 1, fontSize: 11 }}>{t.token}</Code>
-              <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>exp {fmtExpiry(t.expires_at)}</Text>
+              <Code style={{ flex: 1, fontSize: 11, wordBreak: "break-all" }}>{t.token}</Code>
+              <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{fmtCreated(t.created_at)}</Text>
+              <CopyButton value={t.token}>
+                {({ copied, copy }) => (
+                  <Tooltip label={copied ? "Copied!" : "Copy"} withArrow>
+                    <ActionIcon variant="subtle" color={copied ? "teal" : "gray"} size="sm" onClick={copy}>
+                      {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+              </CopyButton>
+              <Tooltip label="Revoke" withArrow>
+                <ActionIcon variant="subtle" color="red" size="sm" onClick={() => revoke(t.token)}>
+                  <IconTrash size={13} />
+                </ActionIcon>
+              </Tooltip>
             </Group>
           ))}
         </Stack>

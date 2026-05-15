@@ -84,7 +84,7 @@ export async function handleApiCompetition(currentUserId: string): Promise<Respo
   for (const [key, tk] of Object.entries(tokens)) {
     if (!tk.user_id) continue;
     const u = users[tk.user_id];
-    userTokenMap[key] = { name: u?.name || tk.name, userId: tk.user_id };
+    userTokenMap[key] = { name: u?.name || tk.label || key, userId: tk.user_id };
   }
 
   // Merge today rows dengan streak

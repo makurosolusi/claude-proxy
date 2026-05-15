@@ -2,6 +2,8 @@ import { createContext, useContext } from "react";
 
 export interface TokenStatus {
   label: string; name: string; user_id: string;
+  owner_name:    string;   // human owner display name; "" when orphan
+  token_label:   string;   // explicit routing label, distinct from owner identity
   used: number; limit: number | null;
   remaining: number | null; pct: number; paused: boolean; today: number; alltime: number;
   provider:       string;
@@ -67,7 +69,11 @@ export interface StatusResponse {
   userImages:       Record<string, string>;
 }
 export interface LogEntry {
-  id: number; ts: number; token_key: string; name: string; model: string;
+  id: number; ts: number; token_key: string; user_id: string;
+  name: string;         // legacy display field (token label fallback for orphan logs)
+  owner_name: string;   // human owner; "" when orphan
+  token_label: string;  // explicit token routing label
+  model: string;
   input_tokens: number; output_tokens: number; cache_read: number;
   cache_creation: number; stream: boolean; status: number;
   stop_reason: string; tool_use_count: number; duration_ms: number;

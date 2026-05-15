@@ -1132,7 +1132,7 @@ function SessionsTab({ tokens }: { tokens: import("./contexts").StatusResponse["
   }, []);
 
   const userOptions = [...new Set(
-    Object.values(tokens).map(tk => tk.name).filter(Boolean)
+    Object.values(tokens).map(tk => tk.owner_name || tk.token_label || tk.name).filter(Boolean)
   )].sort().map(n => ({ value: n, label: n }));
 
   return (
@@ -1699,69 +1699,100 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
               {isAdmin && <Text size="xs" c="dimmed">Add a token below to start routing requests</Text>}
             </Stack>
           ) : (
-            <Stack gap="md">
-              {Object.entries(tokens).slice(0, isAdmin ? 20 : 6).map(([key, tk]) => {
-                const pct    = tk.limit == null ? 0 : Math.min(100, Math.round((tk.used / tk.limit) * 100));
-                const color  = tk.paused ? "gray" : pct >= 95 ? "red" : pct >= 75 ? "orange" : pct >= 50 ? "yellow" : "teal";
-                const ins    = insights[key];
-                const spark  = ins?.sparkline ?? [];
-                const spike  = (ins?.burnRate.spikeMultiple ?? 0) >= 2;
-                const hoursL = ins?.burnRate.hoursLeft;
-                const prof   = ins?.profile ?? "mixed";
-                const profColor: Record<string, string> = { agentic: "violet", conversational: "blue", heavy_reader: "orange", efficient: "teal", mixed: "gray" };
-                const profLabel: Record<string, string> = { agentic: "Agentic", conversational: "Chat", heavy_reader: "Reader", efficient: "Efisien", mixed: "Mixed" };
-                const maxSpark = Math.max(...spark, 1);
-                const display  = maskToken(tk.label);
-                const dotColor = avatarColor(display);
-                return (
-                  <Box key={key} style={{ cursor: "pointer" }} onClick={() => setSelectedToken({ key, tk })}>
-                    <Group gap="sm" wrap="nowrap" mb={4}>
-                      <Group gap={6} style={{ minWidth: isAdmin ? 120 : 88, maxWidth: isAdmin ? 180 : 120, flexShrink: 0 }} wrap="nowrap">
-                        <UserAvatar name={display} imageUrl={status.userImages?.[tk.name || display]} size={20} />
-                        <Tooltip label={tk.label} withArrow openDelay={400} disabled={display === tk.label}>
-                          <Text size="xs" ff="monospace" truncate>{display}</Text>
-                        </Tooltip>
-                        {ins && <Badge size="xs" variant="light" color={profColor[prof]}>{profLabel[prof]}</Badge>}
-                      </Group>
-                      <Progress value={pct} color={color} size="md" radius="sm" style={{ flex: 1 }} />
-                      <Group gap={4} style={{ minWidth: 72, justifyContent: "flex-end", flexShrink: 0 }} wrap="nowrap">
-                        {spike && <Tooltip label="Spike hari ini >2× rata-rata" withArrow><IconAlertTriangle size={12} color="var(--mantine-color-orange-5)" /></Tooltip>}
-                        {tk.activeProvider && tk.activeProvider !== "anthropic" && (
-                          <Text size="10px" ff="monospace"
-                            c={tk.activeProvider === "deepseek" ? "violet" : "orange"}
-                            style={{ flexShrink: 0 }}>
-                            {tk.activeProvider === "deepseek" ? "deepseek" : "openrouter"}
-                          </Text>
-                        )}
-                        <Text size="xs" ff="monospace" c="dimmed" ta="right" style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }}>
-                          {nf.format(tk.used)}{tk.limit != null && ` / ${nf.format(tk.limit)}`}
+            <Stack gap="lg">
+              {(() => {
+                // Group tokens by owner (user_id). Orphan tokens (no user_id) get
+                // an individual synthetic group so they still display.
+                type Row = { key: string; tk: typeof tokens[string] };
+                const groups = new Map<string, { ownerName: string; rows: Row[] }>();
+                for (const [key, tk] of Object.entries(tokens)) {
+                  const gk = tk.user_id || `__orphan__:${key}`;
+                  const ownerName = tk.owner_name || "";
+                  if (!groups.has(gk)) groups.set(gk, { ownerName, rows: [] });
+                  groups.get(gk)!.rows.push({ key, tk });
+                }
+                const groupArr = Array.from(groups.entries()).map(([gk, g]) => {
+                  const totalUsed  = g.rows.reduce((s, r) => s + r.tk.used, 0);
+                  const totalLimit = g.rows.reduce((s, r) => s + (r.tk.limit ?? 0), 0);
+                  const hasInf     = g.rows.some(r => r.tk.limit == null);
+                  return {
+                    groupKey: gk,
+                    ownerName: g.ownerName,
+                    rows: g.rows.sort((a, b) => b.tk.used - a.tk.used),
+                    totalUsed, totalLimit, hasInf,
+                    isOrphan: gk.startsWith("__orphan__:"),
+                  };
+                }).sort((a, b) => b.totalUsed - a.totalUsed);
+                const cap = isAdmin ? 20 : 6;
+                return groupArr.slice(0, cap).map(g => {
+                  const pctTotal = g.hasInf ? 0 : g.totalLimit > 0 ? Math.min(100, Math.round((g.totalUsed / g.totalLimit) * 100)) : 0;
+                  const colorTotal = pctTotal >= 95 ? "red" : pctTotal >= 75 ? "orange" : pctTotal >= 50 ? "yellow" : "teal";
+                  // Header label: owner name (when known) or single token's label (orphan)
+                  const headerName  = g.isOrphan ? maskToken(g.rows[0]!.tk.token_label || g.rows[0]!.tk.label) : (g.ownerName || "Anonymous");
+                  const headerImage = g.isOrphan ? undefined : status.userImages?.[g.ownerName];
+                  return (
+                    <Box key={g.groupKey}>
+                      {/* User header row */}
+                      <Group gap="sm" wrap="nowrap" mb={6}>
+                        <Group gap={8} style={{ minWidth: isAdmin ? 140 : 110, maxWidth: isAdmin ? 200 : 160, flexShrink: 0 }} wrap="nowrap">
+                          <UserAvatar name={headerName} imageUrl={headerImage} size={26} />
+                          <Text size="sm" fw={600} truncate>{headerName}</Text>
+                          {g.rows.length > 1 && <Badge size="xs" variant="light" color="gray">{g.rows.length} tokens</Badge>}
+                        </Group>
+                        <Progress value={pctTotal} color={colorTotal} size="sm" radius="sm" style={{ flex: 1 }} />
+                        <Text size="xs" ff="monospace" c="dimmed" ta="right" style={{ flexShrink: 0, minWidth: 100 }}>
+                          {nf.format(g.totalUsed)}{!g.hasInf && g.totalLimit > 0 && ` / ${nf.format(g.totalLimit)}`}
                         </Text>
                       </Group>
-                    </Group>
-                    {/* Sparkline + burn rate */}
-                    {spark.length === 7 && (
-                      <Group gap="sm" wrap="nowrap" pl={isAdmin ? 108 : 80}>
-                        <Tooltip label={spark.map((v, i) => `${i === 6 ? "Today" : `-${6-i}d`}: ${nf.format(v)}`).join("\n")} multiline withArrow>
-                          <Box style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 20, cursor: "default" }}>
-                            {spark.map((v, i) => (
-                              <Box key={i} style={{
-                                width: 8, height: Math.max(2, Math.round((v / maxSpark) * 18)),
-                                borderRadius: 1,
-                                background: i === 6 ? (isDark ? "#228be6" : "#1c7ed6") : (isDark ? "#373a40" : "#dee2e6"),
-                              }} />
-                            ))}
-                          </Box>
-                        </Tooltip>
-                        {hoursL != null && (
-                          <Text size="10px" c={hoursL < 4 ? "red" : hoursL < 12 ? "orange" : "dimmed"} ff="monospace">
-                            {hoursL < 1 ? "< 1h left" : hoursL < 48 ? `~${hoursL.toFixed(0)}h left` : `~${(hoursL/24).toFixed(0)}d left`}
-                          </Text>
-                        )}
-                      </Group>
-                    )}
-                  </Box>
-                );
-              })}
+                      {/* Token rows nested under owner */}
+                      <Stack gap={4} pl={isAdmin ? 36 : 30}>
+                        {g.rows.map(({ key, tk }) => {
+                          const pct      = tk.limit == null ? 0 : Math.min(100, Math.round((tk.used / tk.limit) * 100));
+                          const color    = tk.paused ? "gray" : pct >= 95 ? "red" : pct >= 75 ? "orange" : pct >= 50 ? "yellow" : "teal";
+                          const ins      = insights[key];
+                          const spike    = (ins?.burnRate.spikeMultiple ?? 0) >= 2;
+                          const hoursL   = ins?.burnRate.hoursLeft;
+                          // Explicit label, or fall back to model identity for unlabeled tokens.
+                          const explicitLabel = tk.token_label || "";
+                          const modelShort = (tk.activeModel || "").replace(/^claude-/, "").replace(/-\d{8}$/, "");
+                          const rowLabel   = explicitLabel || (modelShort ? `default · ${modelShort}` : "default");
+                          const isExplicit = !!explicitLabel;
+                          return (
+                            <Group key={key} gap="sm" wrap="nowrap" style={{ cursor: "pointer" }} onClick={() => setSelectedToken({ key, tk })}>
+                              <Group gap={4} style={{ minWidth: isAdmin ? 140 : 110, maxWidth: isAdmin ? 200 : 160, flexShrink: 0 }} wrap="nowrap">
+                                <Tooltip label={explicitLabel || `default token · ${tk.activeModel || "auto"}`} withArrow openDelay={400}>
+                                  <Text size="xs" ff="monospace" c="dimmed" truncate fs={isExplicit ? undefined : "italic"}>
+                                    {maskToken(rowLabel)}
+                                  </Text>
+                                </Tooltip>
+                              </Group>
+                              <Progress value={pct} color={color} size="xs" radius="sm" style={{ flex: 1 }} />
+                              <Group gap={4} style={{ minWidth: 72, justifyContent: "flex-end", flexShrink: 0 }} wrap="nowrap">
+                                {spike && <Tooltip label="Spike hari ini >2× rata-rata" withArrow><IconAlertTriangle size={11} color="var(--mantine-color-orange-5)" /></Tooltip>}
+                                {tk.activeProvider && tk.activeProvider !== "anthropic" && (
+                                  <Text size="10px" ff="monospace"
+                                    c={tk.activeProvider === "deepseek" ? "violet" : tk.activeProvider === "openrouter" ? "orange" : "blue"}
+                                    style={{ flexShrink: 0 }}>
+                                    {tk.activeProvider}
+                                  </Text>
+                                )}
+                                {hoursL != null && hoursL < 12 && (
+                                  <Text size="10px" c={hoursL < 4 ? "red" : "orange"} ff="monospace">
+                                    {hoursL < 1 ? "<1h" : `~${hoursL.toFixed(0)}h`}
+                                  </Text>
+                                )}
+                                <Text size="10px" ff="monospace" c="dimmed" ta="right" style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
+                                  {nf.format(tk.used)}{tk.limit != null && ` / ${nf.format(tk.limit)}`}
+                                </Text>
+                              </Group>
+                            </Group>
+                          );
+                        })}
+                      </Stack>
+                    </Box>
+                  );
+                });
+              })()}
             </Stack>
           )}
         </Paper>
