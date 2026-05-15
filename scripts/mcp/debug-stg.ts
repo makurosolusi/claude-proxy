@@ -172,6 +172,44 @@ async function toolCheckQuotaPressure() {
   return apiGet("/api/debug/quota-pressure");
 }
 
+async function toolTailConsole(args: { lines?: number; level?: "info" | "warn" | "error"; since_minutes?: number }) {
+  const params = new URLSearchParams();
+  if (args.lines)         params.set("lines", String(args.lines));
+  if (args.level)         params.set("level", args.level);
+  if (args.since_minutes) params.set("since_minutes", String(args.since_minutes));
+  return apiGet(`/api/debug/console?${params.toString()}`);
+}
+
+async function toolCheckRuntime() {
+  return apiGet("/api/debug/runtime");
+}
+
+async function toolCheckUsers() {
+  return apiGet("/api/debug/users");
+}
+
+async function toolCheckSettings() {
+  return apiGet("/api/debug/settings");
+}
+
+async function toolCheckProxyErrors(args: { minutes?: number }) {
+  const minutes = args.minutes ?? 60;
+  return apiGet(`/api/debug/proxy-errors?minutes=${minutes}`);
+}
+
+async function toolCheckSyncTokens() {
+  return apiGet("/api/debug/sync-tokens");
+}
+
+async function toolCheckCredits(args: { provider: string }) {
+  if (!args.provider) return { error: "provider is required (deepseek | openrouter)" };
+  return apiGet(`/api/debug/credits/${args.provider}`);
+}
+
+async function toolCheckWs() {
+  return apiGet("/api/debug/ws");
+}
+
 // ── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
@@ -281,6 +319,83 @@ const TOOLS = [
       "Use when quota seems exhausted despite low .used values — in-flight may be consuming the remaining quota.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "tail_console",
+    description:
+      "Read in-memory ring buffer of recent stdout/stderr from the running app — " +
+      "captures uncaughtException stack traces, [proxy], [upstream] log lines etc. " +
+      "Filter by level=error to see only errors. Use right after a crash report.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        lines:         { type: "number", description: "Max lines to return (default 100, max 500)" },
+        level:         { type: "string", enum: ["info", "warn", "error"], description: "Filter by log level" },
+        since_minutes: { type: "number", description: "Only entries from last N minutes" },
+      },
+    },
+  },
+  {
+    name: "check_runtime",
+    description:
+      "Process runtime snapshot: memory (rss/heap), uptime, in-memory state sizes " +
+      "(tokens/users/recent_logs/ws/in_flight), error counters, upstream poll state. " +
+      "Use to diagnose memory pressure or hanging state without SSH.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_users",
+    description:
+      "User summary: id, name, email, role, status, token_count, today/alltime usage. " +
+      "Also lists orphan tokens (user_id unset or pointing to deleted user).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_settings",
+    description:
+      "Runtime config dump from settings table. API keys + sync tokens are masked. " +
+      "Also reports which keys come from env overrides.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_proxy_errors",
+    description:
+      "Group recent proxy errors (status >= 400) by (status + first 80 chars of response_text). " +
+      "Returns count, last_age_sec, and sample request IDs per group. " +
+      "Use to spot recurring failure modes quickly.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        minutes: { type: "number", description: "Look back N minutes (default 60, max 1440)" },
+      },
+    },
+  },
+  {
+    name: "check_sync_tokens",
+    description:
+      "List active DB sync tokens (used by /api/admin/db/sync). " +
+      "Returns full token string + creation time + age — for revoking stale ones.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_credits",
+    description:
+      "Live credit balance from DeepSeek or OpenRouter. " +
+      "Returns total/used/remaining + (DS only) granted/topped_up breakdown.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        provider: { type: "string", enum: ["deepseek", "openrouter"], description: "Which provider to query" },
+      },
+      required: ["provider"],
+    },
+  },
+  {
+    name: "check_ws",
+    description:
+      "WebSocket connection diagnostics: total connected clients (admin vs public), " +
+      "oldest connection age. Useful when broadcast spikes CPU.",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 async function callTool(name: string, args: Record<string, unknown>) {
@@ -293,6 +408,14 @@ async function callTool(name: string, args: Record<string, unknown>) {
   if (name === "get_token_detail")       return toolGetTokenDetail(args as { token: string });
   if (name === "check_upstream_history") return toolCheckUpstreamHistory();
   if (name === "check_quota_pressure")   return toolCheckQuotaPressure();
+  if (name === "tail_console")           return toolTailConsole(args);
+  if (name === "check_runtime")          return toolCheckRuntime();
+  if (name === "check_users")            return toolCheckUsers();
+  if (name === "check_settings")         return toolCheckSettings();
+  if (name === "check_proxy_errors")     return toolCheckProxyErrors(args);
+  if (name === "check_sync_tokens")      return toolCheckSyncTokens();
+  if (name === "check_credits")          return toolCheckCredits(args as { provider: string });
+  if (name === "check_ws")               return toolCheckWs();
   throw new Error(`Unknown tool: ${name}`);
 }
 

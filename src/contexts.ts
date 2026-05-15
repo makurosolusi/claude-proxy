@@ -84,6 +84,8 @@ export interface LogEntry {
 export interface ProfileToken {
   key: string; name: string; used: number; limit: number | null;
   remaining: number | null; pct: number; paused: boolean;
+  label:       string;   // admin-set explicit token label (empty when none)
+  description: string;   // admin-set description (empty when none)
   provider:           string;
   effective_provider: string;   // resolved routing (provider/inherit + global override)
   pinned_model:       string;   // model forced for this token (if any)

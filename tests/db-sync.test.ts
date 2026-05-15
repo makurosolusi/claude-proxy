@@ -194,15 +194,18 @@ describe("handleDbSync — input validation (no actual sync)", () => {
     expect(res.status).toBe(400);
   });
 
-  test("rejects unreachable URL with 502", async () => {
+  test("unreachable URL emits SSE error event (network)", async () => {
     const { handleDbSync } = await import("../src/handlers/apiDbSync");
     const res = await handleDbSync(makeReq({
       url: "http://localhost:19999",
       token: DUMMY_FAKE,
     }));
-    expect(res.status).toBe(502);
-    const b = await res.json() as any;
-    expect(b.error).toMatch(/connection failed/i);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    const text = await res.text();
+    expect(text).toMatch(/event: error/);
+    expect(text).toMatch(/"phase":"export_fetch"/);
+    expect(text.toLowerCase()).toMatch(/network error|fetch/);
   });
 });
 

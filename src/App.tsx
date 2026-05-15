@@ -756,6 +756,19 @@ function ProfilePage() {
                           <Text size="xs" c="orange" fw={600}>Pending activation — contact the admin to enable this key.</Text>
                         </Group>
                       )}
+                      {/* Token label + description (admin-set, if any) */}
+                      {(tk.label || tk.description) && (
+                        <div>
+                          {tk.label && (
+                            <Text size="sm" fw={700} ff="monospace" style={{ letterSpacing: "-0.01em" }}>
+                              {tk.label}
+                            </Text>
+                          )}
+                          {tk.description && (
+                            <Text size="xs" c="dimmed" mt={2}>{tk.description}</Text>
+                          )}
+                        </div>
+                      )}
                       {/* Key row */}
                       <Group justify="space-between" wrap="nowrap" gap="sm">
                         <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>

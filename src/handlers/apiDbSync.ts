@@ -138,100 +138,198 @@ export async function handleDbSync(req: Request): Promise<Response> {
     ? (reqTables.filter(t => ALL_TABLES.includes(t as TableName)) as TableName[])
     : [...ALL_TABLES];
 
-  // Ambil export dari stg
-  let exportData: any;
-  try {
-    const exportUrl = new URL("/api/admin/db/export", url.replace(/\/$/, ""));
-    exportUrl.searchParams.set("token", token);
-    const res = await fetch(exportUrl.toString(), { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({})) as any;
-      return Response.json({ error: `Export failed: ${err.error || res.status}` }, { status: 502 });
-    }
-    exportData = await res.json();
-  } catch (e: any) {
-    return Response.json({ error: `Connection failed: ${e.message}` }, { status: 502 });
-  }
+  // SSE stream — events emitted to the client as work progresses.
+  // Event types: start, phase, table_start, table_progress, table_done, done, error
+  //
+  // Safety properties:
+  //   B. Each table's delete+insert wrapped in a Prisma $transaction → atomic per table.
+  //      Mid-table abort/crash rolls back fully; tables already done stay clean.
+  //   C. req.signal AbortSignal monitored — after current table's TX commits,
+  //      we check cancelled flag and skip remaining tables. The in-flight TX
+  //      can't be cancelled mid-execution (Prisma limitation) but it WILL be
+  //      atomic regardless.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      // ── Disconnect detection (C) ─────────────────────────────────────
+      let cancelled = false;
+      const onAbort = () => {
+        cancelled = true;
+        console.log("[apiDbSync] Client disconnected — current TX will finish atomically, then stop");
+      };
+      req.signal?.addEventListener("abort", onAbort);
 
-  if (exportData.version !== 1) {
-    return Response.json({ error: "Incompatible export version" }, { status: 400 });
-  }
+      const emit = (event: string, data: any) => {
+        if (cancelled) return;
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          cancelled = true;
+        }
+      };
+      const emitError = (phase: string, message: string, extra: Record<string, any> = {}) => {
+        emit("error", { phase, message, ...extra });
+        try { controller.close(); } catch {}
+      };
 
-  const { tables } = exportData as { tables: Record<TableName, any[]> };
-  const stats: Record<string, number> = {};
+      try {
+        emit("start", { source: url, tables: tablesToSync, started_at: new Date().toISOString() });
 
-  // Fungsi konversi string → BigInt untuk kolom BigInt
-  const toBigIntFields = (row: Record<string, any>, fields: string[]): Record<string, any> => {
-    const out = { ...row };
-    for (const f of fields) {
-      if (out[f] !== null && out[f] !== undefined) out[f] = BigInt(out[f]);
-    }
-    return out;
-  };
+        // ── Fetch export from remote ─────────────────────────────────────
+        emit("phase", { phase: "fetching_export", source: url });
+        let exportData: any;
+        try {
+          const exportUrl = new URL("/api/admin/db/export", url.replace(/\/$/, ""));
+          exportUrl.searchParams.set("token", token);
+          const res = await fetch(exportUrl.toString(), { signal: AbortSignal.timeout(60_000) });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({})) as any;
+            return emitError("export_fetch", `Export endpoint returned HTTP ${res.status}`, {
+              http_status: res.status,
+              remote_error: err.error || null,
+            });
+          }
+          const raw = await res.text();
+          emit("phase", { phase: "exported", size_bytes: raw.length });
+          try {
+            exportData = JSON.parse(raw);
+          } catch (e: any) {
+            return emitError("export_parse", `Failed to parse export payload as JSON: ${e.message}`, {
+              size_bytes: raw.length,
+              preview: raw.slice(0, 200),
+            });
+          }
+        } catch (e: any) {
+          return emitError("export_fetch", `Network error fetching export: ${e.message}`, {
+            error_name: e.name,
+          });
+        }
 
-  // Sync tiap tabel dalam transaksi terpisah
-  // (transaksi satu besar bisa timeout untuk request_logs banyak)
-  for (const tbl of tablesToSync) {
-    const rows = tables[tbl];
-    if (!rows && tbl !== "upstream_state") { stats[tbl] = 0; continue; }
+        if (cancelled) { try { controller.close(); } catch {} return; }
 
-    if (tbl === "users") {
-      await prisma.users.deleteMany({});
-      if (rows.length) await prisma.users.createMany({ data: rows.map((r: any) => toBigIntFields(r, ["created_at"])) as any });
-      stats[tbl] = rows.length;
-    }
+        if (exportData.version !== 1) {
+          return emitError("export_parse", `Incompatible export version: expected 1, got ${exportData.version}`, {
+            received_version: exportData.version,
+          });
+        }
 
-    else if (tbl === "tokens") {
-      await prisma.tokens.deleteMany({});
-      if (rows.length) await prisma.tokens.createMany({ data: rows.map((r: any) => toBigIntFields(r, ["lim", "win", "used", "window_start"])) as any });
-      stats[tbl] = rows.length;
-    }
+        const { tables } = exportData as { tables: Record<TableName, any[]> };
+        const stats: Record<string, number> = {};
 
-    else if (tbl === "request_logs") {
-      await prisma.request_logs.deleteMany({});
-      let inserted = 0;
-      const BATCH = 500;
-      for (let i = 0; i < rows.length; i += BATCH) {
-        const batch = rows.slice(i, i + BATCH).map((r: any) => toBigIntFields(r, ["ts"]));
-        await prisma.request_logs.createMany({ data: batch as any });
-        inserted += batch.length;
+        const toBigIntFields = (row: Record<string, any>, fields: string[]): Record<string, any> => {
+          const out = { ...row };
+          for (const f of fields) {
+            if (out[f] !== null && out[f] !== undefined) out[f] = BigInt(out[f]);
+          }
+          return out;
+        };
+
+        // ── Sync each table sequentially (B: atomic per table) ──────────
+        for (const tbl of tablesToSync) {
+          if (cancelled) { console.log(`[apiDbSync] Aborted before "${tbl}" — stopping`); break; }
+
+          const rows = tables[tbl];
+          const expected = Array.isArray(rows) ? rows.length : (rows ? 1 : 0);
+          emit("table_start", { table: tbl, expected });
+
+          try {
+            if (!rows && tbl !== "upstream_state") {
+              stats[tbl] = 0;
+            } else if (tbl === "users") {
+              await prisma.$transaction(async (tx) => {
+                await tx.users.deleteMany({});
+                if (rows.length) await tx.users.createMany({ data: rows.map((r: any) => toBigIntFields(r, ["created_at"])) as any });
+              }, { timeout: 30_000 });
+              stats[tbl] = rows.length;
+            } else if (tbl === "tokens") {
+              await prisma.$transaction(async (tx) => {
+                await tx.tokens.deleteMany({});
+                if (rows.length) await tx.tokens.createMany({ data: rows.map((r: any) => toBigIntFields(r, ["lim", "win", "used", "window_start"])) as any });
+              }, { timeout: 30_000 });
+              stats[tbl] = rows.length;
+            } else if (tbl === "request_logs") {
+              // Wrap entire delete + all batches in one tx — atomic. Longer timeout
+              // for the potentially-large dataset (default 5s would fail at ~5k rows).
+              await prisma.$transaction(async (tx) => {
+                await tx.request_logs.deleteMany({});
+                const BATCH = 500;
+                let inserted = 0;
+                for (let i = 0; i < rows.length; i += BATCH) {
+                  const batch = rows.slice(i, i + BATCH).map((r: any) => toBigIntFields(r, ["ts"]));
+                  await tx.request_logs.createMany({ data: batch as any });
+                  inserted += batch.length;
+                  emit("table_progress", { table: tbl, inserted, expected });
+                }
+              }, { timeout: 120_000 });
+              stats[tbl] = rows.length;
+            } else if (tbl === "daily_usage") {
+              await prisma.$transaction(async (tx) => {
+                await tx.daily_usage.deleteMany({});
+                if (rows.length) await tx.daily_usage.createMany({ data: rows as any });
+              }, { timeout: 30_000 });
+              stats[tbl] = rows.length;
+            } else if (tbl === "upstream_state") {
+              const row = tables.upstream_state as any;
+              if (row) {
+                const data = toBigIntFields(row, ["detected_window_ms", "last_poll"]) as any;
+                await prisma.upstream_state.upsert({ where: { id: 1 }, create: data, update: data });
+                stats[tbl] = 1;
+              } else {
+                stats[tbl] = 0;
+              }
+            } else if (tbl === "settings") {
+              await prisma.$transaction(async (tx) => {
+                await tx.settings.deleteMany({});
+                if (rows.length) await tx.settings.createMany({ data: rows as any });
+              }, { timeout: 30_000 });
+              stats[tbl] = rows.length;
+            }
+            emit("table_done", { table: tbl, count: stats[tbl] });
+          } catch (e: any) {
+            return emitError("table_write", `Failed writing table "${tbl}": ${e.message}`, {
+              table: tbl,
+              prisma_code: e.code || null,
+              prisma_meta: e.meta || null,
+            });
+          }
+        }
+
+        if (cancelled) {
+          console.log("[apiDbSync] Stopped after client disconnect; partial sync up to current table");
+          try { controller.close(); } catch {}
+          return;
+        }
+
+        // ── Reload runtime state ─────────────────────────────────────────
+        emit("phase", { phase: "reloading_state" });
+        try {
+          await loadFromDb();
+          await backfillUsers();
+        } catch (e: any) {
+          return emitError("state_reload", `DB written but state reload failed: ${e.message}`, {});
+        }
+
+        emit("done", {
+          ok:          true,
+          synced_at:   new Date().toISOString(),
+          source:      url,
+          exported_at: exportData.exported_at,
+          stats,
+        });
+        try { controller.close(); } catch {}
+      } catch (e: any) {
+        emitError("unexpected", e.message || "Unknown error", { stack: e.stack?.slice(0, 500) });
+      } finally {
+        req.signal?.removeEventListener("abort", onAbort);
       }
-      stats[tbl] = inserted;
-    }
+    },
+  });
 
-    else if (tbl === "daily_usage") {
-      await prisma.daily_usage.deleteMany({});
-      if (rows.length) await prisma.daily_usage.createMany({ data: rows as any });
-      stats[tbl] = rows.length;
-    }
-
-    else if (tbl === "upstream_state") {
-      const row = tables.upstream_state;
-      if (row) {
-        const data = toBigIntFields(row, ["detected_window_ms", "last_poll"]) as any;
-        await prisma.upstream_state.upsert({ where: { id: 1 }, create: data, update: data });
-        stats[tbl] = 1;
-      } else {
-        stats[tbl] = 0;
-      }
-    }
-
-    else if (tbl === "settings") {
-      await prisma.settings.deleteMany({});
-      if (rows.length) await prisma.settings.createMany({ data: rows as any });
-      stats[tbl] = rows.length;
-    }
-  }
-
-  // Reload runtime state dari DB baru
-  await loadFromDb();
-  await backfillUsers();
-
-  return Response.json({
-    ok:          true,
-    synced_at:   new Date().toISOString(),
-    source:      url,
-    exported_at: exportData.exported_at,
-    stats,
+  return new Response(stream, {
+    headers: {
+      "Content-Type":  "text/event-stream",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
   });
 }

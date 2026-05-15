@@ -4,12 +4,12 @@ import { localDateStr } from "../date";
 
 async function buildKeyToName(): Promise<Map<string, string>> {
   const map  = new Map<string, string>();
-  const rows = await prisma.$queryRaw<{ key: string; name: string; user_id: string; user_name: string | null }[]>`
-    SELECT t.key, t.name, t.user_id, u.name as user_name
+  const rows = await prisma.$queryRaw<{ key: string; label: string; user_id: string; user_name: string | null }[]>`
+    SELECT t.key, t.label, t.user_id, u.name as user_name
     FROM tokens t LEFT JOIN users u ON t.user_id = u.id
   `;
   for (const r of rows) {
-    map.set(r.key, r.user_name || r.name || deriveNameFromKey(r.key));
+    map.set(r.key, r.user_name || r.label || deriveNameFromKey(r.key));
   }
   return map;
 }

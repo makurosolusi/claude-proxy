@@ -36,7 +36,13 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [showEditAllGlobal, setShowEditAllGlobal] = useState(false);
   const [addTokenTo, setAddTokenTo]               = useState<ApiUser | null>(null);
   const [search, setSearch]           = useState("");
-  const [sort, setSort]               = useState<SortKey>("usage");
+  const [sort, setSort]               = useState<SortKey>(() => {
+    try {
+      const saved = localStorage.getItem("admin-users-sort");
+      if (saved === "name" || saved === "usage" || saved === "tokens" || saved === "newest") return saved;
+    } catch {}
+    return "usage";
+  });
   const [viewMode, setViewMode]         = useState<"grid" | "list">(() => {
     try { return (localStorage.getItem("admin-users-view") as "grid" | "list") || "grid"; }
     catch { return "grid"; }
@@ -332,7 +338,11 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
           />
           <Select
             value={sort}
-            onChange={v => v && setSort(v as SortKey)}
+            onChange={v => {
+              if (!v) return;
+              setSort(v as SortKey);
+              try { localStorage.setItem("admin-users-sort", v); } catch {}
+            }}
             data={[
               { value: "usage",  label: "Most usage" },
               { value: "name",   label: "Name (A→Z)" },

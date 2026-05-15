@@ -23,7 +23,11 @@ import { handleApiCompetition }  from "./handlers/apiCompetition";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove, handleAuthImport } from "./handlers/apiAuth";
 import { handleDebugQuery } from "./handlers/apiDebug";
-import { handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure } from "./handlers/apiDebugExtra";
+import {
+  handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure,
+  handleDebugConsole, handleDebugRuntime, handleDebugUsers, handleDebugSettings,
+  handleDebugProxyErrors, handleDebugSyncTokens, handleDebugCredits,
+} from "./handlers/apiDebugExtra";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModels } from "./handlers/apiModels";
@@ -33,6 +37,24 @@ import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, han
 import { handleProxy }     from "./handlers/proxy";
 import { auth } from "./auth";
 import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
+import { installConsoleInterceptor, recordUncaught, recordUnhandled } from "./consoleBuffer";
+
+// ── Console interceptor + global error handlers ──────────────────────────────
+// Install ring buffer first so error logs are captured by /api/debug/console.
+// Then attach handlers that record + log without exiting the process.
+installConsoleInterceptor();
+process.on("uncaughtException", (err: Error) => {
+  recordUncaught(err);
+  console.error("[uncaughtException]", err?.stack || err);
+});
+process.on("unhandledRejection", (reason: unknown) => {
+  recordUnhandled(reason);
+  if (reason instanceof Error) {
+    console.error("[unhandledRejection]", reason.stack || reason);
+  } else {
+    console.error("[unhandledRejection]", reason, "type=" + typeof reason);
+  }
+});
 
 // ── Provider connection tests ─────────────────────────────────────────────────
 
@@ -305,7 +327,7 @@ function broadcastRaw(payload: string) {
 }
 
 // ── WebSocket clients ─────────────────────────────────────────────────────────
-type WsData = { isAdmin: boolean };
+type WsData = { isAdmin: boolean; connectedAt?: number };
 const wsClients = new Set<ServerWebSocket<WsData>>();
 
 // Cache userImages untuk WebSocket push (refresh setiap 5 menit)
@@ -429,6 +451,7 @@ server = serve({
 
   websocket: {
     open(ws: ServerWebSocket<WsData>) {
+      ws.data.connectedAt = Date.now();
       wsClients.add(ws);
       ws.send(JSON.stringify(buildStatusPayload(ws.data.isAdmin)));
       if (chatStore.length > 0) {
@@ -561,6 +584,8 @@ server = serve({
           userTokens[k] = {
             key:                k,
             name:               resolveTokenName(k, tk),
+            label:              tk.label || "",
+            description:        tk.description || "",
             used:               tk.used,
             limit,
             remaining:          limit ? Math.max(0, limit - tk.used) : null,
@@ -825,6 +850,32 @@ server = serve({
     "/api/debug/token/*":          async req => handleDebugToken(req, new URL(req.url)),
     "/api/debug/upstream-history": async req => handleDebugUpstreamHistory(req),
     "/api/debug/quota-pressure":   async req => handleDebugQuotaPressure(req),
+    "/api/debug/console":          async req => handleDebugConsole(req, new URL(req.url)),
+    "/api/debug/runtime":          async req => handleDebugRuntime(req),
+    "/api/debug/users":            async req => handleDebugUsers(req),
+    "/api/debug/settings":         async req => handleDebugSettings(req),
+    "/api/debug/proxy-errors":     async req => handleDebugProxyErrors(req, new URL(req.url)),
+    "/api/debug/sync-tokens":      async req => handleDebugSyncTokens(req),
+    "/api/debug/credits/*":        async req => handleDebugCredits(req, new URL(req.url)),
+    "/api/debug/ws":               async req => {
+      // WS stats inline because wsClients lives in this module
+      const t = req.headers.get("x-mcp-secret") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+      if (!config.mcpSecret || t !== config.mcpSecret) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const now = Date.now();
+      const conns = [...wsClients].map(ws => ({
+        is_admin:      !!ws.data?.isAdmin,
+        connected_at:  ws.data?.connectedAt ?? null,
+        age_sec:       ws.data?.connectedAt ? Math.round((now - ws.data.connectedAt) / 1000) : null,
+        ready_state:   ws.readyState,
+      }));
+      return Response.json({
+        total:   conns.length,
+        admin:   conns.filter(c => c.is_admin).length,
+        public:  conns.filter(c => !c.is_admin).length,
+        oldest_age_sec: conns.length ? Math.max(...conns.map(c => c.age_sec || 0)) : 0,
+        connections: conns,
+      });
+    },
 
     // Users API (admin only)
     "/api/admin/users": async req => {

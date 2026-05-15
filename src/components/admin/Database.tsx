@@ -9,7 +9,7 @@ import {
   IconDatabase, IconDownload, IconRefresh,
   IconAlertTriangle, IconCheck, IconCopy, IconKey,
   IconTrash, IconInfoCircle, IconShieldCheck, IconClock, IconScissors,
-  IconArrowRight, IconCloudDownload,
+  IconArrowRight, IconCloudDownload, IconCircleDashed, IconCircleX,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 
@@ -161,19 +161,90 @@ function GenerateTokenSection() {
 
 // ── Section: Sync from remote ─────────────────────────────────────────────────
 
+type TableState = "pending" | "running" | "done" | "error";
+interface TableProgress {
+  state:    TableState;
+  expected: number;
+  inserted: number;
+  count?:   number;
+}
+interface SyncError {
+  phase:        string;
+  message:      string;
+  table?:       string;
+  http_status?: number;
+  remote_error?: string;
+  preview?:     string;
+  prisma_code?: string;
+  prisma_meta?: any;
+  error_name?:  string;
+}
+
+const TABLE_STATE_COLOR: Record<TableState, string> = {
+  pending: "gray", running: "blue", done: "teal", error: "red",
+};
+
 function SyncFromRemoteSection() {
   const [url, setUrl]       = useState(() => { try { return localStorage.getItem("db-sync-url") || ""; } catch { return ""; } });
   const [token, setToken]   = useState("");
   const [tables, setTables] = useState<Set<TableName>>(new Set(ALL_TABLES));
   const [loading, setLoading] = useState(false);
-  const [result, setResult]   = useState<{ ok: boolean; stats?: SyncStats; error?: string; synced_at?: string; source?: string } | null>(null);
+  const [result, setResult]   = useState<{ ok: boolean; stats?: SyncStats; synced_at?: string; source?: string } | null>(null);
+  const [syncErr, setSyncErr] = useState<SyncError | null>(null);
+  const [phase, setPhase]     = useState<string>("");
+  const [progress, setProgress] = useState<Record<string, TableProgress>>({});
 
   const toggleTable = (t: TableName) => setTables(prev => { const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); return n; });
+
+  // Block accidental reload while sync is in progress. Modern browsers ignore
+  // the custom message and show their own confirmation dialog, but the dialog
+  // still appears — which is what we need.
+  useEffect(() => {
+    if (!loading) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Sync sedang berjalan. Yakin tinggalkan halaman?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [loading]);
+
+  // Apply a single SSE event to component state.
+  const applyEvent = (event: string, data: any) => {
+    if (event === "start") {
+      const init: Record<string, TableProgress> = {};
+      for (const t of data.tables) init[t] = { state: "pending", expected: 0, inserted: 0 };
+      setProgress(init);
+      setPhase("fetching_export");
+    } else if (event === "phase") {
+      setPhase(data.phase);
+    } else if (event === "table_start") {
+      setProgress(p => ({ ...p, [data.table]: { state: "running", expected: data.expected || 0, inserted: 0 } }));
+    } else if (event === "table_progress") {
+      setProgress(p => p[data.table] ? { ...p, [data.table]: { ...p[data.table]!, inserted: data.inserted } } : p);
+    } else if (event === "table_done") {
+      setProgress(p => ({ ...p, [data.table]: { state: "done", expected: data.count, inserted: data.count, count: data.count } }));
+    } else if (event === "done") {
+      setPhase("done");
+      setResult({ ok: true, stats: data.stats, synced_at: data.synced_at, source: data.source });
+      notifications.show({ color: "teal", message: "Sync berhasil!", autoClose: 3000 });
+      setToken("");
+    } else if (event === "error") {
+      setPhase("error");
+      setSyncErr(data as SyncError);
+      // Mark current running table as error if applicable
+      if (data.table) {
+        setProgress(p => p[data.table] ? { ...p, [data.table]: { ...p[data.table]!, state: "error" } } : p);
+      }
+      notifications.show({ color: "red", message: data.message || "Sync failed", autoClose: 6000 });
+    }
+  };
 
   const run = async () => {
     if (!url.trim() || !token.trim()) { notifications.show({ color: "orange", message: "URL dan token wajib diisi", autoClose: 3000 }); return; }
     if (tables.size === 0) { notifications.show({ color: "orange", message: "Pilih minimal satu tabel", autoClose: 3000 }); return; }
-    setLoading(true); setResult(null);
+    setLoading(true); setResult(null); setSyncErr(null); setProgress({}); setPhase("starting");
     try { localStorage.setItem("db-sync-url", url.trim()); } catch {}
     try {
       const r = await fetch("/api/admin/db/sync", {
@@ -181,15 +252,58 @@ function SyncFromRemoteSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: url.trim(), token: token.trim(), tables: [...tables] }),
       });
-      const d = await r.json() as typeof result;
-      setResult(d);
-      if (d?.ok) { notifications.show({ color: "teal", message: "Sync berhasil!", autoClose: 3000 }); setToken(""); }
-      else        { notifications.show({ color: "red",  message: d?.error || "Sync failed", autoClose: 5000 }); }
+      if (!r.body) throw new Error("No response stream");
+      if (!r.ok && r.headers.get("content-type")?.includes("application/json")) {
+        // Validation rejection (no SSE stream)
+        const errBody = await r.json().catch(() => ({})) as any;
+        setSyncErr({ phase: "validation", message: errBody.error || `HTTP ${r.status}` });
+        notifications.show({ color: "red", message: errBody.error || "Sync rejected", autoClose: 5000 });
+        return;
+      }
+      const reader  = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer    = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+        for (const evt of events) {
+          let evName = "", evData = "";
+          for (const line of evt.split("\n")) {
+            if (line.startsWith("event: ")) evName = line.slice(7).trim();
+            else if (line.startsWith("data: ")) evData += line.slice(6);
+          }
+          if (!evName || !evData) continue;
+          try { applyEvent(evName, JSON.parse(evData)); } catch {}
+        }
+      }
     } catch (e: any) {
-      setResult({ ok: false, error: e.message });
+      setSyncErr({ phase: "transport", message: e.message || "Network error", error_name: e.name });
       notifications.show({ color: "red", message: e.message, autoClose: 5000 });
     } finally { setLoading(false); }
   };
+
+  const phaseLabel: Record<string, string> = {
+    starting:         "Memulai…",
+    fetching_export:  "Mengambil data dari remote…",
+    exported:         "Data diterima, memproses…",
+    writing:          "Menulis ke database…",
+    reloading_state:  "Memuat ulang state runtime…",
+    done:             "Selesai",
+    error:            "Gagal",
+  };
+  const orderedTables: TableName[] = [...ALL_TABLES].filter(t => t in progress);
+  const totalExpected = orderedTables.reduce((s, t) => s + (progress[t]?.expected || 0), 0);
+  const totalDone     = orderedTables.reduce((s, t) => {
+    const p = progress[t];
+    if (!p) return s;
+    if (p.state === "done")    return s + (p.count    || 0);
+    if (p.state === "running") return s + (p.inserted || 0);
+    return s;
+  }, 0);
+  const overallPct = totalExpected > 0 ? Math.min(100, Math.round((totalDone / totalExpected) * 100)) : 0;
 
   return (
     <Paper withBorder p="lg" radius="md">
@@ -251,27 +365,103 @@ function SyncFromRemoteSection() {
       <Button leftSection={<IconArrowRight size={14} />} onClick={run} loading={loading}
         disabled={!url.trim() || !token.trim() || tables.size === 0}
         color="teal" size="sm" fullWidth variant="light">
-        {loading ? "Syncing…" : `Sync ${tables.size} table${tables.size !== 1 ? "s" : ""}`}
+        {loading ? (phaseLabel[phase] || "Syncing…") : `Sync ${tables.size} table${tables.size !== 1 ? "s" : ""}`}
       </Button>
 
-      {result && (
-        <Alert mt="md" color={result.ok ? "teal" : "red"} variant="light"
-          icon={result.ok ? <IconCheck size={14} /> : <IconAlertTriangle size={14} />} radius="md">
-          {result.ok ? (
-            <>
-              <Text size="xs" fw={600} mb={6}>Sync berhasil dari {result.source}</Text>
-              <SimpleGrid cols={2} spacing={4}>
-                {Object.entries(result.stats || {}).map(([tbl, count]) => (
-                  <Group key={tbl} gap={4}>
-                    <Text size="xs" c="dimmed">{TABLE_LABELS[tbl as TableName]?.label ?? tbl}:</Text>
-                    <Text size="xs" fw={600} ff="monospace">{(count as number).toLocaleString()}</Text>
-                  </Group>
-                ))}
-              </SimpleGrid>
-            </>
-          ) : (
-            <Text size="xs">{result.error}</Text>
+      {loading && (
+        <Alert mt="sm" color="yellow" variant="light" icon={<IconAlertTriangle size={14} />} radius="md" p="xs">
+          <Text size="xs">
+            <b>Jangan reload / tutup tab</b> — sync sedang berjalan. Tiap tabel atomic (TX rollback kalau gagal), tapi reload akan menghentikan sync di tabel selanjutnya.
+          </Text>
+        </Alert>
+      )}
+
+      {/* Per-table progress checklist (during run + after completion) */}
+      {orderedTables.length > 0 && (
+        <Paper withBorder p="sm" radius="md" mt="md">
+          <Group justify="space-between" mb="xs">
+            <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>
+              {phaseLabel[phase] || "Progress"}
+            </Text>
+            {totalExpected > 0 && (
+              <Text size="xs" ff="monospace" c="dimmed">
+                {totalDone.toLocaleString()} / {totalExpected.toLocaleString()} rows
+              </Text>
+            )}
+          </Group>
+          {totalExpected > 0 && (
+            <Progress value={overallPct} size="xs" radius="sm" color={phase === "error" ? "red" : phase === "done" ? "teal" : "blue"} mb="sm" />
           )}
+          <Stack gap={4}>
+            {orderedTables.map(t => {
+              const p = progress[t]!;
+              const label = TABLE_LABELS[t]?.label ?? t;
+              const color = TABLE_STATE_COLOR[p.state];
+              const icon = p.state === "done"    ? <IconCheck       size={13} style={{ color: `var(--mantine-color-${color}-5)` }} />
+                         : p.state === "error"   ? <IconCircleX     size={13} style={{ color: `var(--mantine-color-${color}-5)` }} />
+                         : p.state === "running" ? <Loader size={11} color={color} />
+                         :                          <IconCircleDashed size={13} style={{ color: "var(--mantine-color-gray-5)" }} />;
+              const detail = p.state === "running" && p.expected > 0
+                ? `${p.inserted.toLocaleString()} / ${p.expected.toLocaleString()}`
+                : p.state === "done"
+                  ? `${(p.count ?? 0).toLocaleString()} rows`
+                  : p.state === "error"
+                    ? "failed"
+                    : "pending";
+              return (
+                <Group key={t} gap={8} wrap="nowrap" style={{ padding: "4px 0" }}>
+                  <Box style={{ width: 18, display: "flex", justifyContent: "center", flexShrink: 0 }}>
+                    {icon}
+                  </Box>
+                  <Text size="xs" style={{ flex: 1 }} c={p.state === "pending" ? "dimmed" : undefined}>{label}</Text>
+                  <Text size="xs" ff="monospace" c={p.state === "error" ? "red" : "dimmed"}>{detail}</Text>
+                </Group>
+              );
+            })}
+          </Stack>
+        </Paper>
+      )}
+
+      {result && phase === "done" && (
+        <Alert mt="md" color="teal" variant="light" icon={<IconCheck size={14} />} radius="md">
+          <Text size="xs" fw={600} mb={6}>Sync berhasil dari {result.source}</Text>
+          <Text size="10px" c="dimmed">Selesai {new Date(result.synced_at!).toLocaleString()}</Text>
+        </Alert>
+      )}
+
+      {/* Detailed error panel */}
+      {syncErr && (
+        <Alert mt="md" color="red" variant="light" icon={<IconAlertTriangle size={14} />} radius="md">
+          <Stack gap={6}>
+            <Group gap={6}>
+              <Badge size="xs" color="red" variant="filled">{syncErr.phase}</Badge>
+              {syncErr.table && <Badge size="xs" color="orange" variant="light">table: {syncErr.table}</Badge>}
+              {syncErr.http_status != null && <Badge size="xs" color="gray" variant="light">HTTP {syncErr.http_status}</Badge>}
+            </Group>
+            <Text size="xs" fw={600}>{syncErr.message}</Text>
+            {syncErr.remote_error && (
+              <Box>
+                <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Remote error</Text>
+                <Code style={{ fontSize: 11, display: "block", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{syncErr.remote_error}</Code>
+              </Box>
+            )}
+            {syncErr.prisma_code && (
+              <Box>
+                <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Prisma</Text>
+                <Code style={{ fontSize: 11 }}>{syncErr.prisma_code}</Code>
+                {syncErr.prisma_meta && <Code style={{ fontSize: 10, display: "block", whiteSpace: "pre-wrap", marginTop: 4 }}>{JSON.stringify(syncErr.prisma_meta, null, 2)}</Code>}
+              </Box>
+            )}
+            {syncErr.preview && (
+              <Box>
+                <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Response preview</Text>
+                <Code style={{ fontSize: 10, display: "block", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 100, overflow: "auto" }}>{syncErr.preview}</Code>
+              </Box>
+            )}
+            {syncErr.error_name && (
+              <Text size="10px" c="dimmed">Error: {syncErr.error_name}</Text>
+            )}
+          </Stack>
         </Alert>
       )}
     </Paper>
