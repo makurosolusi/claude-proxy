@@ -40,19 +40,21 @@ export function getCapabilities(
   model:       string,
   customType?: "anthropic" | "openai",
 ): DestinationCapabilities {
-  // openai-like translation already drops thinking blocks via anthropicContentToText
+  // openai-like custom: translation strips thinking via anthropicContentToText.
+  // Treat as cannot-accept upfront — translation handles the actual drop.
   if (customType === "openai") {
     return { acceptsThinkingBlocks: false, acceptsThinkingParam: false };
   }
-  // Non-Anthropic native: signature bound to Anthropic account/model is meaningless here
-  if (provider !== "anthropic") {
+  // Anthropic + non-thinking model (haiku family): model rejects thinking
+  if (provider === "anthropic" && !modelSupportsThinking(model)) {
     return { acceptsThinkingBlocks: false, acceptsThinkingParam: false };
   }
-  // Anthropic + model that rejects thinking
-  if (!modelSupportsThinking(model)) {
-    return { acceptsThinkingBlocks: false, acceptsThinkingParam: false };
-  }
-  // Anthropic + thinking-capable: preserve for extended-thinking caching
+  // Default KEEP. Covers:
+  //   - Anthropic + thinking-capable: preserve for extended-thinking caching;
+  //     stale signature mismatches handled by post-error retry path
+  //   - Non-Anthropic anthropic-compat (DS, OR, custom-anthropic): provider may
+  //     run its own thinking mode and REQUIRE its blocks back in history
+  //     (DeepSeek: "content[].thinking in the thinking mode must be passed back")
   return { acceptsThinkingBlocks: true, acceptsThinkingParam: true };
 }
 
