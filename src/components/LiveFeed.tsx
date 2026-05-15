@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Stack, Text, Box, Group, Badge, ScrollArea, Loader, ActionIcon, useMantineColorScheme, Tooltip, Modal } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconBolt, IconAlertCircle, IconDatabase, IconChevronDown, IconChevronRight } from "@tabler/icons-react";
+import { IconBolt, IconAlertCircle, IconDatabase, IconChevronDown, IconChevronRight, IconCornerDownRight } from "@tabler/icons-react";
 import { DetailContent } from "./tables/RequestLog";
 import { UserAvatar } from "./UserAvatar";
 import type { LogEntry } from "../contexts";
@@ -117,28 +117,34 @@ function FeedEntry({
         opacity: compact ? 0.85 : 1,
       }}
     >
-      <Group gap={8} wrap="nowrap" align="flex-start">
+      <Group gap={10} wrap="nowrap" align="flex-start">
         {!compact && <UserAvatar name={primary} imageUrl={imageUrl} isErr={isErr} />}
 
         <Box style={{ flex: 1, minWidth: 0 }}>
-          <Group justify="space-between" wrap="nowrap" mb={compact ? 0 : 3}>
-            {!compact && (
-              <Group gap={6} wrap="nowrap" style={{ maxWidth: "65%", minWidth: 0 }}>
-                <Text fz={12} fw={600} truncate style={{ letterSpacing: "-0.01em" }}>
-                  {primary}
-                </Text>
-                {secondary && (
-                  <Text fz={10} c="dimmed" ff="Geist Mono, monospace" truncate>
-                    via {secondary}
-                  </Text>
-                )}
-              </Group>
-            )}
-            <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ flexShrink: 0, marginLeft: compact ? "auto" : undefined }}>
-              {fmtAge(l.ts)}
-            </Text>
-          </Group>
+          {/* Row 1: primary name + timestamp */}
+          {!compact && (
+            <Group justify="space-between" wrap="nowrap" mb={2}>
+              <Text fz={13} fw={600} truncate style={{ letterSpacing: "-0.01em", maxWidth: "78%" }}>
+                {primary}
+              </Text>
+              <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ flexShrink: 0 }}>
+                {fmtAge(l.ts)}
+              </Text>
+            </Group>
+          )}
 
+          {/* Row 2: token label (own line, readable) — only when distinct from owner */}
+          {!compact && secondary && (
+            <Group gap={4} wrap="nowrap" mb={4} style={{ minWidth: 0 }}>
+              <IconCornerDownRight size={11} style={{ color: "var(--cp-text-3)", flexShrink: 0 }} />
+              <Text fz={11} ff="Geist Mono, monospace" truncate
+                style={{ color: "var(--cp-text-2)" }}>
+                {secondary}
+              </Text>
+            </Group>
+          )}
+
+          {/* Row 3: model badge + tokens + cache + turns + (timestamp for compact) */}
           <Group gap={6} wrap="nowrap">
             {isErr ? (
               <Badge size="xs" variant="light" color="red" leftSection={<IconAlertCircle size={8} />}
@@ -166,6 +172,11 @@ function FeedEntry({
                   <Text fz={10} c="dimmed">{l.turns}t</Text>
                 )}
               </>
+            )}
+            {compact && (
+              <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ marginLeft: "auto" }}>
+                {fmtAge(l.ts)}
+              </Text>
             )}
           </Group>
 
@@ -206,20 +217,16 @@ function GroupedEntry({
         onClick={() => setExpanded(v => !v)}
         style={{ padding: "9px 14px", borderBottom: "1px solid var(--cp-border)", cursor: "pointer" }}
       >
-        <Group gap={8} wrap="nowrap" align="flex-start">
+        <Group gap={10} wrap="nowrap" align="flex-start">
           <UserAvatar name={primary} imageUrl={imageUrl} isErr={isErr} />
 
           <Box style={{ flex: 1, minWidth: 0 }}>
-            <Group justify="space-between" wrap="nowrap" mb={3}>
-              <Group gap={6} wrap="nowrap" style={{ maxWidth: "65%", minWidth: 0 }}>
-                <Text fz={12} fw={600} truncate style={{ letterSpacing: "-0.01em" }}>
+            {/* Row 1: primary name + ×count + timestamp */}
+            <Group justify="space-between" wrap="nowrap" mb={2}>
+              <Group gap={6} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+                <Text fz={13} fw={600} truncate style={{ letterSpacing: "-0.01em" }}>
                   {primary}
                 </Text>
-                {secondary && (
-                  <Text fz={10} c="dimmed" ff="Geist Mono, monospace" truncate>
-                    via {secondary}
-                  </Text>
-                )}
                 <Badge
                   size="xs" variant="filled" color="gray"
                   style={{ fontSize: 10, fontFamily: "Geist Mono, monospace", cursor: "default", flexShrink: 0 }}
@@ -231,6 +238,17 @@ function GroupedEntry({
                 {fmtAge(l.ts)}
               </Text>
             </Group>
+
+            {/* Row 2: token label (own line) */}
+            {secondary && (
+              <Group gap={4} wrap="nowrap" mb={4} style={{ minWidth: 0 }}>
+                <IconCornerDownRight size={11} style={{ color: "var(--cp-text-3)", flexShrink: 0 }} />
+                <Text fz={11} ff="Geist Mono, monospace" truncate
+                  style={{ color: "var(--cp-text-2)" }}>
+                  {secondary}
+                </Text>
+              </Group>
+            )}
 
             <Group gap={6} wrap="nowrap">
               {isErr ? (

@@ -101,12 +101,12 @@ function fmtCd(ms: number) {
   return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
 }
 
-export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userImages: Record<string, string> = {}): Response {
-  const now   = Date.now();
+// Shared tokenData builder — single source of truth for /api/status and the
+// WebSocket broadcast payload in index.tsx. Adding a field here propagates to
+// both call sites, preventing the duplicate-drift bug where WS pushed an older
+// shape than the initial fetch.
+export function buildTokenData(): Record<string, any> {
   const today = todayKey();
-
-  // Resolved global active provider (same logic as proxy.ts).
-  // Handles built-in + custom providers via getCustomProvider lookup.
   const globalOverride = settings["provider_override"] || "";
   const isOverrideValid =
     ["anthropic", "deepseek", "openrouter"].includes(globalOverride) ||
@@ -119,21 +119,18 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
   for (const [k, tk] of Object.entries(tokens)) {
     const tp = tk.provider || "inherit";
     const effectiveProvider = tp === "inherit" ? globalActiveProvider : tp;
-    // active model: pinned_model wins; else provider's default
     const activeModel = tk.pinned_model
       ? tk.pinned_model
       : effectiveProvider === "deepseek"   ? (settings["deepseek_model"]   || "deepseek-v4-pro[1m]")
       : effectiveProvider === "openrouter" ? (settings["openrouter_model"] || "anthropic/claude-sonnet-4")
       : null;
     const resolvedName = resolveTokenName(k, tk);
-    const ownerName    = resolveOwnerName(tk);
-    const tokenLabel   = resolveTokenLabel(k, tk);
     tokenData[k] = {
       label:           resolvedName,
       name:            resolvedName,
       user_id:         tk.user_id || "",
-      owner_name:      ownerName,
-      token_label:     tokenLabel,
+      owner_name:      resolveOwnerName(tk),
+      token_label:     resolveTokenLabel(k, tk),
       used:            tk.used,
       limit:           tk.limit === Infinity ? null : tk.limit,
       remaining:       tk.limit === Infinity ? null : Math.max(0, tk.limit - tk.used),
@@ -147,6 +144,14 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
       activeModel,
     };
   }
+  return tokenData;
+}
+
+export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userImages: Record<string, string> = {}): Response {
+  const now   = Date.now();
+  const today = todayKey();
+
+  const tokenData = buildTokenData();
 
   // ── Per-user insights ────────────────────────────────────────────────────
   const insights: Record<string, UserInsight> = {};

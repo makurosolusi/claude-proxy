@@ -10,7 +10,7 @@ import { prisma }           from "./prisma";
 import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, dbSetUserStatus, dbSaveSetting, settings, resolveTokenName } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
-import { handleApiStatus } from "./handlers/apiStatus";
+import { handleApiStatus, buildTokenData } from "./handlers/apiStatus";
 import { handleApiLogs }   from "./handlers/apiLogs";
 import { handleApiStats }  from "./handlers/apiStats";
 import { handleApiMind }   from "./handlers/apiMind";
@@ -342,22 +342,7 @@ function buildStatusPayload(isAdmin: boolean) {
     const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
     return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
   };
-  const tokenData: Record<string, unknown> = {};
-  for (const [k, tk] of Object.entries(tokens)) {
-    const uid = tk.user_id || k;
-    tokenData[k] = {
-      label:     resolveTokenName(k, tk),
-      name:      resolveTokenName(k, tk),
-      user_id:   tk.user_id,
-      used:      tk.used,
-      limit:     tk.limit === Infinity ? null : tk.limit,
-      remaining: tk.limit === Infinity ? null : Math.max(0, tk.limit - tk.used),
-      pct:       tk.limit === Infinity ? 0 : Math.round((tk.used / tk.limit) * 100),
-      paused:    tk.paused,
-      today:     (dailyUsage[today] || {})[k] || 0,
-      alltime:   allTimePerUser[uid] || 0,
-    };
-  }
+  const tokenData = buildTokenData();
   return {
     ts:          new Date().toISOString(),
     pollAge:     upstream.lastPoll ? fmtCd(now - upstream.lastPoll) + " ago" : "pending",
