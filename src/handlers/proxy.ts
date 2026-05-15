@@ -5,6 +5,12 @@ import { getOauthCredential, refreshOauthToken } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
 import { getCustomProvider } from "../customProviders";
 import { anthropicToOpenAi, openAiToAnthropic, translateOpenAiStreamToAnthropic } from "../openaiTranslate";
+import {
+  getCapabilities,
+  sanitizeRequestBody,
+  stripAllThinking,
+  isThinkingIncompatibleError,
+} from "../messageSanitizer";
 import type { TokenEntry } from "../types";
 
 function pushAlert(msg: string) { broadcastSystemMsg(`⚡ ${msg}`); }
@@ -82,14 +88,20 @@ function extractSystem(body: any): string {
   return "";
 }
 
-// Detect if conversation history contains thinking blocks — used to catch orphaned
-// thinking param when switching back to Anthropic after non-Anthropic provider requests
-function hasThinkingBlocks(messages: any[]): boolean {
-  if (!Array.isArray(messages)) return false;
-  return messages.some((msg: any) =>
-    msg.role === "assistant" && Array.isArray(msg.content) &&
-    msg.content.some((b: any) => b.type === "thinking" || b.type === "redacted_thinking" || b.type === "reasoning")
-  );
+// Capability-aware sanitization for the chosen destination (provider, model, optional customType).
+// Returns the new serialized body. Mutates bodyJson in place. Idempotent.
+function sanitizeBodyForDestination(bodyJson: any, provider: string, model: string, key: string): string {
+  if (!bodyJson) return "";
+  let customType: "anthropic" | "openai" | undefined;
+  if (provider !== "anthropic" && provider !== "deepseek" && provider !== "openrouter") {
+    customType = getCustomProvider(provider)?.type;
+  }
+  const caps  = getCapabilities(provider, model, customType);
+  const stats = sanitizeRequestBody(bodyJson, caps);
+  if (stats.thinkingBlocks || stats.redactedBlocks || stats.thinkingParamDropped) {
+    console.log(`[proxy] Sanitized ${provider}/${model || "?"}: blocks=${stats.thinkingBlocks}+${stats.redactedBlocks} param=${stats.thinkingParamDropped} [${key.slice(-6)}]`);
+  }
+  return JSON.stringify(bodyJson);
 }
 
 function getDeepSeekConfig(): { apiKey: string; baseUrl: string; model: string } | null {
@@ -351,15 +363,10 @@ export async function handleProxy(
     maxOutputTokens = parseInt(bodyJson.max_tokens) || 4096;
   } catch {}
 
-  // Strip client-specific fields Anthropic API doesn't accept
+  // Strip client-specific fields Anthropic API doesn't accept.
+  // Capability-aware sanitization happens later, AFTER provider/model finalized.
   if (bodyJson) {
     delete bodyJson.context_management;
-    if (bodyJson.thinking && !hasThinkingBlocks(bodyJson.messages)) {
-      // History has no thinking blocks (previous requests went through a provider
-      // that stripped them) but thinking is still enabled — API akan reject 400
-      delete bodyJson.thinking;
-      console.log(`[proxy] Stripped orphaned thinking param (no thinking blocks in history) [${key.slice(-6)}]`);
-    }
     bodyText = JSON.stringify(bodyJson);
   }
 
@@ -422,6 +429,9 @@ export async function handleProxy(
   // concurrency while still limiting overshoot. TTL=10min auto-expires leaked reservations.
   const reservationId = reserveInFlight(key, estimatedTokens);
 
+  // ── Coherence sanitization — strip state incompatible with destination ──
+  bodyText = sanitizeBodyForDestination(bodyJson, provider, model, key);
+
   // ── Build & forward ───────────────────────────────────────────────────────────
   let built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
 
@@ -430,7 +440,8 @@ export async function handleProxy(
     if (provider === "anthropic" && autoFallback && override !== "anthropic") {
       provider = openrouter ? "openrouter" : "deepseek";
       model = toProviderModel(originalModel || model, provider);
-      if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
+      if (bodyJson) { bodyJson.model = model; }
+      bodyText = sanitizeBodyForDestination(bodyJson, provider, model, key);
       built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
       console.log(`[proxy] No Anthropic credential → ${provider} [${key.slice(-6)}]`);
     }
@@ -461,11 +472,27 @@ export async function handleProxy(
       }
     }
 
+    // 400 thinking-state mismatch (invalid signature / adaptive-thinking not supported)
+    // → strip all thinking state → retry once. Self-healing for cross-model/cross-provider
+    // history that the pre-flight sanitizer couldn't anticipate (e.g. signature bound to
+    // a model the client doesn't realize has changed). Anthropic-side only.
+    if (provider === "anthropic" && resp.status === 400 && bodyJson) {
+      let errBody: any = null;
+      try { errBody = await resp.clone().json(); } catch {}
+      if (isThinkingIncompatibleError(400, errBody)) {
+        const stats = stripAllThinking(bodyJson);
+        upstreamBody = JSON.stringify(bodyJson);
+        console.log(`[proxy] Thinking retry: stripped ${stats.thinkingBlocks}+${stats.redactedBlocks} blocks, param=${stats.thinkingParamDropped} [${key.slice(-6)}]`);
+        resp = await fetch(upstreamUrl, { method: "POST", headers, body: upstreamBody });
+      }
+    }
+
     // Anthropic 429 → retry with fallback provider (unless override forces Claude)
     if (provider === "anthropic" && resp.status === 429 && autoFallback && override !== "anthropic") {
       provider = openrouter ? "openrouter" : "deepseek";
       model = toProviderModel(originalModel || model, provider);
-      if (bodyJson) { bodyJson.model = model; bodyText = JSON.stringify(bodyJson); }
+      if (bodyJson) { bodyJson.model = model; }
+      bodyText = sanitizeBodyForDestination(bodyJson, provider, model, key);
       const fbBuilt = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
       if (fbBuilt) {
         upstreamUrl  = fbBuilt.url;
