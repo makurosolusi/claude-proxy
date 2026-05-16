@@ -1,15 +1,16 @@
 import { useState, useEffect } from "react";
 import {
-  Stack, Text, Paper, Group, Button, Badge, Select,
+  Stack, Text, Paper, Group, Button, Badge, Select, Switch,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconAlertCircle } from "@tabler/icons-react";
+import { IconAlertCircle, IconFlask } from "@tabler/icons-react";
 import { ProvidersAccordion } from "./ProvidersAccordion";
 
 interface SettingsData {
-  deepseek_api_key?:   string;
-  openrouter_api_key?: string;
-  provider_override?:  string;
+  deepseek_api_key?:           string;
+  openrouter_api_key?:         string;
+  provider_override?:          string;
+  simulate_anthropic_disabled?: string;
 }
 
 interface CustomProviderInfo { id: string; name: string; type: "anthropic" | "openai"; color?: string; api_key_set?: boolean; }
@@ -21,6 +22,8 @@ export function AdminProviders() {
   const [saving, setSaving]                   = useState(false);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [loadingInit, setLoadingInit]         = useState(true);
+  const [simulateOff, setSimulateOff]         = useState(false);
+  const [simSaving, setSimSaving]             = useState(false);
 
   const deepseekConfigured   = !!settingsData.deepseek_api_key;
   const openrouterConfigured = !!settingsData.openrouter_api_key;
@@ -58,6 +61,7 @@ export function AdminProviders() {
       }
       setOverride(resolvedOverride);
       setSavedOverride(resolvedOverride);
+      setSimulateOff(d.simulate_anthropic_disabled === "true");
       setLoadingInit(false);
     });
     return () => { cancelled = true; };
@@ -97,6 +101,30 @@ export function AdminProviders() {
   const effectiveActiveProvider = savedOverride === ""
     ? "anthropic"  // Auto mode defaults to Claude
     : savedOverride;
+
+  const toggleSimulate = async (next: boolean) => {
+    setSimSaving(true);
+    setSimulateOff(next); // optimistic
+    try {
+      const r = await fetch("/admin/settings/simulate-anthropic-disabled", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ enabled: next ? "true" : "false" }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      notifications.show({
+        color: next ? "orange" : "teal",
+        title: next ? "Simulation ON" : "Simulation OFF",
+        message: next
+          ? "Anthropic is now treated as disconnected. Requests will route to fallback. Toggle off to restore."
+          : "Anthropic re-enabled (real credential state restored).",
+        autoClose: 4000,
+      });
+    } catch (e: any) {
+      setSimulateOff(!next); // revert
+      notifications.show({ color: "red", title: "Toggle failed", message: e.message || "Failed", autoClose: 3000 });
+    } finally { setSimSaving(false); }
+  };
 
   const save = async () => {
     if (!overrideDirty) return;
@@ -178,6 +206,27 @@ export function AdminProviders() {
             Save
           </Button>
         </Group>
+      </Paper>
+
+      {/* Simulate Anthropic disabled — dry-run the fallback-only flow */}
+      <Paper withBorder p="lg" radius="md" style={simulateOff ? { borderColor: "var(--mantine-color-orange-5)" } : undefined}>
+        <Group justify="space-between" wrap="nowrap" mb={6}>
+          <Group gap={8}>
+            <IconFlask size={16} color="var(--mantine-color-orange-6)" />
+            <Text size="sm" fw={700}>Simulate Anthropic disabled</Text>
+            {simulateOff && <Badge variant="filled" color="orange" size="xs">ACTIVE</Badge>}
+          </Group>
+          <Switch
+            checked={simulateOff}
+            onChange={e => toggleSimulate(e.currentTarget.checked)}
+            disabled={simSaving || loadingInit}
+            color="orange"
+            size="md"
+          />
+        </Group>
+        <Text size="xs" c="dimmed" style={{ lineHeight: 1.5 }}>
+          Pretend no Claude credential is connected — without touching credential files. Use this to dry-run the fallback-only mode (verify UI banners, routing chain, mining provider switch). Toggle off to restore real state. Effect is immediate (no restart).
+        </Text>
       </Paper>
 
       {/* Per-provider settings accordion */}

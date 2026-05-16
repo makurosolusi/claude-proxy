@@ -195,12 +195,20 @@ async function backfillFromLogs(limit: number): Promise<void> {
   let ok = 0, skip = 0, fail = 0;
   for (const r of rows) {
     try {
+      // Backfill cannot reconstruct the full conversation body (request_logs only
+      // stores the extracted prompt + response). So we hash on the prompt alone,
+      // tagged with a sentinel prefix so backfill entries never collide with
+      // runtime cache entries (which hash on full context signature). They will
+      // not match live requests but remain searchable in admin for inspection.
+      const backfillKey = "BACKFILL_LEGACY|" + r.prompt;
       const vec = await embed(r.prompt);
       await writeCache({
-        prompt: r.prompt, promptVec: vec,
+        prompt:        backfillKey,
+        displayPrompt: r.prompt,
+        promptVec: vec,
         responseText: r.response_text,
         inputTokens: r.input_tokens || 0, outputTokens: r.output_tokens || 0,
-        model: r.model || "", provider: "anthropic",
+        model: r.model || "", provider: "anthropic-backfill",
         userId: r.user_id || "", scope: "user", ttlMs,
       });
       ok++;

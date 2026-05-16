@@ -12,6 +12,7 @@ export async function bootstrapExtensions(): Promise<void> {
   // src/extensions/<id>/index.ts and calls registerExtension() at import time.
   // Add new extension imports below. Keep order alphabetical for stability.
 
+  await import("./log-management");
   await import("./second-brain");
 
   await loadEnabledFromDb();

@@ -1,9 +1,10 @@
 import { config }          from "../config";
 import { upstream, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName } from "../state";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
-import { getOauthCredential, refreshOauthToken } from "../upstream";
+import { getOauthCredential, refreshOauthToken, hasAnthropicCredential } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
 import { getCustomProvider } from "../customProviders";
+import { pickDefaultProvider } from "../providerSelection";
 import { anthropicToOpenAi, openAiToAnthropic, translateOpenAiStreamToAnthropic } from "../openaiTranslate";
 import {
   getCapabilities,
@@ -226,28 +227,53 @@ export async function handleProxy(
 
   checkReset(t, key);
 
+  // Compute provider configs once — reused by /v1/models GET and provider selection below.
+  const deepseek   = getDeepSeekConfig();
+  const openrouter = getOpenRouterConfig();
+
   if (req.method === "GET" && pathname === "/v1/models") {
-    try {
-      const cred = getOauthCredential();
-      if (!cred) throw new Error("no credential");
-      const r = await fetch(config.anthropicUrl + "/v1/models", {
-        headers: {
-          "Accept":           "application/json",
-          "Authorization":    "Bearer " + cred.token,
-          "anthropic-version": "2023-06-01",
-          "anthropic-beta":   "oauth-2025-04-20",
-        },
+    // Try Anthropic first if available — otherwise probe the active provider's
+    // /v1/models so clients see a useful catalog instead of a hardcoded Claude list.
+    if (hasAnthropicCredential()) {
+      try {
+        const cred = getOauthCredential();
+        if (cred) {
+          const r = await fetch(config.anthropicUrl + "/v1/models", {
+            headers: {
+              "Accept":           "application/json",
+              "Authorization":    "Bearer " + cred.token,
+              "anthropic-version": "2023-06-01",
+              "anthropic-beta":   "oauth-2025-04-20",
+            },
+          });
+          if (r.ok) return new Response(r.body, { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+      } catch {}
+      // Fall through to hardcoded Claude defaults
+      return Response.json({
+        data: [
+          { id: "claude-opus-4-7",           type: "model", display_name: "Claude Opus 4.7" },
+          { id: "claude-sonnet-4-6",         type: "model", display_name: "Claude Sonnet 4.6" },
+          { id: "claude-haiku-4-5-20251001", type: "model", display_name: "Claude Haiku 4.5" },
+        ],
+        has_more: false,
       });
-      if (r.ok) return new Response(r.body, { status: 200, headers: { "Content-Type": "application/json" } });
-    } catch {}
-    return Response.json({
-      data: [
-        { id: "claude-opus-4-7",           type: "model", display_name: "Claude Opus 4.7" },
-        { id: "claude-sonnet-4-6",         type: "model", display_name: "Claude Sonnet 4.6" },
-        { id: "claude-haiku-4-5-20251001", type: "model", display_name: "Claude Haiku 4.5" },
-      ],
-      has_more: false,
-    });
+    }
+    // No Anthropic — surface the active provider's model (best-effort)
+    const fallbackProvider = pickDefaultProvider();
+    if (fallbackProvider === "deepseek" && deepseek) {
+      return Response.json({ data: [{ id: deepseek.model, type: "model", display_name: deepseek.model }], has_more: false });
+    }
+    if (fallbackProvider === "openrouter" && openrouter) {
+      return Response.json({ data: [{ id: openrouter.model, type: "model", display_name: openrouter.model }], has_more: false });
+    }
+    if (fallbackProvider) {
+      const cp = getCustomProvider(fallbackProvider);
+      if (cp && t.pinned_model) {
+        return Response.json({ data: [{ id: t.pinned_model, type: "model", display_name: t.pinned_model }], has_more: false });
+      }
+    }
+    return Response.json({ data: [], has_more: false });
   }
 
   if (req.method === "GET" && pathname === "/v1/usage") {
@@ -270,13 +296,12 @@ export async function handleProxy(
     return Response.json({ error: { type: "not_found_error", message: "Not found" } }, { status: 404 });
   }
 
-  // Provider selection: per-token > global override > auto fallback
+  // Provider selection: per-token > global override > auto-pick
   // provider is a string slug: "anthropic" | "deepseek" | "openrouter" | custom slug
-  let provider: string = "anthropic";
+  let provider: string = pickDefaultProvider();
   const fh = upstream.fiveHour;
-  const deepseek   = getDeepSeekConfig();
-  const openrouter = getOpenRouterConfig();
-  const override = settings["provider_override"] || ""; // "" | "deepseek" | "openrouter" | "anthropic" | custom
+  const hasAnthropic = hasAnthropicCredential();
+  const override     = settings["provider_override"] || ""; // "" | "deepseek" | "openrouter" | "anthropic" | custom
   const tokenProvider = t.provider || "inherit";
 
   // Auto-fallback order: openrouter first (cheaper/faster), then deepseek
@@ -295,6 +320,9 @@ export async function handleProxy(
       }, { status: 503 });
       provider = "openrouter";
     } else if (tokenProvider === "anthropic") {
+      if (!hasAnthropic) return Response.json({
+        error: { type: "api_error", message: "Provider 'anthropic' is set for this token but no Claude credential is connected. Contact admin." }
+      }, { status: 503 });
       provider = "anthropic";
     } else {
       // Custom provider — verify it exists and has api_key
@@ -304,17 +332,18 @@ export async function handleProxy(
       }, { status: 503 });
       provider = tokenProvider;
     }
+  } else if (override === "anthropic" && hasAnthropic) {
+    provider = "anthropic";
   } else if (override === "deepseek" && deepseek) {
     provider = "deepseek";
   } else if (override === "openrouter" && openrouter) {
     provider = "openrouter";
-  } else if (override === "anthropic") {
-    provider = "anthropic";
   } else if (override && override !== "anthropic" && override !== "deepseek" && override !== "openrouter") {
     // Custom provider override
     const cp = getCustomProvider(override);
     if (cp && cp.api_key) provider = override;
-  } else if (upstream.lastPollOk && fh && fh.utilization >= config.capPct) {
+    // else: fall through to pickDefaultProvider() chosen above
+  } else if (hasAnthropic && upstream.lastPollOk && fh && fh.utilization >= config.capPct) {
     // Auto mode: soft cap triggers fallback — try openrouter first, then deepseek
     if (autoFallback) {
       provider = openrouter ? "openrouter" : "deepseek";
@@ -325,6 +354,13 @@ export async function handleProxy(
         error: { type: "rate_limit_error", message: `Upstream near limit (${fh.utilization.toFixed(1)}%). Resets in ${resetIn}s.` }
       }, { status: 429, headers: { "retry-after": String(resetIn) } });
     }
+  }
+  // else: provider stays at whatever pickDefaultProvider() returned.
+
+  if (!provider) {
+    return Response.json({
+      error: { type: "api_error", message: "No provider is configured. Connect a Claude credential or set DeepSeek/OpenRouter API key in admin → Providers." }
+    }, { status: 503 });
   }
 
   // Per-user quota — include in-flight reservations from concurrent requests

@@ -1,6 +1,6 @@
 import { config } from "../config";
 import { settings } from "../state";
-import { getOauthCredential } from "../upstream";
+import { getOauthCredential, hasAnthropicCredential } from "../upstream";
 import { getCustomProvider } from "../customProviders";
 
 type Provider = string; // built-in or custom slug
@@ -142,6 +142,20 @@ export async function handleApiModels(req: Request, url: URL): Promise<Response>
       fetched_at: c.fetchedAt,
       cached: true,
       age_seconds: Math.floor((now - c.fetchedAt) / 1000),
+    });
+  }
+
+  // Graceful skip for Anthropic when no credential is connected — return 200
+  // with empty list + helpful message instead of 502, so admin UI doesn't render
+  // a scary error.
+  if (provider === "anthropic" && !hasAnthropicCredential()) {
+    return Response.json({
+      provider, models: [],
+      fetched_at: now,
+      cached: false,
+      age_seconds: 0,
+      disabled: true,
+      error: "No Claude credential connected — Anthropic is disabled. Add a credential in admin → Accounts or set provider_override to deepseek/openrouter.",
     });
   }
 

@@ -1,5 +1,9 @@
 export type ScopeMode = "user" | "shared" | "user-with-shared-fallback";
 
+// Mining provider — distillation can run on any configured provider.
+// "auto" = pick the best available (anthropic > openrouter > deepseek).
+export type MiningProvider = "auto" | "anthropic" | "openrouter" | "deepseek";
+
 export interface SecondBrainConfig {
   cacheEnabled:             boolean;
   cacheTtlHours:            number;
@@ -8,7 +12,8 @@ export interface SecondBrainConfig {
   scope:                    ScopeMode;
   miningEnabled:            boolean;
   miningThrottlePerHour:    number;
-  miningModel:              string;
+  miningProvider:           MiningProvider;
+  miningModel:              string; // hint — falls back to provider default when incompatible
   injectionEnabled:         boolean;
   injectionTopK:            number;
   abTestingEnabled:         boolean;
@@ -22,6 +27,7 @@ export const defaultConfig: SecondBrainConfig = {
   scope:                    "user",
   miningEnabled:            true,
   miningThrottlePerHour:    20,
+  miningProvider:           "auto",
   miningModel:              "claude-haiku-4-5-20251001",
   injectionEnabled:         true,
   injectionTopK:            3,

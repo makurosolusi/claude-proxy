@@ -253,6 +253,34 @@ async function toolCheckActiveProviders(args: { minutes?: number }) {
   return apiGet(`/api/debug/active-providers?minutes=${minutes}`);
 }
 
+async function toolCheckAppLogs(args: {
+  level?: string; source?: string; q?: string; since_minutes?: number; limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (args.level)         params.set("level", args.level);
+  if (args.source)        params.set("source", args.source);
+  if (args.q)             params.set("q", args.q);
+  if (args.since_minutes) params.set("since_minutes", String(args.since_minutes));
+  if (args.limit)         params.set("limit", String(args.limit));
+  return apiGet(`/api/debug/app-logs?${params.toString()}`);
+}
+
+async function toolTailAppLogs(args: { minutes?: number; level?: string; source?: string; q?: string }) {
+  const minutes = args.minutes ?? 5;
+  return toolCheckAppLogs({
+    level:  args.level,
+    source: args.source,
+    q:      args.q,
+    since_minutes: minutes,
+    limit: 200,
+  });
+}
+
+async function toolCheckAppLogsStats(args: { since_hours?: number }) {
+  const hours = args.since_hours ?? 24;
+  return apiGet(`/api/debug/app-logs/stats?since_hours=${hours}`);
+}
+
 // ── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
@@ -528,6 +556,50 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "check_app_logs",
+    description:
+      "Read persisted application logs from app_logs table (log-management extension). " +
+      "Filter by level/source/text/time. Survives restarts unlike tail_console (memory buffer). " +
+      "Returns 409 if extension never enabled.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        level:         { type: "string", enum: ["info", "warn", "error"], description: "Filter by log level" },
+        source:        { type: "string", description: "Filter by source (e.g. 'upstream', 'proxy', 'second-brain')" },
+        q:             { type: "string", description: "Substring search in message (case-insensitive)" },
+        since_minutes: { type: "number", description: "Only entries from last N minutes" },
+        limit:         { type: "number", description: "Max rows (default 100, max 500)" },
+      },
+    },
+  },
+  {
+    name: "tail_app_logs",
+    description:
+      "Show app_logs entries from the last N minutes (default 5) with optional level/source/text filters. " +
+      "Higher-fidelity than tail_console because data persists in DB.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        minutes: { type: "number", description: "Look back N minutes (default 5)" },
+        level:   { type: "string", enum: ["info", "warn", "error"] },
+        source:  { type: "string", description: "Filter by source" },
+        q:       { type: "string", description: "Substring search in message" },
+      },
+    },
+  },
+  {
+    name: "check_app_logs_stats",
+    description:
+      "Aggregate stats from app_logs: counts by level, top sources, oldest entry, total in DB. " +
+      "Use to understand retention coverage and where most logs originate.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        since_hours: { type: "number", description: "Aggregation window in hours (default 24, max 168)" },
+      },
+    },
+  },
 ];
 
 async function callTool(name: string, args: Record<string, unknown>) {
@@ -557,6 +629,9 @@ async function callTool(name: string, args: Record<string, unknown>) {
   if (name === "check_sessions_summary") return toolCheckSessionsSummary();
   if (name === "check_test_upstream")    return toolCheckTestUpstream(args as { provider: string });
   if (name === "check_active_providers") return toolCheckActiveProviders(args);
+  if (name === "check_app_logs")         return toolCheckAppLogs(args);
+  if (name === "tail_app_logs")          return toolTailAppLogs(args);
+  if (name === "check_app_logs_stats")   return toolCheckAppLogsStats(args);
   throw new Error(`Unknown tool: ${name}`);
 }
 

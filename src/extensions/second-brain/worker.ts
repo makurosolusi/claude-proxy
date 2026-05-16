@@ -109,9 +109,16 @@ async function processMiningJob(data: MiningJobData): Promise<void> {
 
   let result;
   try {
-    result = await distillStrategy(traj, data.response_text, cfg.miningModel);
+    result = await distillStrategy(traj, data.response_text, cfg.miningModel, cfg.miningProvider);
   } catch (e: any) {
-    await logEvent("mine_failed", { reason: e?.message ?? String(e), log_id: data.request_log_id }, data.user_id).catch(() => {});
+    const msg = e?.message ?? String(e);
+    await logEvent("mine_failed", { reason: msg, log_id: data.request_log_id }, data.user_id).catch(() => {});
+    // If the failure is "no provider available", don't bubble — pg-boss would
+    // retry and create a hot loop. Log once and treat as a skip.
+    if (msg.includes("mining skipped") || msg.includes("not available") || msg.includes("not configured")) {
+      console.warn(`[second-brain.worker] mining skipped: ${msg}`);
+      return;
+    }
     throw e;
   }
   if (!result) {

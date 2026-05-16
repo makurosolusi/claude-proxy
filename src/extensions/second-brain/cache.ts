@@ -69,16 +69,23 @@ export async function lookupCacheSimilar(
 }
 
 export interface WriteCacheOpts {
-  prompt:        string;
-  promptVec:     number[];
-  responseText:  string;
-  inputTokens:   number;
-  outputTokens:  number;
-  model:         string;
-  provider:      string;
-  userId:        string;
-  scope:         string;
-  ttlMs:         number;
+  // `prompt` is the FULL context signature used to compute the cache key —
+  // hashed and embedded. Must match what lookupCacheExact + lookupCacheSimilar
+  // would hash on lookup (otherwise the cache will never hit).
+  prompt:         string;
+  // `displayPrompt` is the human-readable last user message, stored in the
+  // `prompt` DB column for admin UI / debugging. Optional — falls back to
+  // a truncated `prompt` if absent.
+  displayPrompt?: string;
+  promptVec:      number[];
+  responseText:   string;
+  inputTokens:    number;
+  outputTokens:   number;
+  model:          string;
+  provider:       string;
+  userId:         string;
+  scope:          string;
+  ttlMs:          number;
 }
 
 export async function writeCache(opts: WriteCacheOpts): Promise<void> {
@@ -86,6 +93,7 @@ export async function writeCache(opts: WriteCacheOpts): Promise<void> {
   const expires = BigInt(Date.now() + opts.ttlMs);
   const hash    = hashPrompt(opts.prompt);
   const vec     = vectorLiteral(opts.promptVec);
+  const display = (opts.displayPrompt ?? opts.prompt).slice(0, 2000);
   await prisma.$executeRawUnsafe(
     `INSERT INTO sb_prompt_cache
       (prompt_hash, prompt, embedding, response_text, response_body,
@@ -99,7 +107,7 @@ export async function writeCache(opts: WriteCacheOpts): Promise<void> {
        model         = EXCLUDED.model,
        provider      = EXCLUDED.provider,
        expires_at    = EXCLUDED.expires_at`,
-    hash, opts.prompt, vec, opts.responseText, opts.inputTokens, opts.outputTokens,
+    hash, display, vec, opts.responseText, opts.inputTokens, opts.outputTokens,
     opts.model, opts.provider, opts.userId, opts.scope, now, expires
   );
 }

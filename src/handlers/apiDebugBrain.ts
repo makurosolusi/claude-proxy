@@ -244,6 +244,70 @@ export async function handleDebugTestUpstream(req: Request, url: URL): Promise<R
   return handleCustomProviderTest(provider);
 }
 
+// GET /api/debug/app-logs?level=&source=&q=&since_minutes=&limit=
+// Read from app_logs table (log-management extension). Returns 409 if extension
+// never enabled (table missing). Filters mirror the admin list endpoint.
+export async function handleDebugAppLogs(req: Request, url: URL): Promise<Response> {
+  if (!checkMcpSecret(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await tableExists("app_logs")) {
+    return Response.json({ error: "app_logs table missing — log-management extension never enabled" }, { status: 409 });
+  }
+  const level   = url.searchParams.get("level") || "";
+  const source  = url.searchParams.get("source") || "";
+  const q       = (url.searchParams.get("q") || "").trim();
+  const since_m = parseInt(url.searchParams.get("since_minutes") || "0");
+  const limit   = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100")));
+
+  const where: string[] = [];
+  const params: any[] = [];
+  let i = 1;
+  if (level)   { where.push(`level = $${i++}`);       params.push(level); }
+  if (source)  { where.push(`source = $${i++}`);      params.push(source); }
+  if (since_m) { where.push(`ts > $${i++}`);          params.push(BigInt(Date.now() - since_m * 60_000)); }
+  if (q)       { where.push(`message ILIKE $${i++}`); params.push(`%${q}%`); }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT id, ts, level, source, message FROM app_logs ${whereSql} ORDER BY ts DESC LIMIT $${i++}`,
+    ...params, limit,
+  );
+  const now = Date.now();
+  return Response.json({
+    total: rows.length,
+    logs:  rows.map(r => ({
+      id:      Number(r.id),
+      ts:      Number(r.ts),
+      age_sec: Math.round((now - Number(r.ts)) / 1000),
+      level:   r.level,
+      source:  r.source,
+      message: r.message,
+    })),
+  });
+}
+
+// GET /api/debug/app-logs/stats?since_hours=N
+export async function handleDebugAppLogsStats(req: Request, url: URL): Promise<Response> {
+  if (!checkMcpSecret(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await tableExists("app_logs")) {
+    return Response.json({ error: "app_logs table missing — log-management extension never enabled" }, { status: 409 });
+  }
+  const since_h = Math.min(168, Math.max(1, parseInt(url.searchParams.get("since_hours") || "24")));
+  const cutoff = BigInt(Date.now() - since_h * 3600_000);
+  const [byLevel, bySource, total, oldest] = await Promise.all([
+    prisma.$queryRawUnsafe<any[]>(`SELECT level, COUNT(*)::int AS c FROM app_logs WHERE ts > $1 GROUP BY level ORDER BY c DESC`, cutoff),
+    prisma.$queryRawUnsafe<any[]>(`SELECT source, COUNT(*)::int AS c FROM app_logs WHERE ts > $1 GROUP BY source ORDER BY c DESC LIMIT 20`, cutoff),
+    prisma.$queryRawUnsafe<any[]>(`SELECT COUNT(*)::int AS c FROM app_logs`),
+    prisma.$queryRawUnsafe<any[]>(`SELECT MIN(ts)::bigint AS t FROM app_logs`),
+  ]);
+  return Response.json({
+    window_hours:  since_h,
+    total_entries: total[0]?.c ?? 0,
+    oldest_ts:     oldest[0]?.t ? Number(oldest[0].t) : null,
+    by_level:      byLevel.map(r => ({ level: r.level, count: Number(r.c) })),
+    by_source:     bySource.map(r => ({ source: r.source, count: Number(r.c) })),
+  });
+}
+
 // GET /api/debug/active-providers?minutes=N
 // Recent request distribution by provider/model/status.
 export async function handleDebugActiveProviders(req: Request, url: URL): Promise<Response> {

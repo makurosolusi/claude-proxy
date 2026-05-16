@@ -31,6 +31,7 @@ interface CacheEntry {
 interface Settings {
   cacheEnabled: boolean; cacheTtlHours: number; cacheSimilarityThreshold: number;
   scope: string; miningEnabled: boolean; miningThrottlePerHour: number; miningModel: string;
+  miningProvider?: "auto" | "anthropic" | "openrouter" | "deepseek";
   injectionEnabled: boolean; injectionTopK: number;
 }
 
@@ -321,7 +322,29 @@ function SettingsPanel() {
         <Stack gap="sm">
           <Switch label="Enabled" checked={cfg.miningEnabled} onChange={e => setCfg({ ...cfg, miningEnabled: e.currentTarget.checked })} />
           <NumberInput label="Throttle: max jobs / hour / user" min={1} max={200} value={cfg.miningThrottlePerHour} onChange={v => setCfg({ ...cfg, miningThrottlePerHour: Number(v) || 20 })} />
-          <Select label="Mining model" data={["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-7"]} value={cfg.miningModel} onChange={v => v && setCfg({ ...cfg, miningModel: v })} />
+          <Select
+            label="Mining provider"
+            description="Auto = prefer Anthropic, fall through to OpenRouter then DeepSeek"
+            data={[
+              { value: "auto", label: "Auto (recommended)" },
+              { value: "anthropic", label: "Anthropic / Claude" },
+              { value: "openrouter", label: "OpenRouter" },
+              { value: "deepseek", label: "DeepSeek" },
+            ]}
+            value={cfg.miningProvider || "auto"}
+            onChange={v => v && setCfg({ ...cfg, miningProvider: v as any })}
+          />
+          <Select
+            label="Mining model hint"
+            description="Used when the provider matches the model's namespace; otherwise provider default applies"
+            data={[
+              "claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-7",
+              "deepseek-v4-pro[1m]",
+              "anthropic/claude-sonnet-4", "anthropic/claude-haiku-4-5",
+            ]}
+            value={cfg.miningModel}
+            onChange={v => v && setCfg({ ...cfg, miningModel: v })}
+          />
         </Stack>
       </Paper>
       <Paper withBorder p="md" radius="md">

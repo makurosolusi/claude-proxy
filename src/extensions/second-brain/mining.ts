@@ -1,5 +1,8 @@
 import { config } from "../../config";
-import { getOauthCredential } from "../../upstream";
+import { getOauthCredential, hasAnthropicCredential } from "../../upstream";
+import { settings } from "../../state";
+import { getProviderAvailability } from "../../providerSelection";
+import type { MiningProvider } from "./config";
 
 export interface DistilledStrategy {
   title:        string;
@@ -47,10 +50,24 @@ ${response.slice(0, 2000)}
 Distill ONE reusable strategy. JSON only.`;
 }
 
-export async function callClaudeForDistillation(trajectory: string, response: string, model: string): Promise<string> {
+// Resolve the actual provider to use for distillation given a config preference.
+// "auto" prefers anthropic (highest quality distillation) and falls back through
+// openrouter → deepseek based on availability. Returns null if nothing usable.
+export function resolveMiningProvider(pref: MiningProvider): "anthropic" | "openrouter" | "deepseek" | null {
+  const av = getProviderAvailability();
+  if (pref === "anthropic")  return av.anthropic  ? "anthropic"  : null;
+  if (pref === "openrouter") return av.openrouter ? "openrouter" : null;
+  if (pref === "deepseek")   return av.deepseek   ? "deepseek"   : null;
+  // auto
+  if (av.anthropic)  return "anthropic";
+  if (av.openrouter) return "openrouter";
+  if (av.deepseek)   return "deepseek";
+  return null;
+}
+
+async function callAnthropic(model: string, userPrompt: string): Promise<string> {
   const cred = getOauthCredential();
-  if (!cred) throw new Error("no anthropic credential — connect a Claude account in admin/Accounts");
-  const userPrompt = buildUserPrompt(trajectory, response);
+  if (!cred) throw new Error("no anthropic credential");
   const r = await fetch(config.anthropicUrl + "/v1/messages", {
     method: "POST",
     headers: {
@@ -59,20 +76,77 @@ export async function callClaudeForDistillation(trajectory: string, response: st
       "anthropic-version": "2023-06-01",
       "anthropic-beta":    "oauth-2025-04-20",
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: DISTILL_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
+    body: JSON.stringify({ model, max_tokens: 1024, system: DISTILL_SYSTEM, messages: [{ role: "user", content: userPrompt }] }),
     signal: AbortSignal.timeout(30_000),
   });
-  if (!r.ok) {
-    const err = await r.text().catch(() => "");
-    throw new Error(`Claude ${r.status}: ${err.slice(0, 200)}`);
-  }
+  if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`);
   const d = await r.json() as any;
   return d?.content?.[0]?.text || "";
+}
+
+// DeepSeek + OpenRouter both expose Anthropic-compatible /v1/messages — same body shape.
+async function callAnthropicCompatible(provider: "deepseek" | "openrouter", model: string, userPrompt: string): Promise<string> {
+  const apiKey = provider === "deepseek"
+    ? (settings["deepseek_api_key"] || config.deepseekApiKey)
+    : (settings["openrouter_api_key"] || config.openrouterApiKey);
+  const baseUrl = provider === "deepseek"
+    ? (settings["deepseek_base_url"] || config.deepseekBaseUrl)
+    : (settings["openrouter_base_url"] || config.openrouterBaseUrl);
+  if (!apiKey) throw new Error(`no ${provider} api key`);
+  const headers: Record<string, string> = {
+    "Content-Type":      "application/json",
+    "Authorization":     "Bearer " + apiKey,
+    "anthropic-version": "2023-06-01",
+  };
+  if (provider === "openrouter") headers["HTTP-Referer"] = "https://claude-proxy.wibudev.com";
+  const r = await fetch(baseUrl + "/v1/messages", {
+    method: "POST", headers,
+    body: JSON.stringify({ model, max_tokens: 1024, system: DISTILL_SYSTEM, messages: [{ role: "user", content: userPrompt }] }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) throw new Error(`${provider} ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`);
+  const d = await r.json() as any;
+  return d?.content?.[0]?.text || "";
+}
+
+// Per-provider sensible default models. miningModel from config is honored
+// only when it matches the chosen provider's namespace (cheap heuristic).
+function modelForProvider(provider: "anthropic" | "openrouter" | "deepseek", hint: string): string {
+  if (provider === "anthropic") {
+    return hint.startsWith("claude-") ? hint : "claude-haiku-4-5-20251001";
+  }
+  if (provider === "deepseek") {
+    return hint.startsWith("deepseek") ? hint : (settings["deepseek_model"] || config.deepseekModel);
+  }
+  // openrouter
+  return hint.includes("/") ? hint : (settings["openrouter_model"] || config.openrouterModel);
+}
+
+// Backwards-compat export — used by older callers + tests. Auto-resolves the
+// provider; only fails if nothing is configured.
+export async function callClaudeForDistillation(trajectory: string, response: string, model: string): Promise<string> {
+  const provider = resolveMiningProvider("auto");
+  if (!provider) throw new Error("no provider configured for mining — set up Claude, DeepSeek, or OpenRouter");
+  const actualModel = modelForProvider(provider, model);
+  const userPrompt = buildUserPrompt(trajectory, response);
+  if (provider === "anthropic") return callAnthropic(actualModel, userPrompt);
+  return callAnthropicCompatible(provider, actualModel, userPrompt);
+}
+
+export async function callForDistillation(trajectory: string, response: string, pref: MiningProvider, modelHint: string): Promise<string> {
+  const provider = resolveMiningProvider(pref);
+  if (!provider) {
+    // Silent skip — caller treats empty string as "skipped". Avoid loud throws
+    // that turn the worker queue into a retry loop when Anthropic is offline.
+    if (!hasAnthropicCredential()) {
+      throw new Error(`mining skipped: provider '${pref}' not available and no fallback configured`);
+    }
+    throw new Error(`mining provider '${pref}' not configured`);
+  }
+  const actualModel = modelForProvider(provider, modelHint);
+  const userPrompt = buildUserPrompt(trajectory, response);
+  if (provider === "anthropic") return callAnthropic(actualModel, userPrompt);
+  return callAnthropicCompatible(provider, actualModel, userPrompt);
 }
 
 export function parseDistillation(text: string): DistillResult | null {
@@ -98,7 +172,7 @@ export function parseDistillation(text: string): DistillResult | null {
   }
 }
 
-export async function distillStrategy(trajectory: string, response: string, model: string): Promise<DistillResult | null> {
-  const raw = await callClaudeForDistillation(trajectory, response, model);
+export async function distillStrategy(trajectory: string, response: string, model: string, pref: MiningProvider = "auto"): Promise<DistillResult | null> {
+  const raw = await callForDistillation(trajectory, response, pref, model);
   return parseDistillation(raw);
 }

@@ -12,6 +12,8 @@ export interface TokenStatus {
   activeModel:    string | null;
 }
 export interface UpstreamPeriod { utilization: number; resets_at: string; }
+export type OperationMode = "anthropic-primary" | "fallback-only" | "no-provider";
+
 export interface UpstreamData {
   ok: boolean; stale: boolean; error: string | null; email: string | null;
   pollAge: string | null; nextPoll: string | null;
@@ -21,6 +23,11 @@ export interface UpstreamData {
   fallbackProvider: string | null;
   activeProvider:   string | null;
   activeModel:      string | null;
+  // Operation mode awareness — set by /api/status. Frontend uses these to
+  // render a friendly banner instead of red "upstream unreachable" when
+  // Anthropic is intentionally not connected.
+  anthropicAvailable?: boolean;
+  operationMode?:      OperationMode;
 }
 export type AlertSeverity = "warning" | "critical";
 export type UserProfile   = "agentic" | "conversational" | "heavy_reader" | "efficient" | "mixed";

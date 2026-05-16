@@ -26,8 +26,9 @@ import { AdminUserActivity } from "./UserActivity";
 import { AdminDatabase } from "./Database";
 import { AdminExtensions } from "./Extensions";
 import { AdminBrain } from "./Brain";
+import { AdminLogs } from "./Logs";
 
-type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "providers" | "test" | "accounts" | "database" | "extensions" | "brain";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "providers" | "test" | "accounts" | "database" | "extensions" | "brain" | "applogs";
 
 interface NavGroup {
   label: string;
@@ -76,6 +77,7 @@ export function AdminDashboard() {
     return () => clearInterval(t);
   }, []);
   const brainEnabled = enabledExtensions.has("second-brain");
+  const logsEnabled  = enabledExtensions.has("log-management");
 
   const { tokens, upstream, userImages = {} } = status;
   const nav = (s: AdminSection) => {
@@ -113,6 +115,7 @@ export function AdminDashboard() {
       items: [
         { id: "extensions", label: "Extensions",     icon: <IconPuzzle        size={SZ} />, desc: "Manage optional add-ons"         },
         ...(brainEnabled ? [{ id: "brain" as AdminSection, label: "Brain", icon: <IconBrain size={SZ} />, desc: "Second Brain · cache & strategies" }] : []),
+        ...(logsEnabled  ? [{ id: "applogs" as AdminSection, label: "App Logs", icon: <IconHistory size={SZ} />, desc: "Persisted console logs · 7-day retention" }] : []),
       ],
     },
   ];
@@ -307,14 +310,28 @@ export function AdminDashboard() {
                   {upstream.email ?? "no credential"}
                 </Text>
               </Group>
-              {/* Provider + poll */}
-              <Group gap={6} mb={6} wrap="nowrap">
-                <Badge size="xs" variant="light"
-                  color={upstream.fallbackProvider === "deepseek" ? "violet" : upstream.fallbackProvider === "openrouter" ? "orange" : "blue"}>
-                  {upstream.fallbackProvider === "deepseek" ? "DeepSeek" : upstream.fallbackProvider === "openrouter" ? "OpenRouter" : "Claude Max"}
-                </Badge>
-                <Text fz={10} c="dimmed" ff="Geist Mono, monospace">poll {status.pollAge ?? "—"}</Text>
-              </Group>
+              {/* Provider + poll. Prefer activeProvider (drives the actual route)
+                  over fallbackProvider (only set when 5h-cap auto-fallback fires). */}
+              {(() => {
+                const ap = upstream.activeProvider ?? upstream.fallbackProvider;
+                const anthropicAvail = upstream.anthropicAvailable ?? true;
+                const label =
+                  ap === "deepseek"   ? "DeepSeek" :
+                  ap === "openrouter" ? "OpenRouter" :
+                  ap ? ap.charAt(0).toUpperCase() + ap.slice(1) :
+                  anthropicAvail ? "Claude Max" : "no provider";
+                const color =
+                  ap === "deepseek"   ? "violet" :
+                  ap === "openrouter" ? "orange" :
+                  ap ? "gray" :
+                  anthropicAvail ? "blue" : "red";
+                return (
+                  <Group gap={6} mb={6} wrap="nowrap">
+                    <Badge size="xs" variant="light" color={color}>{label}</Badge>
+                    <Text fz={10} c="dimmed" ff="Geist Mono, monospace">poll {status.pollAge ?? "—"}</Text>
+                  </Group>
+                );
+              })()}
               {/* Sign out */}
               <NavLink
                 label={<Text fz={12} fw={500} c="red">Sign out</Text>}
@@ -341,6 +358,7 @@ export function AdminDashboard() {
           {section === "database"   && <AdminDatabase />}
           {section === "extensions" && <AdminExtensions />}
           {section === "brain"      && brainEnabled && <AdminBrain />}
+          {section === "applogs"    && logsEnabled  && <AdminLogs />}
         </Box>
       </AppShell.Main>
     </AppShell>

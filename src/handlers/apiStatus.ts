@@ -2,6 +2,7 @@ import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recen
 import type { ContextAlert, ThresholdAlert, UserInsight, UserProfile } from "../contexts";
 import { todayKey } from "../tokens";
 import { getCustomProvider } from "../customProviders";
+import { pickDefaultProvider, getOperationMode, getProviderAvailability } from "../providerSelection";
 
 function avg(arr: number[]): number {
   return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
@@ -109,11 +110,14 @@ export function buildTokenData(): Record<string, any> {
   const today = todayKey();
   const globalOverride = settings["provider_override"] || "";
   const isOverrideValid =
-    ["anthropic", "deepseek", "openrouter"].includes(globalOverride) ||
+    (globalOverride === "anthropic" && getProviderAvailability().anthropic) ||
+    (globalOverride === "deepseek"   && getProviderAvailability().deepseek)  ||
+    (globalOverride === "openrouter" && getProviderAvailability().openrouter) ||
     (globalOverride !== "" && !!getCustomProvider(globalOverride)?.api_key);
+  // Priority: explicit valid override → runtime fallback (from 429/cap) → auto-pick default
   const globalActiveProvider: string = isOverrideValid
     ? globalOverride
-    : (upstream.fallbackProvider ?? "anthropic");
+    : (upstream.fallbackProvider ?? pickDefaultProvider());
 
   const tokenData: Record<string, any> = {};
   for (const [k, tk] of Object.entries(tokens)) {
@@ -254,18 +258,27 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
       sevenDaySonnet: upstream.sevenDaySonnet,
       sevenDayOpus:   upstream.sevenDayOpus,
       fallbackProvider: upstream.fallbackProvider,
+      // Operation mode lets the UI render a friendly banner instead of red
+      // "upstream unreachable" when Anthropic is intentionally disabled.
+      anthropicAvailable: getProviderAvailability().anthropic,
+      operationMode:      getOperationMode(),
       activeProvider: (() => {
         const override = settings["provider_override"] || "";
         if (override === "deepseek")   return "deepseek";
         if (override === "openrouter") return "openrouter";
         if (override === "anthropic")  return null;
-        return upstream.fallbackProvider; // auto mode: runtime wins
+        if (override && getCustomProvider(override)?.api_key) return override;
+        // Auto mode — prefer runtime fallback if set, else the auto-picked default
+        const def = pickDefaultProvider();
+        return upstream.fallbackProvider ?? (def && def !== "anthropic" ? def : null);
       })(),
       activeModel: (() => {
         const override = settings["provider_override"] || "";
-        const fp = override || upstream.fallbackProvider;
+        const fp = override || upstream.fallbackProvider || pickDefaultProvider();
         if (fp === "deepseek")   return settings["deepseek_model"]   || "deepseek-v4-pro[1m]";
         if (fp === "openrouter") return settings["openrouter_model"] || "anthropic/claude-sonnet-4";
+        if (fp === "anthropic")  return null;
+        if (fp && getCustomProvider(fp)) return null; // custom: model is per-token pinned
         return null;
       })(),
     },

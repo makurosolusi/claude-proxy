@@ -20,6 +20,33 @@ let isRefreshing = false;
 let lastUtilAlertPct   = 0; // track last 5h utilization threshold that triggered a system message
 let lastSonnetAlertPct = 0; // track last sonnet 7d threshold
 let lastOpusAlertPct   = 0; // track last opus 7d threshold
+let consecutiveNoCred  = 0; // count consecutive polls with missing credential
+let lastNoCredLog      = 0; // throttle the no-credential warning log
+
+// Cheap probe — does *any* usable claude-*.json exist? Cached for 30s with the
+// same TTL as getOauthCredential. Side-effect free: never writes upstream.lastError.
+// Honors settings.simulate_anthropic_disabled to let admins dry-run the
+// fallback-only flow without touching credential files.
+let hasAnthrCache: { value: boolean; at: number } = { value: false, at: 0 };
+const HAS_ANTHR_TTL = 30_000;
+export function hasAnthropicCredential(): boolean {
+  if (settings["simulate_anthropic_disabled"] === "true") return false;
+  const now = Date.now();
+  if (now - hasAnthrCache.at < HAS_ANTHR_TTL) return hasAnthrCache.value;
+  try {
+    const files = fs.readdirSync(config.authDir).filter(f => f.startsWith("claude-") && f.endsWith(".json"));
+    for (const f of files) {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(config.authDir, f), "utf-8"));
+        if (!data.disabled && data.access_token && data.refresh_token) {
+          hasAnthrCache = { value: true, at: now }; return true;
+        }
+      } catch {}
+    }
+  } catch {}
+  hasAnthrCache = { value: false, at: now };
+  return false;
+}
 
 export function getOauthCredential(): OauthCredential | null {
   const now = Date.now();
@@ -119,7 +146,22 @@ export async function poll() {
   }
 
   let cred = getOauthCredential();
-  if (!cred) { upstream.lastPollOk = false; return; }
+  if (!cred) {
+    upstream.lastPollOk = false;
+    consecutiveNoCred++;
+    // After 3 consecutive misses, throttle: only log once per 10 minutes and
+    // back off the poller for 10 minutes. Anthropic is effectively disabled.
+    if (consecutiveNoCred >= 3) {
+      const TEN_MIN = 10 * 60_000;
+      if (Date.now() - lastNoCredLog > TEN_MIN) {
+        console.log(`[upstream] No Anthropic credential — poll throttled to 10m (set provider_override to bypass).`);
+        lastNoCredLog = Date.now();
+      }
+      upstream.pollBackoffUntil = Date.now() + TEN_MIN;
+    }
+    return;
+  }
+  consecutiveNoCred = 0;
 
   try {
     const resp = await fetch("https://api.anthropic.com/api/oauth/usage", {

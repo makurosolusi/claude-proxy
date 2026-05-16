@@ -285,6 +285,13 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
+  if (pathname === "/admin/settings/simulate-anthropic-disabled" && req.method === "POST") {
+    const enabled = String(form?.get("enabled") || "").trim() === "true";
+    await dbSaveSetting("simulate_anthropic_disabled", enabled ? "true" : "false");
+    triggerBroadcast();
+    return Response.json({ ok: true, enabled });
+  }
+
   if (pathname === "/admin/users/purge-orphans" && req.method === "POST") {
     const tokenUserIds = new Set(Object.values(tokens).map(tk => tk.user_id).filter(Boolean));
     const orphans = Object.values(users).filter(u => !tokenUserIds.has(u.id));

@@ -33,6 +33,7 @@ import {
   handleDebugExtensions, handleDebugBrainOverview, handleDebugBrainStrategies,
   handleDebugBrainCache, handleDebugBrainQueue, handleDebugDbSize,
   handleDebugSessionsSummary, handleDebugTestUpstream, handleDebugActiveProviders,
+  handleDebugAppLogs, handleDebugAppLogsStats,
 } from "./handlers/apiDebugBrain";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
@@ -44,6 +45,7 @@ import { handleProxy }     from "./handlers/proxy";
 import { handleApiExtensions } from "./handlers/apiExtensions";
 import { bootstrapExtensions } from "./extensions";
 import { handleSecondBrainAdmin } from "./extensions/second-brain/admin-api";
+import { handleLogManagementAdmin } from "./extensions/log-management/admin-api";
 import { handleMcpSecondBrain } from "./extensions/second-brain/mcp";
 import { auth } from "./auth";
 import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
@@ -75,6 +77,25 @@ await bootstrapExtensions();
 process.on("SIGTERM", () => onShutdown("SIGTERM"));
 process.on("SIGINT",  () => onShutdown("SIGINT"));
 startPoller();
+
+// Operation mode banner — one informational log line so the operator knows the
+// provider posture at boot. Helps when a subscription lapses unexpectedly.
+{
+  const { getOperationMode, getProviderAvailability } = await import("./providerSelection");
+  const mode = getOperationMode();
+  const av   = getProviderAvailability();
+  const fallbacks = [
+    av.openrouter && "openrouter", av.deepseek && "deepseek",
+    ...av.customIds,
+  ].filter(Boolean).join(", ") || "none";
+  if (mode === "anthropic-primary") {
+    console.log(`[boot] mode=anthropic-primary · anthropic=on · fallbacks=[${fallbacks}]`);
+  } else if (mode === "fallback-only") {
+    console.log(`[boot] mode=fallback-only · anthropic=off · routing via=[${fallbacks}] (set provider_override if needed)`);
+  } else {
+    console.warn(`[boot] mode=no-provider · NOTHING IS CONFIGURED · every /v1/messages request will return 503`);
+  }
+}
 
 // ── Vite dev middleware ───────────────────────────────────────────────────────
 // Dev: Vite runs in middlewareMode (no own port) — all traffic enters via Bun.serve,
@@ -636,6 +657,10 @@ server = serve({
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleSecondBrainAdmin(req, new URL(req.url));
     },
+    "/api/admin/log-management/*": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleLogManagementAdmin(req, new URL(req.url));
+    },
     "/mcp/second-brain": async req => handleMcpSecondBrain(req),
     "/api/admin/models/anthropic":  async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -736,6 +761,8 @@ server = serve({
     "/api/debug/sessions-summary": async req => handleDebugSessionsSummary(req),
     "/api/debug/test-upstream/*":  async req => handleDebugTestUpstream(req, new URL(req.url)),
     "/api/debug/active-providers": async req => handleDebugActiveProviders(req, new URL(req.url)),
+    "/api/debug/app-logs":         async req => handleDebugAppLogs(req, new URL(req.url)),
+    "/api/debug/app-logs/stats":   async req => handleDebugAppLogsStats(req, new URL(req.url)),
     "/api/debug/ws":               async req => {
       // WS stats inline because wsClients lives in this module
       const t = req.headers.get("x-mcp-secret") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");

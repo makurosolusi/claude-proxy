@@ -1,16 +1,30 @@
 import { config } from "../config";
 import { tokens }  from "../state";
-import { getOauthCredential } from "../upstream";
+import { getOauthCredential, hasAnthropicCredential } from "../upstream";
 
 interface TestResult {
-  ok:      boolean;
-  latency: number;
-  detail:  string;
-  error?:  string;
+  ok:       boolean;
+  latency:  number;
+  detail:   string;
+  error?:   string;
+  skipped?: boolean;
 }
 
+// When Anthropic is intentionally not connected (no claude-*.json), all three
+// Anthropic-specific tests are skipped — they return ok:true with skipped:true
+// so the Test tab doesn't show alarming red rows. The aggregate `ok` ignores
+// skipped rows.
 export async function handleApiTest(): Promise<Response> {
   const results: Record<string, TestResult> = {};
+  const anthropicDisabled = !hasAnthropicCredential();
+
+  if (anthropicDisabled) {
+    const skipNote = "Anthropic not connected — using fallback provider(s)";
+    results.credential = { ok: true, latency: 0, detail: skipNote, skipped: true };
+    results.usage      = { ok: true, latency: 0, detail: skipNote, skipped: true };
+    results.messages   = { ok: true, latency: 0, detail: skipNote, skipped: true };
+    return Response.json({ ok: true, results, anthropic_disabled: true, ts: new Date().toISOString() });
+  }
 
   // ── 1. Credential file ────────────────────────────────────────────────────
   const t0 = Date.now();
