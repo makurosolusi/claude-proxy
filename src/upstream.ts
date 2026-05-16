@@ -25,9 +25,12 @@ let lastNoCredLog      = 0; // throttle the no-credential warning log
 
 // Cheap probe — does *any* usable claude-*.json exist? Cached for 30s with the
 // same TTL as getOauthCredential. Side-effect free: never writes upstream.lastError.
+// Honors settings.simulate_anthropic_disabled to let admins dry-run the
+// fallback-only flow without touching credential files.
 let hasAnthrCache: { value: boolean; at: number } = { value: false, at: 0 };
 const HAS_ANTHR_TTL = 30_000;
 export function hasAnthropicCredential(): boolean {
+  if (settings["simulate_anthropic_disabled"] === "true") return false;
   const now = Date.now();
   if (now - hasAnthrCache.at < HAS_ANTHR_TTL) return hasAnthrCache.value;
   try {
