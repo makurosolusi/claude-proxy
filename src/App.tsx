@@ -16,7 +16,7 @@ import {
   IconBulb, IconX, IconChartBar, IconArrowUp, IconHeartbeat, IconKey,
   IconChartHistogram, IconList, IconLayoutGrid, IconFlame, IconChartPie, IconBolt,
   IconTrophy, IconBrain, IconLayoutDashboard, IconChartLine, IconMessages, IconHistory,
-  IconBrandGoogle, IconShieldCheck, IconCheck, IconPuzzle,
+  IconBrandGoogle, IconShieldCheck, IconCheck,
 } from "@tabler/icons-react";
 import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
@@ -34,8 +34,6 @@ import { DailyHistory } from "./components/tables/DailyHistory";
 import { RequestLog, DetailContent } from "./components/tables/RequestLog";
 import { FeedHistory } from "./components/FeedHistory";
 import { AdminDashboard } from "./components/admin/Dashboard";
-import { AdminExtensions } from "./components/admin/Extensions";
-import { AdminBrain } from "./components/admin/Brain";
 import { MindPage } from "./components/MindPage";
 import { RacePage } from "./components/RacePage";
 import { SessionHistory } from "./components/SessionHistory";
@@ -1262,15 +1260,6 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem("dashboard-tab") || "dashboard"; } catch { return "dashboard"; }
   });
-  const [enabledExtensions, setEnabledExtensions] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (!isAdmin) return;
-    fetch("/api/admin/extensions", { credentials: "include" })
-      .then(r => r.json())
-      .then((d: any) => setEnabledExtensions(new Set((d.extensions || []).filter((e: any) => e.enabled).map((e: any) => e.id))))
-      .catch(() => {});
-  }, [isAdmin, wsSignal]);
-  const brainEnabled = enabledExtensions.has("second-brain");
   const headerRef = useRef<HTMLDivElement>(null);
   const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
   const [dismissedThresh, setDismissedThresh] = useState<string[]>([]);
@@ -1569,16 +1558,6 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                 style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
                 History
               </Tabs.Tab>
-              <Tabs.Tab value="extensions" leftSection={<IconPuzzle size={13} />}
-                style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
-                Extensions
-              </Tabs.Tab>
-              {brainEnabled && (
-                <Tabs.Tab value="brain" leftSection={<IconBrain size={13} />}
-                  style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
-                  Brain
-                </Tabs.Tab>
-              )}
               {/* Feed tab: hanya muncul di mobile */}
               <Tabs.Tab value="feed" leftSection={<IconActivity size={13} />}
                 hiddenFrom="sm"
@@ -2395,18 +2374,6 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
             <Tabs.Panel value="history">
               <FeedHistory />
             </Tabs.Panel>
-
-            {/* ── Tab Extensions ────────────────────────────── */}
-            <Tabs.Panel value="extensions">
-              <AdminExtensions />
-            </Tabs.Panel>
-
-            {/* ── Tab Brain (when second-brain extension enabled) ── */}
-            {brainEnabled && (
-              <Tabs.Panel value="brain">
-                <AdminBrain />
-              </Tabs.Panel>
-            )}
 
             {/* ── Tab Feed (mobile only) ────────────────────── */}
             <Tabs.Panel value="feed">
