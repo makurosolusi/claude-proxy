@@ -35,6 +35,10 @@ import { handleApiCredits } from "./handlers/apiCredits";
 import { handleApiCustomProviders } from "./handlers/apiCustomProviders";
 import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, handleDbSync, loadSyncTokens } from "./handlers/apiDbSync";
 import { handleProxy }     from "./handlers/proxy";
+import { handleApiExtensions } from "./handlers/apiExtensions";
+import { bootstrapExtensions } from "./extensions";
+import { handleSecondBrainAdmin } from "./extensions/second-brain/admin-api";
+import { handleMcpSecondBrain } from "./extensions/second-brain/mcp";
 import { auth } from "./auth";
 import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
 import { installConsoleInterceptor, recordUncaught, recordUnhandled } from "./consoleBuffer";
@@ -215,6 +219,7 @@ await loadFromDb();
 loadSyncTokens();
 initFromEnv();
 await backfillUsers();
+await bootstrapExtensions();
 process.on("SIGTERM", () => onShutdown("SIGTERM"));
 process.on("SIGINT",  () => onShutdown("SIGINT"));
 startPoller();
@@ -767,6 +772,19 @@ server = serve({
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return Response.json(settings);
     },
+    "/api/admin/extensions": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiExtensions(req, new URL(req.url));
+    },
+    "/api/admin/extensions/*": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleApiExtensions(req, new URL(req.url));
+    },
+    "/api/admin/second-brain/*": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleSecondBrainAdmin(req, new URL(req.url));
+    },
+    "/mcp/second-brain": async req => handleMcpSecondBrain(req),
     "/api/admin/models/anthropic":  async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiModels(req, new URL(req.url));

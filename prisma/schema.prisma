@@ -90,6 +90,16 @@ model settings {
   value String
 }
 
+model extensions {
+  id           String  @id
+  name         String  @default("")
+  version      String  @default("0.0.0")
+  enabled      Boolean @default(false)
+  config       String  @default("{}")
+  installed_at BigInt  @default(0)
+  updated_at   BigInt  @default(0)
+}
+
 // ── Better Auth tables ────────────────────────────────────────────────────────
 
 model user {

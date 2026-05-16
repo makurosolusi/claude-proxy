@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDisclosure } from "@mantine/hooks";
 import {
   AppShell, NavLink, ScrollArea, Group, Text, Badge, ActionIcon, Tooltip,
@@ -10,7 +10,7 @@ import {
   IconChevronsLeft, IconChevronsRight,
   IconPlugConnected, IconKey, IconLogout,
   IconCloud, IconChartLine, IconDatabase,
-  IconAlertTriangle, IconHistory,
+  IconAlertTriangle, IconHistory, IconPuzzle, IconBrain,
 } from "@tabler/icons-react";
 import { pctColor } from "../../utils";
 import { useStatus } from "../../contexts";
@@ -24,8 +24,10 @@ import { AdminAccounts } from "./Accounts";
 import { AdminProviders } from "./Providers";
 import { AdminUserActivity } from "./UserActivity";
 import { AdminDatabase } from "./Database";
+import { AdminExtensions } from "./Extensions";
+import { AdminBrain } from "./Brain";
 
-type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "providers" | "test" | "accounts" | "database";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "providers" | "test" | "accounts" | "database" | "extensions" | "brain";
 
 interface NavGroup {
   label: string;
@@ -62,6 +64,18 @@ export function AdminDashboard() {
   });
   const [mobileOpen, { toggle: toggleMobile, close }] = useDisclosure(false);
   const [collapsed,  { toggle: toggleCollapse }]      = useDisclosure(false);
+  const [enabledExtensions, setEnabledExtensions] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const load = () => fetch("/api/admin/extensions", { credentials: "include" })
+      .then(r => r.json())
+      .then((d: any) => setEnabledExtensions(new Set((d.extensions || []).filter((e: any) => e.enabled).map((e: any) => e.id))))
+      .catch(() => {});
+    load();
+    const t = setInterval(load, 10_000);
+    return () => clearInterval(t);
+  }, []);
+  const brainEnabled = enabledExtensions.has("second-brain");
 
   const { tokens, upstream, userImages = {} } = status;
   const nav = (s: AdminSection) => {
@@ -92,6 +106,13 @@ export function AdminDashboard() {
       items: [
         { id: "test",      label: "Test Connection", icon: <IconPlugConnected size={SZ} />, desc: "Verify API connectivity"         },
         { id: "database",  label: "Database",        icon: <IconDatabase      size={SZ} />, desc: "DB sync & retention"             },
+      ],
+    },
+    {
+      label: "Extensions",
+      items: [
+        { id: "extensions", label: "Extensions",     icon: <IconPuzzle        size={SZ} />, desc: "Manage optional add-ons"         },
+        ...(brainEnabled ? [{ id: "brain" as AdminSection, label: "Brain", icon: <IconBrain size={SZ} />, desc: "Second Brain · cache & strategies" }] : []),
       ],
     },
   ];
@@ -318,6 +339,8 @@ export function AdminDashboard() {
           {section === "test"       && <AdminTest />}
           {section === "accounts"   && <AdminAccounts />}
           {section === "database"   && <AdminDatabase />}
+          {section === "extensions" && <AdminExtensions />}
+          {section === "brain"      && brainEnabled && <AdminBrain />}
         </Box>
       </AppShell.Main>
     </AppShell>

@@ -11,6 +11,8 @@ import {
   stripAllThinking,
   isThinkingIncompatibleError,
 } from "../messageSanitizer";
+import { runPreRequest, runPostRequest } from "../extensions";
+import type { ProxyContext } from "../extensions";
 import type { TokenEntry } from "../types";
 
 function pushAlert(msg: string) { broadcastSystemMsg(`⚡ ${msg}`); }
@@ -410,6 +412,20 @@ export async function handleProxy(
     model = pm;
   }
 
+  // ── Extension hooks: preRequest — may intercept (cache hit) or modify body ──
+  const extCtx: ProxyContext = {
+    req, url, key, token: t,
+    bodyJson, provider, model, systemPrompt, messages: bodyJson?.messages || [],
+  };
+  const extPre = await runPreRequest(extCtx);
+  if (extPre?.intercept) {
+    return extPre.intercept;
+  }
+  if (extPre?.modifiedBody) {
+    bodyJson = extPre.modifiedBody;
+    bodyText = JSON.stringify(bodyJson);
+  }
+
   // Reserve only expected OUTPUT tokens. Input tokens are counted accurately from
   // message_start event after upstream accepts the request (~1-2s). Using full
   // input estimate here was causing reservation stacking with concurrent requests
@@ -609,6 +625,8 @@ export async function handleProxy(
             turns, prompt, system_prompt: systemPrompt,
             messages_json: messagesJson,
             response_text: responseText.slice(0, 3000) }).catch(e => console.error("[proxy] dbLogRequest error:", e));
+          runPostRequest(extCtx, { status: httpStatus, inputTokens, outputTokens, durationMs: Date.now() - ts, responseText: responseText.slice(0, 3000), stopReason })
+            .catch(e => console.warn("[proxy] postRequest hook error:", e?.message ?? e));
           // Real-time threshold alerts
           if (inputTokens > 80_000)
             pushAlert(`${displayName}: ${(inputTokens/1000).toFixed(0)}k tokens input — context sangat besar, jalankan /compact`);
@@ -645,12 +663,15 @@ export async function handleProxy(
       console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
     }
     const displayName = resolveTokenName(key, t);
+    const finalResponseText = extractResponseText(body, resp.status);
     dbLogRequest({ ts, token_key: key, user_id: t.user_id || "", name: displayName, model, input_tokens: inputTokens, output_tokens: outputTokens,
       cache_read: cacheRead, cache_creation: cacheCreation, stream: false, status: resp.status,
       stop_reason: stopReason, tool_use_count: toolUseCount, duration_ms: Date.now() - ts,
       turns, prompt, system_prompt: systemPrompt,
       messages_json: messagesJson,
-      response_text: extractResponseText(body, resp.status) }).catch(e => console.error("[proxy] dbLogRequest error:", e));
+      response_text: finalResponseText }).catch(e => console.error("[proxy] dbLogRequest error:", e));
+    runPostRequest(extCtx, { status: resp.status, inputTokens, outputTokens, durationMs: Date.now() - ts, responseText: finalResponseText, stopReason })
+      .catch(e => console.warn("[proxy] postRequest hook error:", e?.message ?? e));
     if (inputTokens > 80_000)
       pushAlert(`${displayName}: ${(inputTokens/1000).toFixed(0)}k tokens input — jalankan /compact`);
     if (t.limit !== Infinity) {
