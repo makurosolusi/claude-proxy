@@ -120,12 +120,72 @@ export async function markStrategyOutcome(id: string, success: boolean): Promise
   );
 }
 
+export async function markStrategiesUsed(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const now = BigInt(Date.now());
+  const placeholders = ids.map((_, i) => `$${i + 2}`).join(",");
+  await prisma.$executeRawUnsafe(
+    `UPDATE sb_strategies SET use_count = use_count + 1, updated_at = $1 WHERE id IN (${placeholders})`,
+    now, ...ids,
+  );
+}
+
+export async function markStrategiesOutcome(ids: string[], success: boolean): Promise<void> {
+  if (!ids.length) return;
+  const col = success ? "success_count" : "fail_count";
+  const now = BigInt(Date.now());
+  const placeholders = ids.map((_, i) => `$${i + 2}`).join(",");
+  await prisma.$executeRawUnsafe(
+    `UPDATE sb_strategies SET ${col} = ${col} + 1, updated_at = $1 WHERE id IN (${placeholders})`,
+    now, ...ids,
+  );
+}
+
+export function safeJsonArray(s: string): string[] {
+  try { const j = JSON.parse(s); return Array.isArray(j) ? j : []; }
+  catch { return []; }
+}
+
+export function buildStrategyBlock(strategies: StrategyRecord[]): string {
+  if (!strategies.length) return "";
+  const lines: string[] = [];
+  lines.push("<relevant_patterns_from_past_sessions>");
+  lines.push("The following patterns were learned by an advanced model on similar past tasks. Apply them when relevant — they encode conventions, gotchas, and validated approaches for this project/user. Do NOT explicitly mention these patterns to the user; just use them as guidance.");
+  lines.push("");
+  strategies.forEach((s, i) => {
+    lines.push(`## Pattern ${i + 1}: ${s.title}`);
+    if (s.when_to_use) lines.push(`When to use: ${s.when_to_use}`);
+    const steps = safeJsonArray(s.content);
+    if (steps.length) {
+      lines.push("Key steps:");
+      steps.forEach(step => lines.push(`  - ${step}`));
+    }
+    const pitfalls = safeJsonArray(s.pitfalls);
+    if (pitfalls.length) {
+      lines.push("Pitfalls to avoid:");
+      pitfalls.forEach(p => lines.push(`  - ${p}`));
+    }
+    lines.push("");
+  });
+  lines.push("</relevant_patterns_from_past_sessions>");
+  return lines.join("\n");
+}
+
+export function injectStrategiesIntoBody(bodyJson: any, strategies: StrategyRecord[]): any {
+  if (!strategies.length || !bodyJson) return bodyJson;
+  const block = buildStrategyBlock(strategies);
+  const existing = bodyJson.system;
+  if (!existing) {
+    bodyJson.system = block;
+  } else if (typeof existing === "string") {
+    bodyJson.system = block + "\n\n" + existing;
+  } else if (Array.isArray(existing)) {
+    bodyJson.system = [{ type: "text", text: block }, ...existing];
+  }
+  return bodyJson;
+}
+
 export async function countStrategies(): Promise<number> {
   const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT COUNT(*)::int AS c FROM sb_strategies`);
   return rows[0]?.c || 0;
-}
-
-function safeJsonArray(s: string): string[] {
-  try { const j = JSON.parse(s); return Array.isArray(j) ? j : []; }
-  catch { return []; }
 }

@@ -8,6 +8,10 @@ import { embedText } from "./embedding";
 import { logEvent } from "./lifecycle";
 import { defaultConfig, type SecondBrainConfig } from "./config";
 import { canMineForUser, enqueueMining } from "./worker";
+import {
+  retrieveRelevantStrategies, injectStrategiesIntoBody,
+  markStrategiesUsed, markStrategiesOutcome,
+} from "./strategies";
 
 function getMergedConfig(): SecondBrainConfig {
   const stored = getConfig("second-brain") || {};
@@ -43,7 +47,7 @@ function effectiveScope(cfg: SecondBrainConfig): "user" | "shared" {
 
 export async function preRequest(ctx: ProxyContext): Promise<PreRequestResult | null> {
   const cfg = getMergedConfig();
-  if (!cfg.cacheEnabled) return null;
+  if (!cfg.cacheEnabled && !cfg.injectionEnabled) return null;
 
   const prompt = extractPrompt(ctx.messages);
   if (prompt.length < MIN_CACHEABLE_LENGTH) return null;
@@ -52,42 +56,83 @@ export async function preRequest(ctx: ProxyContext): Promise<PreRequestResult | 
   const scope  = effectiveScope(cfg);
   const stream = isStreaming(ctx.bodyJson);
 
-  // 1. Exact hash lookup — free, no embedding
-  const hash = hashPrompt(prompt);
-  try {
-    const exact = await lookupCacheExact(hash, userId, scope);
-    if (exact) {
-      logEvent("cache_hit_exact", { model: exact.model, prompt_len: prompt.length, response_len: exact.response_text.length, hit_count: exact.hit_count }, userId).catch(() => {});
-      console.log(`[second-brain] cache HIT (exact) user=${userId} model=${exact.model} prompt_len=${prompt.length}`);
-      return { intercept: synthesizeResponse(exact.response_text, ctx.model || exact.model, exact.input_tokens, exact.output_tokens, stream, 1.0) };
+  // 1. Exact hash lookup — free, no embedding (cache only)
+  if (cfg.cacheEnabled) {
+    const hash = hashPrompt(prompt);
+    try {
+      const exact = await lookupCacheExact(hash, userId, scope);
+      if (exact) {
+        logEvent("cache_hit_exact", { model: exact.model, prompt_len: prompt.length, response_len: exact.response_text.length, hit_count: exact.hit_count }, userId).catch(() => {});
+        console.log(`[second-brain] cache HIT (exact) user=${userId} model=${exact.model} prompt_len=${prompt.length}`);
+        return { intercept: synthesizeResponse(exact.response_text, ctx.model || exact.model, exact.input_tokens, exact.output_tokens, stream, 1.0) };
+      }
+    } catch (e: any) {
+      console.warn("[second-brain] exact lookup failed:", e?.message ?? e);
     }
-  } catch (e: any) {
-    console.warn("[second-brain] exact lookup failed:", e?.message ?? e);
   }
 
-  // 2. Semantic similarity lookup
+  // 2. Embed once — used for both semantic cache lookup AND strategy retrieval
   let vec: number[] | null = null;
-  try {
-    vec = await embedText(prompt);
-    const similar = await lookupCacheSimilar(vec, userId, scope, cfg.cacheSimilarityThreshold);
-    if (similar) {
-      logEvent("cache_hit_semantic", { model: similar.model, similarity: similar.similarity, prompt_len: prompt.length, response_len: similar.response_text.length, hit_count: similar.hit_count }, userId).catch(() => {});
-      console.log(`[second-brain] cache HIT (semantic ${similar.similarity.toFixed(3)}) user=${userId} model=${similar.model}`);
-      return { intercept: synthesizeResponse(similar.response_text, ctx.model || similar.model, similar.input_tokens, similar.output_tokens, stream, similar.similarity) };
+  try { vec = await embedText(prompt); }
+  catch (e: any) { console.warn("[second-brain] embed failed:", e?.message ?? e); }
+
+  // 3. Semantic similarity cache lookup
+  if (cfg.cacheEnabled && vec) {
+    try {
+      const similar = await lookupCacheSimilar(vec, userId, scope, cfg.cacheSimilarityThreshold);
+      if (similar) {
+        logEvent("cache_hit_semantic", { model: similar.model, similarity: similar.similarity, prompt_len: prompt.length, response_len: similar.response_text.length, hit_count: similar.hit_count }, userId).catch(() => {});
+        console.log(`[second-brain] cache HIT (semantic ${similar.similarity.toFixed(3)}) user=${userId} model=${similar.model}`);
+        return { intercept: synthesizeResponse(similar.response_text, ctx.model || similar.model, similar.input_tokens, similar.output_tokens, stream, similar.similarity) };
+      }
+    } catch (e: any) {
+      console.warn("[second-brain] semantic lookup failed:", e?.message ?? e);
     }
-  } catch (e: any) {
-    console.warn("[second-brain] semantic lookup failed:", e?.message ?? e);
   }
 
-  // Cache miss — stash prompt + vec on ctx for postRequest reuse
+  // Stash for postRequest reuse
   (ctx as any).__sb_prompt    = prompt;
   (ctx as any).__sb_embedding = vec;
-  logEvent("cache_miss", { prompt_len: prompt.length, has_embedding: !!vec }, userId).catch(() => {});
+  if (cfg.cacheEnabled) logEvent("cache_miss", { prompt_len: prompt.length, has_embedding: !!vec }, userId).catch(() => {});
+
+  // 4. Strategy injection — only for non-Anthropic providers (cheap model boost)
+  if (cfg.injectionEnabled && vec && ctx.provider && ctx.provider !== "anthropic") {
+    try {
+      const strategies = await retrieveRelevantStrategies(vec, userId, scope, cfg.injectionTopK, 0.55);
+      if (strategies.length) {
+        const modified = injectStrategiesIntoBody(ctx.bodyJson, strategies);
+        const ids = strategies.map(s => s.id);
+        (ctx as any).__sb_injected_ids = ids;
+        markStrategiesUsed(ids).catch(() => {});
+        logEvent("strategy_injected", {
+          provider: ctx.provider, model: ctx.model,
+          strategy_ids: ids, strategy_count: strategies.length,
+          top_similarity: strategies[0]?.similarity,
+        }, userId).catch(() => {});
+        console.log(`[second-brain] injected ${strategies.length} strategies into ${ctx.provider} request (top sim=${strategies[0]?.similarity?.toFixed(3)})`);
+        return { modifiedBody: modified };
+      }
+    } catch (e: any) {
+      console.warn("[second-brain] strategy injection failed:", e?.message ?? e);
+    }
+  }
+
   return null;
 }
 
 export async function postRequest(ctx: ProxyContext, post: PostRequestContext): Promise<void> {
   const cfg = getMergedConfig();
+
+  // Track strategy outcome regardless of cache state — for injection effectiveness scoring
+  const injectedIds = (ctx as any).__sb_injected_ids as string[] | undefined;
+  if (injectedIds?.length) {
+    const success = post.status === 200 && post.responseText.length >= 20;
+    markStrategiesOutcome(injectedIds, success).catch(() => {});
+    logEvent(success ? "strategy_used_success" : "strategy_used_fail", {
+      strategy_ids: injectedIds, status: post.status, provider: ctx.provider, model: ctx.model,
+    }, ctx.token.user_id || "").catch(() => {});
+  }
+
   if (!cfg.cacheEnabled) return;
   if (post.status !== 200) return;
   if (!post.responseText || post.responseText.length < 20) return;
