@@ -7,6 +7,7 @@ import { insertOrMergeStrategy } from "./strategies";
 import { logEvent } from "./lifecycle";
 import { defaultConfig, type SecondBrainConfig } from "./config";
 import { getConfig } from "../registry";
+import { startPruneScheduler, stopPruneScheduler } from "./prune";
 
 const QUEUE  = "sb-mine-strategy";
 const SCHEMA = "sb_pgboss";
@@ -42,11 +43,13 @@ export async function startWorker(): Promise<void> {
       try { await processMiningJob(job.data as MiningJobData); }
       catch (e: any) { console.error("[second-brain.worker] job", job.id, "failed:", e?.message ?? e); throw e; }
     });
+    startPruneScheduler();
     console.log(`[second-brain.worker] started on queue ${QUEUE}`);
   } finally { starting = false; }
 }
 
 export async function stopWorker(): Promise<void> {
+  stopPruneScheduler();
   if (!boss) return;
   try { await boss.stop({ graceful: true, timeout: 5000 }); }
   catch (e: any) { console.warn("[second-brain.worker] stop error:", e?.message ?? e); }
