@@ -37,6 +37,7 @@ import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, han
 import { handleProxy }     from "./handlers/proxy";
 import { handleApiExtensions } from "./handlers/apiExtensions";
 import { bootstrapExtensions } from "./extensions";
+import { handleSecondBrainAdmin } from "./extensions/second-brain/admin-api";
 import { auth } from "./auth";
 import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
 import { installConsoleInterceptor, recordUncaught, recordUnhandled } from "./consoleBuffer";
@@ -777,6 +778,10 @@ server = serve({
     "/api/admin/extensions/*": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiExtensions(req, new URL(req.url));
+    },
+    "/api/admin/second-brain/*": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleSecondBrainAdmin(req, new URL(req.url));
     },
     "/api/admin/models/anthropic":  async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
