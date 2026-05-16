@@ -210,6 +210,49 @@ async function toolCheckWs() {
   return apiGet("/api/debug/ws");
 }
 
+async function toolCheckExtensions() {
+  return apiGet("/api/debug/extensions");
+}
+
+async function toolCheckBrainOverview() {
+  return apiGet("/api/debug/brain/overview");
+}
+
+async function toolCheckBrainStrategies(args: { limit?: number; q?: string }) {
+  const params = new URLSearchParams();
+  if (args.limit) params.set("limit", String(args.limit));
+  if (args.q)     params.set("q", args.q);
+  return apiGet(`/api/debug/brain/strategies?${params.toString()}`);
+}
+
+async function toolCheckBrainCache(args: { limit?: number }) {
+  const params = new URLSearchParams();
+  if (args.limit) params.set("limit", String(args.limit));
+  return apiGet(`/api/debug/brain/cache?${params.toString()}`);
+}
+
+async function toolCheckBrainQueue() {
+  return apiGet("/api/debug/brain/queue");
+}
+
+async function toolCheckDbSize() {
+  return apiGet("/api/debug/db-size");
+}
+
+async function toolCheckSessionsSummary() {
+  return apiGet("/api/debug/sessions-summary");
+}
+
+async function toolCheckTestUpstream(args: { provider: string }) {
+  if (!args.provider) return { error: "provider is required (anthropic|deepseek|openrouter|<custom-id>)" };
+  return apiGet(`/api/debug/test-upstream/${encodeURIComponent(args.provider)}`);
+}
+
+async function toolCheckActiveProviders(args: { minutes?: number }) {
+  const minutes = args.minutes ?? 60;
+  return apiGet(`/api/debug/active-providers?minutes=${minutes}`);
+}
+
 // ── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
@@ -396,6 +439,95 @@ const TOOLS = [
       "oldest connection age. Useful when broadcast spikes CPU.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "check_extensions",
+    description:
+      "List all registered extensions (id, name, enabled state, masked config). " +
+      "Use to verify which extensions are currently active on staging.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_brain_overview",
+    description:
+      "Second Brain extension overview: cache hit rate (7d), entries, expired count, " +
+      "strategy total, mining/injection stats, top strategies by use_count, event counts. " +
+      "Returns 409 if extension never enabled (sb_* tables missing).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_brain_strategies",
+    description:
+      "List or vector-search Second Brain strategies. " +
+      "Without `q`, returns most-recently-updated. With `q`, returns top results by cosine similarity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max rows (default 20, max 50)" },
+        q:     { type: "string", description: "Optional semantic query — runs vector search" },
+      },
+    },
+  },
+  {
+    name: "check_brain_cache",
+    description:
+      "List Second Brain prompt cache entries (top by hit_count). " +
+      "Includes prompt preview, model, provider, hit_count, age, expiry status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max rows (default 20, max 50)" },
+      },
+    },
+  },
+  {
+    name: "check_brain_queue",
+    description:
+      "Inspect pg-boss worker queue (sb_pgboss schema): active jobs by name+state, " +
+      "24h archive (completed/failed counts), oldest pending. " +
+      "Use to diagnose stuck mining workers.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_db_size",
+    description:
+      "Top 25 Postgres tables by total size (data + indexes) with row estimates, " +
+      "plus total database size. Use for capacity planning and abnormal-growth detection.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_sessions_summary",
+    description:
+      "Claude Code session counts per user. " +
+      "Use to see who is actively running sessions on staging.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "check_test_upstream",
+    description:
+      "Live probe upstream connectivity by sending a tiny test request. " +
+      "provider: anthropic | deepseek | openrouter | <custom-provider-id>. " +
+      "Returns { ok, latency, detail|error }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        provider: { type: "string", description: "anthropic | deepseek | openrouter | custom slug" },
+      },
+      required: ["provider"],
+    },
+  },
+  {
+    name: "check_active_providers",
+    description:
+      "Recent request distribution by model + status. " +
+      "Returns totals (requests, errors, streamed), per-model breakdown (requests, tokens, avg duration), " +
+      "and status code distribution. Use for routing/health sanity check.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        minutes: { type: "number", description: "Look back N minutes (default 60, max 1440)" },
+      },
+    },
+  },
 ];
 
 async function callTool(name: string, args: Record<string, unknown>) {
@@ -416,6 +548,15 @@ async function callTool(name: string, args: Record<string, unknown>) {
   if (name === "check_sync_tokens")      return toolCheckSyncTokens();
   if (name === "check_credits")          return toolCheckCredits(args as { provider: string });
   if (name === "check_ws")               return toolCheckWs();
+  if (name === "check_extensions")       return toolCheckExtensions();
+  if (name === "check_brain_overview")   return toolCheckBrainOverview();
+  if (name === "check_brain_strategies") return toolCheckBrainStrategies(args as { limit?: number; q?: string });
+  if (name === "check_brain_cache")      return toolCheckBrainCache(args as { limit?: number });
+  if (name === "check_brain_queue")      return toolCheckBrainQueue();
+  if (name === "check_db_size")          return toolCheckDbSize();
+  if (name === "check_sessions_summary") return toolCheckSessionsSummary();
+  if (name === "check_test_upstream")    return toolCheckTestUpstream(args as { provider: string });
+  if (name === "check_active_providers") return toolCheckActiveProviders(args);
   throw new Error(`Unknown tool: ${name}`);
 }
 
