@@ -16,7 +16,7 @@ import {
   IconBulb, IconX, IconChartBar, IconArrowUp, IconHeartbeat, IconKey,
   IconChartHistogram, IconList, IconLayoutGrid, IconFlame, IconChartPie, IconBolt,
   IconTrophy, IconBrain, IconLayoutDashboard, IconChartLine, IconMessages, IconHistory,
-  IconBrandGoogle, IconShieldCheck, IconCheck,
+  IconBrandGoogle, IconShieldCheck, IconCheck, IconPuzzle,
 } from "@tabler/icons-react";
 import { StatusCtx, ChatCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
@@ -34,6 +34,7 @@ import { DailyHistory } from "./components/tables/DailyHistory";
 import { RequestLog, DetailContent } from "./components/tables/RequestLog";
 import { FeedHistory } from "./components/FeedHistory";
 import { AdminDashboard } from "./components/admin/Dashboard";
+import { AdminExtensions } from "./components/admin/Extensions";
 import { MindPage } from "./components/MindPage";
 import { RacePage } from "./components/RacePage";
 import { SessionHistory } from "./components/SessionHistory";
@@ -1558,6 +1559,10 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                 style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
                 History
               </Tabs.Tab>
+              <Tabs.Tab value="extensions" leftSection={<IconPuzzle size={13} />}
+                style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em" }}>
+                Extensions
+              </Tabs.Tab>
               {/* Feed tab: hanya muncul di mobile */}
               <Tabs.Tab value="feed" leftSection={<IconActivity size={13} />}
                 hiddenFrom="sm"
@@ -2373,6 +2378,11 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
             {/* ── Tab History ───────────────────────────────── */}
             <Tabs.Panel value="history">
               <FeedHistory />
+            </Tabs.Panel>
+
+            {/* ── Tab Extensions ────────────────────────────── */}
+            <Tabs.Panel value="extensions">
+              <AdminExtensions />
             </Tabs.Panel>
 
             {/* ── Tab Feed (mobile only) ────────────────────── */}
