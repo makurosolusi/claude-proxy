@@ -7,6 +7,7 @@ import {
 import { embedText } from "./embedding";
 import { logEvent } from "./lifecycle";
 import { defaultConfig, type SecondBrainConfig } from "./config";
+import { canMineForUser, enqueueMining } from "./worker";
 
 function getMergedConfig(): SecondBrainConfig {
   const stored = getConfig("second-brain") || {};
@@ -118,4 +119,46 @@ export async function postRequest(ctx: ProxyContext, post: PostRequestContext): 
   } catch (e: any) {
     console.warn("[second-brain] cache write failed:", e?.message ?? e);
   }
+
+  // ── Strategy mining (Lapis 2): enqueue if substantive + throttle allows ──
+  if (cfg.miningEnabled && qualifiesForMining(ctx, post)) {
+    try {
+      if (await canMineForUser(userId)) {
+        const trajectory = extractTrajectory(ctx.messages);
+        const jobId = await enqueueMining({
+          request_log_id: 0,
+          prompt, response_text: post.responseText, trajectory,
+          model: ctx.model || "",
+          user_id: userId,
+          project: "",
+        });
+        if (jobId) {
+          logEvent("mine_enqueued", { job_id: jobId, model: ctx.model, prompt_len: prompt.length, traj_len: trajectory.length }, userId).catch(() => {});
+        }
+      }
+    } catch (e: any) {
+      console.warn("[second-brain] mine enqueue failed:", e?.message ?? e);
+    }
+  }
+}
+
+function qualifiesForMining(ctx: ProxyContext, post: PostRequestContext): boolean {
+  const turns = Array.isArray(ctx.bodyJson?.messages) ? ctx.bodyJson.messages.length : 0;
+  return post.outputTokens >= 50
+      && post.responseText.length >= 200
+      && turns >= 2;
+}
+
+function extractTrajectory(messages: any[]): string {
+  if (!Array.isArray(messages)) return "";
+  const parts: string[] = [];
+  for (const m of messages.slice(-10)) {
+    const role = m?.role || "user";
+    const c = m?.content;
+    let text = "";
+    if (typeof c === "string") text = c;
+    else if (Array.isArray(c)) text = c.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("\n");
+    if (text.trim()) parts.push(`[${role}]\n${text.slice(0, 3000)}`);
+  }
+  return parts.join("\n\n").slice(0, 8000);
 }
