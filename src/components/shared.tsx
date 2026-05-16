@@ -242,9 +242,43 @@ function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
 
 export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData; isAdmin: boolean }) {
   const fb = upstream.fallbackProvider;
+  const ap = upstream.activeProvider;
   const isFallback = fb != null && fb !== "anthropic";
   const fbName = fb === "deepseek" ? "DeepSeek" : fb === "openrouter" ? "OpenRouter" : fb || "";
   const fbColor = fb === "deepseek" ? "violet" : fb === "openrouter" ? "orange" : "violet";
+  const anthropicAvail = upstream.anthropicAvailable ?? true;
+  const opMode = upstream.operationMode;
+
+  // No-provider mode: nothing is configured — flag the admin to fix it.
+  if (opMode === "no-provider") return (
+    <Stack gap="xs">
+      <Group gap="xs">
+        <Box w={8} h={8} style={{ borderRadius: "50%", background: "var(--mantine-color-red-5)", flexShrink: 0 }} />
+        <Text size="sm" fw={600} c="red">No provider configured</Text>
+      </Group>
+      <Text size="xs" c="dimmed">Connect a Claude account in admin → Accounts, or set a DeepSeek/OpenRouter API key in admin → Providers.</Text>
+    </Stack>
+  );
+
+  // Fallback-only mode: Anthropic intentionally disabled — show informational
+  // banner instead of red "upstream unreachable". The "activeProvider" tells us
+  // which provider is currently serving requests.
+  if (!anthropicAvail) {
+    const apName  = ap === "deepseek" ? "DeepSeek" : ap === "openrouter" ? "OpenRouter" : ap || "fallback";
+    const apColor = ap === "deepseek" ? "violet" : ap === "openrouter" ? "orange" : "blue";
+    return (
+      <Stack gap="md">
+        <Paper withBorder p="xs" style={{ borderColor: `var(--mantine-color-${apColor}-5)` }}>
+          <Group gap="xs">
+            <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${apColor}-5)`, flexShrink: 0 }} />
+            <Text size="sm" c={apColor} fw={600}>Running on {apName}</Text>
+            <Text size="xs" c="dimmed">— Anthropic not connected, all requests route via {apName}</Text>
+          </Group>
+        </Paper>
+        <Text size="xs" c="dimmed">{isAdmin ? "To enable Claude routing, connect a Claude credential in admin → Accounts." : "Service is operating normally on the fallback provider."}</Text>
+      </Stack>
+    );
+  }
 
   if (!upstream.ok && !upstream.fiveHour && !isFallback) return (
     <Stack gap="xs">

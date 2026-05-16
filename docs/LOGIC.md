@@ -40,12 +40,37 @@ Kalau upstream 5-hour utilization ≥ `UPSTREAM_HARD_CAP_PCT` dan **tidak ada pr
 
 Urutan penentuan provider untuk tiap request di `proxy.ts`:
 
-1. **Per-token override** (`tokens.provider !== "inherit"`) — paksa provider untuk token ini. Termasuk custom provider slug (e.g. "groq"). Kalau provider belum configured (API key kosong) → 503.
-2. **Global override** (`settings.provider_override`) — set lewat Providers tab. Bisa `"anthropic"`, `"deepseek"`, `"openrouter"`, custom slug, atau `""` (auto).
-3. **Auto-fallback** — kalau 5h util ≥ `UPSTREAM_HARD_CAP_PCT` AND built-in fallback configured → switch ke OpenRouter atau DeepSeek. Custom providers **TIDAK** ikut auto-fallback (admin harus pick explicit).
-4. **Default** — Claude (anthropic).
+1. **Per-token override** (`tokens.provider !== "inherit"`) — paksa provider untuk token ini. Termasuk custom provider slug (e.g. "groq"). Kalau provider belum configured (API key kosong) → 503. Khusus `"anthropic"`: kalau no claude-*.json → 503.
+2. **Global override** (`settings.provider_override`) — set lewat Providers tab. Bisa `"anthropic"`, `"deepseek"`, `"openrouter"`, custom slug, atau `""` (auto). Override `"anthropic"` di-skip diam-diam kalau no credential — auto-pick fallback.
+3. **Auto-fallback** — kalau Anthropic available AND 5h util ≥ `UPSTREAM_HARD_CAP_PCT` AND built-in fallback configured → switch ke OpenRouter atau DeepSeek. Custom providers **TIDAK** ikut auto-fallback (admin harus pick explicit).
+4. **Default** — `pickDefaultProvider()` di `src/providerSelection.ts`. Urutan: anthropic (jika cred ada) → openrouter → deepseek → first custom provider. Kalau semua kosong → 503 dengan pesan "No provider is configured".
 
 **429 retry chain**: Kalau Claude balas 429 saat forward, code retry sekali dengan built-in fallback provider. Tidak ada chain berlapis — satu fallback attempt saja.
+
+## Operation Mode (Anthropic optional)
+
+Aplikasi awalnya didesain dengan Claude Max OAuth sebagai primary. Sekarang Anthropic **opsional** — aplikasi tetap berjalan tanpa credential Claude.
+
+Mode ditentukan `getOperationMode()` di `src/providerSelection.ts`:
+
+| Mode | Kondisi | Behavior |
+|---|---|---|
+| `anthropic-primary` | Ada usable `claude-*.json` di `CLIPROXY_AUTH_DIR` | Default Anthropic, fallback ke OR/DS saat 5h cap atau 429 |
+| `fallback-only` | No Anthropic cred, tapi DeepSeek/OpenRouter/custom configured | Semua request via fallback provider; poll Anthropic di-throttle 10 menit; UI tampil informational banner biru |
+| `no-provider` | Tidak ada satupun configured | Boot log warning; admin Overview banner merah; semua `/v1/messages` → 503 |
+
+**Boot log** mencantumkan mode + fallbacks tersedia: `[boot] mode=fallback-only · anthropic=off · routing via=[openrouter, deepseek]`.
+
+**Poll throttling**: Saat `getOauthCredential()` return null 3x berturut-turut, poll interval naik ke 10 menit + log throttled (sekali per 10 menit) untuk hindari spam log saat Anthropic intentionally disconnected.
+
+**UI graceful degradation**:
+- `apiTest.ts` skip Anthropic tests (skipped:true, ok:true) — Test tab tidak tampil merah
+- `apiModels.ts` untuk anthropic return `{ models: [], disabled: true }` status 200 — bukan 502
+- `apiStatus.ts` set `anthropicAvailable` + `operationMode` di response
+- `UpstreamSection` (shared) render informational banner saat fallback-only mode
+- Admin Overview tampil banner di atas dashboard
+
+**Second Brain mining cross-provider**: Strategy distillation bisa pakai Anthropic, OpenRouter, atau DeepSeek. Config `miningProvider` (`auto | anthropic | openrouter | deepseek`) di Brain → Settings. Worker silent-skip kalau no provider configured (tidak retry loop pg-boss).
 
 ## Custom Providers
 

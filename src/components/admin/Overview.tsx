@@ -147,6 +147,36 @@ export function AdminOverview({ tokens, upstream, contextAlerts = [], userImages
   const resetsIn    = upstream.fiveHour ? fmtResetAt(upstream.fiveHour.resets_at) : null;
   const statusDot   = upstream.ok ? "teal" : "red";
 
+  // Operation-mode banner — surface "Anthropic disabled" or "no provider" state
+  // so the admin sees it the moment they open the dashboard, instead of having
+  // to dig into Upstream section.
+  const opMode = upstream.operationMode;
+  const opAp   = upstream.activeProvider;
+  const opModeBanner = (() => {
+    if (opMode === "no-provider") return (
+      <Paper withBorder p="md" radius="md" style={{ borderColor: "var(--mantine-color-red-5)" }}>
+        <Group gap="xs">
+          <Box w={8} h={8} style={{ borderRadius: "50%", background: "var(--mantine-color-red-5)" }} />
+          <Text size="sm" fw={700} c="red">No provider configured</Text>
+          <Text size="xs" c="dimmed">— Add a Claude credential (Accounts) or set a DeepSeek/OpenRouter API key (Providers).</Text>
+        </Group>
+      </Paper>
+    );
+    if (opMode === "fallback-only") {
+      const apLabel = opAp === "deepseek" ? "DeepSeek" : opAp === "openrouter" ? "OpenRouter" : opAp || "fallback";
+      return (
+        <Paper withBorder p="md" radius="md" style={{ borderColor: "var(--mantine-color-blue-5)" }}>
+          <Group gap="xs">
+            <Box w={8} h={8} style={{ borderRadius: "50%", background: "var(--mantine-color-blue-5)" }} />
+            <Text size="sm" fw={600} c="blue">Running in fallback-only mode</Text>
+            <Text size="xs" c="dimmed">— Anthropic not connected, all requests route via {apLabel}.</Text>
+          </Group>
+        </Paper>
+      );
+    }
+    return null;
+  })();
+
   return (
     <Stack gap="xl">
       <Paper withBorder p="lg" radius="md">
@@ -168,6 +198,8 @@ export function AdminOverview({ tokens, upstream, contextAlerts = [], userImages
           </Group>
         </Group>
       </Paper>
+
+      {opModeBanner}
 
       <SimpleGrid cols={{ base: 1, xs: 2, sm: 4 }} spacing="md">
         <StatCard label="Tokens today" value={totalToday} sub="across all users"

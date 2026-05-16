@@ -45,6 +45,12 @@ Set `REACT_EDITOR=cursor` (atau `code`, `zed`) di `.env` untuk click-to-source (
 - Endpoint publik (accessible semua user login): `/api/sessions/*`, `/api/sessions/summary`, `/api/competition`, `/api/admin/user-activity`
 - Fetch dari React ke endpoint yang butuh session **wajib** pakai `{ credentials: "include" }`
 
+## Provider Posture (Anthropic optional)
+
+- Aplikasi tetap berjalan tanpa credential Claude — lihat `docs/LOGIC.md` section "Operation Mode".
+- Default provider chain: anthropic (jika ada) → openrouter → deepseek → first custom. Lihat `src/providerSelection.ts`.
+- Kalau menambah handler baru yang menyentuh Anthropic, **wajib** guard dengan `hasAnthropicCredential()` dari `src/upstream.ts` — jangan asumsikan cred ada.
+
 ## Aturan Deploy
 
 - **Jangan deploy (`mcp__deploy-stg__deploy`) sebelum ada perintah eksplisit dari user.**

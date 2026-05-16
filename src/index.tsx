@@ -76,6 +76,25 @@ process.on("SIGTERM", () => onShutdown("SIGTERM"));
 process.on("SIGINT",  () => onShutdown("SIGINT"));
 startPoller();
 
+// Operation mode banner — one informational log line so the operator knows the
+// provider posture at boot. Helps when a subscription lapses unexpectedly.
+{
+  const { getOperationMode, getProviderAvailability } = await import("./providerSelection");
+  const mode = getOperationMode();
+  const av   = getProviderAvailability();
+  const fallbacks = [
+    av.openrouter && "openrouter", av.deepseek && "deepseek",
+    ...av.customIds,
+  ].filter(Boolean).join(", ") || "none";
+  if (mode === "anthropic-primary") {
+    console.log(`[boot] mode=anthropic-primary · anthropic=on · fallbacks=[${fallbacks}]`);
+  } else if (mode === "fallback-only") {
+    console.log(`[boot] mode=fallback-only · anthropic=off · routing via=[${fallbacks}] (set provider_override if needed)`);
+  } else {
+    console.warn(`[boot] mode=no-provider · NOTHING IS CONFIGURED · every /v1/messages request will return 503`);
+  }
+}
+
 // ── Vite dev middleware ───────────────────────────────────────────────────────
 // Dev: Vite runs in middlewareMode (no own port) — all traffic enters via Bun.serve,
 // non-API requests are forwarded to Vite's Connect middleware stack.

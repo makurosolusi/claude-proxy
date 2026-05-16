@@ -1391,16 +1391,20 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
     {/* ── Sticky Header (Navbar + Sub-header) ─────────────── */}
     {(() => {
       const ap         = upstream?.activeProvider;
+      const anthropicAvail = upstream?.anthropicAvailable ?? true;
+      // When Anthropic is not connected, "anthropic" is no longer a sensible
+      // default for display — fall back to whatever active provider we have.
+      const displayProvider = ap || (anthropicAvail ? "anthropic" : "");
       const isFallback = !!ap && ap !== "anthropic";
-      const provInfo   = resolveProvider(ap || "anthropic", customProviders);
-      const provName   = provInfo.name;
+      const provInfo   = resolveProvider(displayProvider || "anthropic", customProviders);
+      const provName   = displayProvider ? provInfo.name : "no provider";
       const colorMap: Record<string, string> = {
         blue:   "#3b82f6", violet: "#7c3aed", orange: "#f97316", teal: "#0d9488",
         gray:   "#71717a", pink:   "#ec4899", cyan:   "#06b6d4", yellow: "#eab308",
         lime:   "#84cc16", indigo: "#6366f1", red:    "#ef4444",
       };
-      const provDot    = upstream?.ok ? (colorMap[provInfo.color] || "#3b82f6") : "#71717a";
-      const modelLabel = shortenModel(upstream?.activeModel ?? "claude-sonnet-4-6", 20);
+      const provDot    = upstream?.ok || isFallback ? (colorMap[provInfo.color] || "#3b82f6") : "#71717a";
+      const modelLabel = shortenModel(upstream?.activeModel || (anthropicAvail ? "claude-sonnet-4-6" : "—"), 20);
       const roleColor  = profile?.role === "SUPER_ADMIN" ? "red" : profile?.role === "ADMIN" ? "orange" : "blue";
       const roleLabel  = profile?.role === "SUPER_ADMIN" ? "Super Admin" : profile?.role === "ADMIN" ? "Admin" : "User";
       const myTokens   = Object.values(profile?.tokens || {});
