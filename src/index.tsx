@@ -38,6 +38,7 @@ import { handleProxy }     from "./handlers/proxy";
 import { handleApiExtensions } from "./handlers/apiExtensions";
 import { bootstrapExtensions } from "./extensions";
 import { handleSecondBrainAdmin } from "./extensions/second-brain/admin-api";
+import { handleMcpSecondBrain } from "./extensions/second-brain/mcp";
 import { auth } from "./auth";
 import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
 import { installConsoleInterceptor, recordUncaught, recordUnhandled } from "./consoleBuffer";
@@ -783,6 +784,7 @@ server = serve({
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleSecondBrainAdmin(req, new URL(req.url));
     },
+    "/mcp/second-brain": async req => handleMcpSecondBrain(req),
     "/api/admin/models/anthropic":  async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiModels(req, new URL(req.url));
