@@ -26,8 +26,9 @@ import { AdminUserActivity } from "./UserActivity";
 import { AdminDatabase } from "./Database";
 import { AdminExtensions } from "./Extensions";
 import { AdminBrain } from "./Brain";
+import { AdminLogs } from "./Logs";
 
-type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "providers" | "test" | "accounts" | "database" | "extensions" | "brain";
+type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "providers" | "test" | "accounts" | "database" | "extensions" | "brain" | "applogs";
 
 interface NavGroup {
   label: string;
@@ -76,6 +77,7 @@ export function AdminDashboard() {
     return () => clearInterval(t);
   }, []);
   const brainEnabled = enabledExtensions.has("second-brain");
+  const logsEnabled  = enabledExtensions.has("log-management");
 
   const { tokens, upstream, userImages = {} } = status;
   const nav = (s: AdminSection) => {
@@ -113,6 +115,7 @@ export function AdminDashboard() {
       items: [
         { id: "extensions", label: "Extensions",     icon: <IconPuzzle        size={SZ} />, desc: "Manage optional add-ons"         },
         ...(brainEnabled ? [{ id: "brain" as AdminSection, label: "Brain", icon: <IconBrain size={SZ} />, desc: "Second Brain · cache & strategies" }] : []),
+        ...(logsEnabled  ? [{ id: "applogs" as AdminSection, label: "App Logs", icon: <IconHistory size={SZ} />, desc: "Persisted console logs · 7-day retention" }] : []),
       ],
     },
   ];
@@ -355,6 +358,7 @@ export function AdminDashboard() {
           {section === "database"   && <AdminDatabase />}
           {section === "extensions" && <AdminExtensions />}
           {section === "brain"      && brainEnabled && <AdminBrain />}
+          {section === "applogs"    && logsEnabled  && <AdminLogs />}
         </Box>
       </AppShell.Main>
     </AppShell>

@@ -33,6 +33,7 @@ import {
   handleDebugExtensions, handleDebugBrainOverview, handleDebugBrainStrategies,
   handleDebugBrainCache, handleDebugBrainQueue, handleDebugDbSize,
   handleDebugSessionsSummary, handleDebugTestUpstream, handleDebugActiveProviders,
+  handleDebugAppLogs, handleDebugAppLogsStats,
 } from "./handlers/apiDebugBrain";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
@@ -44,6 +45,7 @@ import { handleProxy }     from "./handlers/proxy";
 import { handleApiExtensions } from "./handlers/apiExtensions";
 import { bootstrapExtensions } from "./extensions";
 import { handleSecondBrainAdmin } from "./extensions/second-brain/admin-api";
+import { handleLogManagementAdmin } from "./extensions/log-management/admin-api";
 import { handleMcpSecondBrain } from "./extensions/second-brain/mcp";
 import { auth } from "./auth";
 import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
@@ -655,6 +657,10 @@ server = serve({
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleSecondBrainAdmin(req, new URL(req.url));
     },
+    "/api/admin/log-management/*": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleLogManagementAdmin(req, new URL(req.url));
+    },
     "/mcp/second-brain": async req => handleMcpSecondBrain(req),
     "/api/admin/models/anthropic":  async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -755,6 +761,8 @@ server = serve({
     "/api/debug/sessions-summary": async req => handleDebugSessionsSummary(req),
     "/api/debug/test-upstream/*":  async req => handleDebugTestUpstream(req, new URL(req.url)),
     "/api/debug/active-providers": async req => handleDebugActiveProviders(req, new URL(req.url)),
+    "/api/debug/app-logs":         async req => handleDebugAppLogs(req, new URL(req.url)),
+    "/api/debug/app-logs/stats":   async req => handleDebugAppLogsStats(req, new URL(req.url)),
     "/api/debug/ws":               async req => {
       // WS stats inline because wsClients lives in this module
       const t = req.headers.get("x-mcp-secret") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");

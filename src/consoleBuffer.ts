@@ -29,9 +29,27 @@ function format(args: unknown[]): string {
   }).join(" ").slice(0, MAX_LINE_CHARS);
 }
 
+// External sinks (extensions can subscribe — e.g. log-management ext writes to DB).
+// Sinks run after the in-memory push, in registration order, swallowing errors so
+// one bad sink can't break logging. Sinks must be FAST and NON-BLOCKING — queue
+// to async I/O internally, never await inside.
+export type LogSink = (line: LogLine) => void;
+const sinks: LogSink[] = [];
+export function addLogSink(fn: LogSink): () => void {
+  sinks.push(fn);
+  return () => {
+    const i = sinks.indexOf(fn);
+    if (i >= 0) sinks.splice(i, 1);
+  };
+}
+
 function push(level: LogLevel, args: unknown[]) {
-  buffer.push({ ts: Date.now(), level, msg: format(args) });
+  const line: LogLine = { ts: Date.now(), level, msg: format(args) };
+  buffer.push(line);
   if (buffer.length > MAX_LINES) buffer.shift();
+  for (const sink of sinks) {
+    try { sink(line); } catch { /* never let a sink break console */ }
+  }
 }
 
 // Install once at process start. Wraps console.log/warn/error to ALSO push
