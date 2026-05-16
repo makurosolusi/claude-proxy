@@ -1,5 +1,6 @@
 import { prisma } from "../../prisma";
 import { CREATE_PGVECTOR_SQL, CREATE_TABLES_SQL } from "./schema";
+import { initEmbedding } from "./embedding";
 import type { EnableResult } from "../types";
 
 export async function onEnable(): Promise<EnableResult> {
@@ -26,8 +27,12 @@ export async function onEnable(): Promise<EnableResult> {
     return { ok: false, error: "Verification failed: sb_strategies table not present after creation" };
   }
 
+  // Fire-and-forget embedding model warm — first call may need ~30s download.
+  // Subsequent calls within the process are <100ms.
+  initEmbedding().catch(e => console.warn("[second-brain] embedding warm failed:", e?.message ?? e));
+
   await logEvent("enable", { ts: Date.now() }).catch(() => {});
-  console.log("[second-brain] enabled: schema verified, pgvector available");
+  console.log("[second-brain] enabled: schema verified, pgvector available, model warming");
   return { ok: true };
 }
 
