@@ -12,8 +12,7 @@ export async function bootstrapExtensions(): Promise<void> {
   // src/extensions/<id>/index.ts and calls registerExtension() at import time.
   // Add new extension imports below. Keep order alphabetical for stability.
 
-  // Second Brain — registered in Fase B1 (commented until that module exists)
-  // await import("./second-brain");
+  await import("./second-brain");
 
   await loadEnabledFromDb();
 }
