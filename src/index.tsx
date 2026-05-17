@@ -10,6 +10,7 @@ import { prisma }           from "./prisma";
 import { loadFromDb, backfillUsers, onShutdown, tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, dbSetUserRole, dbSetUserStatus, dbSaveSetting, settings, resolveTokenName } from "./state";
 import { initFromEnv, todayKey, maskToken } from "./tokens";
 import { startPoller }     from "./upstream";
+import { startMaintenanceScheduler, pruneRequestLogs } from "./maintenance";
 import { handleApiStatus, buildTokenData } from "./handlers/apiStatus";
 import { handleApiLogs }   from "./handlers/apiLogs";
 import { handleApiStats }  from "./handlers/apiStats";
@@ -219,22 +220,7 @@ async function refreshUserImages() {
 refreshUserImages();
 setInterval(refreshUserImages, 5 * 60_000);
 
-async function pruneRequestLogs() {
-  const logDays = Math.max(1, parseInt(settings["log_retention_days"] || "30"));
-  const msgDays = Math.max(1, parseInt(settings["msg_retention_days"] || "7"));
-  const logCutoff = BigInt(Date.now() - logDays * 86400_000);
-  const msgCutoff = BigInt(Date.now() - msgDays * 86400_000);
-  const [deleted, stripped] = await Promise.all([
-    prisma.request_logs.deleteMany({ where: { ts: { lt: logCutoff } } }),
-    prisma.request_logs.updateMany({
-      where: { ts: { lt: msgCutoff }, messages_json: { not: "" } },
-      data: { messages_json: "" },
-    }),
-  ]);
-  return { deleted: deleted.count, stripped: stripped.count, log_retention_days: logDays, msg_retention_days: msgDays };
-}
-pruneRequestLogs();
-setInterval(pruneRequestLogs, 24 * 60 * 60_000);
+startMaintenanceScheduler();
 
 function buildStatusPayload(isAdmin: boolean) {
   const now   = Date.now();
