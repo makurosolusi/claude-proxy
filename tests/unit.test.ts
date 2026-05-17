@@ -2,7 +2,7 @@
  * Unit tests — no running server needed
  * Run: bun test tests/unit.test.ts
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from "bun:test";
 
 // ── Inline helpers (copied from src to avoid import side-effects) ─────────────
 
@@ -163,6 +163,7 @@ describe("usageCls", () => {
 
 // ── 3. checkReset ─────────────────────────────────────────────────────────────
 import { checkReset } from "../src/tokens";
+import { settings } from "../src/state";
 import type { TokenEntry } from "../src/types";
 
 function makeToken(overrides: Partial<TokenEntry> = {}): TokenEntry {
@@ -172,12 +173,17 @@ function makeToken(overrides: Partial<TokenEntry> = {}): TokenEntry {
     paused: false, dynamic: false, mode: "inherit",
     provider: "inherit", user_id: "",
     label: "test", description: "", pinned_model: "",
-    reset_mode: "auto", last_reset: 0,
+    last_reset: 0,
     ...overrides,
   };
 }
 
 describe("checkReset", () => {
+  // checkReset reads the global settings.reset_mode. Force "auto" so the
+  // rolling-window behavior tested here actually runs.
+  beforeAll(() => { settings["reset_mode"] = "auto"; });
+  afterAll(() => { delete settings["reset_mode"]; });
+
   test("expired window → resets used to 0", () => {
     const t = makeToken();
     checkReset(t, "sk-user-test");

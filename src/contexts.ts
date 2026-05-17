@@ -10,9 +10,7 @@ export interface TokenStatus {
   pinned_model:   string;
   activeProvider: string;
   activeModel:    string | null;
-  // Quota reset behavior — "manual" requires admin action when capped.
-  reset_mode?:    "manual" | "auto" | "daily";
-  last_reset?:    number;  // epoch ms; 0 if never
+  last_reset?:    number;  // epoch ms; 0 if never. Display only.
 }
 export interface UpstreamPeriod { utilization: number; resets_at: string; }
 export type OperationMode = "anthropic-primary" | "fallback-only" | "no-provider";
@@ -31,6 +29,8 @@ export interface UpstreamData {
   // Anthropic is intentionally not connected.
   anthropicAvailable?: boolean;
   operationMode?:      OperationMode;
+  // Global quota reset policy. Single source of truth for ALL tokens.
+  resetMode?: "manual" | "auto" | "daily";
 }
 export type AlertSeverity = "warning" | "critical";
 export type UserProfile   = "agentic" | "conversational" | "heavy_reader" | "efficient" | "mixed";
@@ -101,7 +101,6 @@ export interface ProfileToken {
   pinned_model:       string;   // model forced for this token (if any)
   today:   number;
   alltime: number;
-  reset_mode?: "manual" | "auto" | "daily";
   last_reset?: number;
 }
 

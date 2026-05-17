@@ -116,7 +116,6 @@ export async function dbInsertEnvToken(key: string, entry: TokenEntry) {
       window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: false, provider: entry.provider || "inherit",
       label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
-      reset_mode: entry.reset_mode || "manual",
       last_reset: entry.last_reset ? BigInt(entry.last_reset) : null,
     },
     update: {}, // do nothing on conflict
@@ -133,7 +132,6 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
       provider: entry.provider || "inherit",
       label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
-      reset_mode: entry.reset_mode || "manual",
       last_reset: entry.last_reset ? BigInt(entry.last_reset) : null,
     },
     update: {
@@ -143,20 +141,9 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
       provider: entry.provider || "inherit",
       label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
-      reset_mode: entry.reset_mode || "manual",
       last_reset: entry.last_reset ? BigInt(entry.last_reset) : null,
     },
   });
-}
-
-export async function dbUpdateResetMode(key: string, reset_mode: import("./types").ResetMode) {
-  await prisma.tokens.update({ where: { key }, data: { reset_mode } });
-}
-
-export async function dbUpdateResetModeBulk(reset_mode: import("./types").ResetMode, userId?: string) {
-  const where = userId ? { deleted: false, user_id: userId } : { deleted: false };
-  const r = await prisma.tokens.updateMany({ where, data: { reset_mode } });
-  return r.count;
 }
 
 export async function dbUpdateTokenMeta(key: string, label: string, description: string) {
@@ -228,20 +215,20 @@ export async function dbResetToken(key: string, windowStart: number) {
 }
 
 // Window-rotation reset (called from upstream.ts when Anthropic 5h window
-// rotates). Only touches mode=auto tokens — manual/daily are decoupled from
-// Anthropic and never reset on rotation.
+// rotates). Caller checks settings.reset_mode and skips entirely when it isn't
+// "auto", so this updateMany unconditionally touches every active token.
 export async function dbResetAllTokens(win: number, windowStart: number) {
   await prisma.tokens.updateMany({
-    where: { deleted: false, reset_mode: "auto" },
+    where: { deleted: false },
     data: { used: BigInt(0), win: BigInt(win), window_start: BigInt(windowStart), last_reset: BigInt(windowStart) },
   });
 }
 
-// First-poll alignment — sets window length + windowStart for tokens that
-// should follow the Anthropic window. Manual/daily tokens are left alone.
+// First-poll alignment — sets window length + windowStart for tokens. Caller
+// gates this on settings.reset_mode === "auto"; here it just runs the SQL.
 export async function dbAlignAllTokens(win: number, windowStart: number) {
   await prisma.tokens.updateMany({
-    where: { deleted: false, reset_mode: "auto" },
+    where: { deleted: false },
     data: { win: BigInt(win), window_start: BigInt(windowStart) },
   });
 }
@@ -417,15 +404,15 @@ export async function loadFromDb() {
     };
   }
 
-  // Load tokens
+  // Load tokens. Window-expiry auto-reset on boot only applies when the GLOBAL
+  // reset mode is "auto" — manual/daily skip it (manual never resets on its own;
+  // daily resets at midnight via checkReset, not boot).
   const tokenRows = await prisma.tokens.findMany({ where: { deleted: false } });
+  const globalResetMode = (settings["reset_mode"] || "manual") as import("./types").ResetMode;
   for (const row of tokenRows) {
     const win        = Number(row.win);
     const ws         = Number(row.window_start);
-    const resetMode  = ((row as any).reset_mode || "auto") as import("./types").ResetMode;
-    // Only mode=auto auto-resets on stale window. manual/daily never auto-reset
-    // on boot — admin (manual) or midnight tick (daily) handles it.
-    const expired    = resetMode === "auto" && (now - ws >= win);
+    const expired    = globalResetMode === "auto" && (now - ws >= win);
     tokens[row.key] = {
       limit:        fromLim(row.lim),
       window:       win,
@@ -439,7 +426,6 @@ export async function loadFromDb() {
       label:        (row as any).label || "",
       description:  (row as any).description || "",
       pinned_model: (row as any).pinned_model || "",
-      reset_mode:   resetMode,
       last_reset:   (row as any).last_reset != null ? Number((row as any).last_reset) : 0,
     };
     if (expired) {

@@ -237,16 +237,18 @@ export async function poll() {
           console.log(`[upstream] Detected window: ${Math.round(delta / 60000)}m`);
         }
         const win = upstream.detectedWindowMs || Object.values(tokens)[0]?.window || config.windowMs;
-        // Only mode=auto tokens follow Anthropic rotation. manual/daily are
-        // decoupled — admin (manual) or midnight (daily) controls them.
-        let autoCount = 0;
-        for (const tk of Object.values(tokens)) {
-          if ((tk.reset_mode || "auto") !== "auto") continue;
-          tk.used = 0; tk.window = win; tk.windowStart = resetsAtMs - win; tk.last_reset = resetsAtMs;
-          autoCount++;
+        // Skip Anthropic-driven reset entirely unless the global policy is "auto".
+        // manual/daily are decoupled — admin (manual) or midnight (daily) controls them.
+        const globalMode = settings["reset_mode"];
+        if (globalMode === "auto") {
+          for (const tk of Object.values(tokens)) {
+            tk.used = 0; tk.window = win; tk.windowStart = resetsAtMs - win; tk.last_reset = resetsAtMs;
+          }
+          console.log(`[upstream] Window rotated → reset all tokens (mode=auto). resets_at:`, newResetsAt);
+          broadcastSystemMsg("🔄 Window reset — usage counters cleared");
+        } else {
+          console.log(`[upstream] Window rotated but reset_mode=${globalMode || "manual"} — token counters untouched.`);
         }
-        console.log(`[upstream] Window rotated → reset ${autoCount} mode=auto tokens. resets_at:`, newResetsAt);
-        if (autoCount > 0) broadcastSystemMsg("🔄 Window reset — auto-mode usage counters cleared");
         lastUtilAlertPct   = 0;
         lastSonnetAlertPct = 0;
         lastOpusAlertPct   = 0;
@@ -261,21 +263,21 @@ export async function poll() {
           console.log(`[upstream] Estimated window: ${Math.round(untilReset / 60000)}m`);
         }
         const win = upstream.detectedWindowMs || Object.values(tokens)[0]?.window || config.windowMs;
-        // First-poll alignment — only touches mode=auto tokens (manual/daily are
-        // independent of the Anthropic window).
-        for (const tk of Object.values(tokens)) {
-          if ((tk.reset_mode || "auto") !== "auto") continue;
-          tk.window = win; tk.windowStart = resetsAtMs - win;
+        // First-poll alignment — only when global mode is "auto". manual/daily
+        // are independent of the Anthropic window.
+        if (settings["reset_mode"] === "auto") {
+          for (const tk of Object.values(tokens)) {
+            tk.window = win; tk.windowStart = resetsAtMs - win;
+          }
+          console.log("[upstream] First poll. Aligned tokens to resets_at:", newResetsAt);
         }
-        console.log("[upstream] First poll. Aligned auto-mode tokens to resets_at:", newResetsAt);
         upstream.lastKnownResetsAt = newResetsAt;
         dbAlignAllTokens(win, resetsAtMs - win).catch(e => console.error("[upstream] dbAlignAllTokens error:", e));
         dbSaveUpstream().catch(e => console.error("[upstream] dbSaveUpstream error:", e));
-      } else {
+      } else if (settings["reset_mode"] === "auto") {
         const win = upstream.detectedWindowMs || Object.values(tokens)[0]?.window || config.windowMs;
-        // In-flight realignment for mode=auto only (visual window edge follows Anthropic).
+        // In-flight realignment — only when global mode is "auto".
         for (const tk of Object.values(tokens)) {
-          if ((tk.reset_mode || "auto") !== "auto") continue;
           tk.windowStart = resetsAtMs - win;
         }
       }

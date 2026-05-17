@@ -34,7 +34,7 @@ function makeTokenEntry(overrides: Partial<TokenEntry> = {}): TokenEntry {
     windowStart: Date.now(), paused: false, dynamic: true,
     mode: "inherit", provider: "inherit", user_id: TEST_UID,
     label: "test-fixture", description: "", pinned_model: "",
-    reset_mode: "auto", last_reset: 0,
+    last_reset: 0,
     ...overrides,
   };
 }

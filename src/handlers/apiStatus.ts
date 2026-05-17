@@ -146,7 +146,6 @@ export function buildTokenData(): Record<string, any> {
       pinned_model:    tk.pinned_model || "",
       activeProvider:  effectiveProvider,
       activeModel,
-      reset_mode:      tk.reset_mode || "manual",
       last_reset:      tk.last_reset || 0,
     };
   }
@@ -264,6 +263,9 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
       // "upstream unreachable" when Anthropic is intentionally disabled.
       anthropicAvailable: getProviderAvailability().anthropic,
       operationMode:      getOperationMode(),
+      // Single source of truth for token quota reset behavior. UI surfaces this
+      // as the only authoritative indicator (per-token field removed).
+      resetMode:          (settings["reset_mode"] === "auto" || settings["reset_mode"] === "daily") ? settings["reset_mode"] : "manual",
       activeProvider: (() => {
         const override = settings["provider_override"] || "";
         if (override === "deepseek")   return "deepseek";

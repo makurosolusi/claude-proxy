@@ -2,9 +2,12 @@ import { config } from "./config";
 import { tokens, dailyUsage, settings, dbInsertEnvToken, dbUpdateUsage, dbUpsertDailyUsage, dbResetToken } from "./state";
 import type { TokenEntry, ResetMode } from "./types";
 
-function defaultResetMode(): ResetMode {
-  const v = settings["default_reset_mode"];
-  if (v === "auto" || v === "manual" || v === "daily") return v;
+// Single source of truth for the global quota reset policy. Applies to ALL
+// tokens — there is no per-token override. Default "manual" so a fresh install
+// behaves as a real budget (admin must reset or raise limit when capped).
+export function getResetMode(): ResetMode {
+  const v = settings["reset_mode"];
+  if (v === "auto" || v === "daily") return v;
   return "manual";
 }
 
@@ -28,7 +31,6 @@ export function initFromEnv() {
       label:        "",
       description:  "",
       pinned_model: "",
-      reset_mode:   defaultResetMode(),
       last_reset:   0,
     };
     tokens[key] = entry;
@@ -44,14 +46,13 @@ function localDateKey(ts: number): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
-// Mode-aware reset check, called before every request.
-// - manual: NEVER auto-reset. Quota only changes via admin or natural usage.
-// - auto:   legacy rolling window (resets when window elapses).
+// Mode-aware reset check called before every request. Reads the GLOBAL setting
+// — there is no per-token override.
+// - manual: never auto-reset. Quota only changes via admin or natural usage.
+// - auto:   rolling window (resets when window elapses).
 // - daily:  reset once when local-time date crosses midnight.
-// The `windowStart` field doubles as "last reset timestamp" so daily mode
-// can detect day-change without a separate field.
 export function checkReset(t: TokenEntry, key: string) {
-  const mode = t.reset_mode || "manual";
+  const mode = getResetMode();
   if (mode === "manual") return;
 
   const now = Date.now();

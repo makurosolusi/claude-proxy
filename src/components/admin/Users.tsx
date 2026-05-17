@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, ThemeIcon,
-  Loader, Select, Switch, SegmentedControl, Button, Code,
+  Loader, Select, Switch, SegmentedControl,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
@@ -322,46 +322,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
           );
         })}
       </SimpleGrid>
-
-      {/* Bulk reset-mode switcher */}
-      <Paper withBorder p="md" radius="md">
-        <Group justify="space-between" wrap="wrap" gap="sm">
-          <div>
-            <Text size="sm" fw={700}>Switch all tokens to reset mode</Text>
-            <Text size="xs" c="dimmed" mt={2}>
-              Applies to every active token. Manual = admin must reset/raise when quota hit. Auto = legacy rolling window. Daily = midnight reset.
-            </Text>
-          </div>
-          <Group gap="xs">
-            {(["manual", "auto", "daily"] as const).map(m => (
-              <Button key={m} size="xs" variant="default"
-                onClick={() => modals.openConfirmModal({
-                  title: `Switch ALL tokens to ${m}`,
-                  children: <Text size="sm">Set <Code>reset_mode</Code> = <b>{m}</b> for every active token? This affects how their quota refreshes.</Text>,
-                  labels: { confirm: `Switch to ${m}`, cancel: "Cancel" },
-                  confirmProps: { color: m === "manual" ? "blue" : m === "auto" ? "gray" : "teal" },
-                  onConfirm: async () => {
-                    try {
-                      const r = await fetch("/admin/token/reset-mode-bulk", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: new URLSearchParams({ mode: m }),
-                      });
-                      const d = await r.json() as any;
-                      if (!r.ok || !d.ok) throw new Error(d?.error || `HTTP ${r.status}`);
-                      notifications.show({ color: "teal", message: `${d.count} tokens set to ${m}`, autoClose: 2500 });
-                      await reload();
-                    } catch (e: any) {
-                      notifications.show({ color: "red", title: "Bulk switch failed", message: e.message, autoClose: 4000 });
-                    }
-                  },
-                })}>
-                All → {m}
-              </Button>
-            ))}
-          </Group>
-        </Group>
-      </Paper>
 
       {/* Users list */}
       <Stack gap="sm">

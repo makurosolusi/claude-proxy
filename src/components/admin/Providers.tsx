@@ -11,7 +11,7 @@ interface SettingsData {
   openrouter_api_key?:         string;
   provider_override?:          string;
   simulate_anthropic_disabled?: string;
-  default_reset_mode?:         string;
+  reset_mode?:                 string;
 }
 
 interface CustomProviderInfo { id: string; name: string; type: "anthropic" | "openai"; color?: string; api_key_set?: boolean; }
@@ -25,8 +25,8 @@ export function AdminProviders() {
   const [loadingInit, setLoadingInit]         = useState(true);
   const [simulateOff, setSimulateOff]         = useState(false);
   const [simSaving, setSimSaving]             = useState(false);
-  const [defaultMode, setDefaultMode]         = useState<"manual" | "auto" | "daily">("manual");
-  const [defaultModeSaving, setDefaultModeSaving] = useState(false);
+  const [resetMode, setResetMode]             = useState<"manual" | "auto" | "daily">("manual");
+  const [resetModeSaving, setResetModeSaving] = useState(false);
 
   const deepseekConfigured   = !!settingsData.deepseek_api_key;
   const openrouterConfigured = !!settingsData.openrouter_api_key;
@@ -65,8 +65,8 @@ export function AdminProviders() {
       setOverride(resolvedOverride);
       setSavedOverride(resolvedOverride);
       setSimulateOff(d.simulate_anthropic_disabled === "true");
-      const dm = d.default_reset_mode;
-      setDefaultMode((dm === "auto" || dm === "daily" || dm === "manual") ? dm : "manual");
+      const rm = d.reset_mode;
+      setResetMode((rm === "auto" || rm === "daily" || rm === "manual") ? rm : "manual");
       setLoadingInit(false);
     });
     return () => { cancelled = true; };
@@ -107,21 +107,23 @@ export function AdminProviders() {
     ? "anthropic"  // Auto mode defaults to Claude
     : savedOverride;
 
-  const changeDefaultMode = async (next: "manual" | "auto" | "daily") => {
-    setDefaultMode(next); // optimistic
-    setDefaultModeSaving(true);
+  const changeResetMode = async (next: "manual" | "auto" | "daily") => {
+    const prev = resetMode;
+    setResetMode(next); // optimistic
+    setResetModeSaving(true);
     try {
-      const r = await fetch("/admin/settings/default-reset-mode", {
+      const r = await fetch("/admin/settings/reset-mode", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ mode: next }),
       });
       const d = await r.json() as any;
       if (!r.ok || !d.ok) throw new Error(d?.error || `HTTP ${r.status}`);
-      notifications.show({ color: "teal", message: `Default reset mode: ${next}`, autoClose: 2500 });
+      notifications.show({ color: "teal", message: `Quota reset mode: ${next} (applies to ALL tokens)`, autoClose: 2500 });
     } catch (e: any) {
+      setResetMode(prev); // revert
       notifications.show({ color: "red", title: "Save failed", message: e.message, autoClose: 3000 });
-    } finally { setDefaultModeSaving(false); }
+    } finally { setResetModeSaving(false); }
   };
 
   const toggleSimulate = async (next: boolean) => {
@@ -230,29 +232,32 @@ export function AdminProviders() {
         </Group>
       </Paper>
 
-      {/* Default reset mode for new tokens */}
-      <Paper withBorder p="lg" radius="md">
+      {/* Quota Reset Mode — single source of truth for ALL tokens */}
+      <Paper withBorder p="lg" radius="md" style={{ borderColor: resetMode === "manual" ? "var(--mantine-color-blue-5)" : undefined }}>
         <Group justify="space-between" wrap="nowrap" mb={6}>
-          <Text size="sm" fw={700}>Default reset mode (for new tokens)</Text>
-          <Badge variant="light" color={defaultMode === "manual" ? "blue" : defaultMode === "auto" ? "gray" : "teal"} size="sm">
-            {defaultMode}
+          <Text size="sm" fw={700}>Quota Reset Mode</Text>
+          <Badge variant="filled" color={resetMode === "manual" ? "blue" : resetMode === "auto" ? "gray" : "teal"} size="md">
+            {resetMode.toUpperCase()}
           </Badge>
         </Group>
         <Select
           size="sm"
-          value={defaultMode}
-          onChange={v => v && changeDefaultMode(v as any)}
-          disabled={defaultModeSaving || loadingInit}
+          value={resetMode}
+          onChange={v => v && changeResetMode(v as any)}
+          disabled={resetModeSaving || loadingInit}
           allowDeselect={false}
           comboboxProps={{ withinPortal: true }}
           data={[
             { value: "manual", label: "Manual — admin must reset when quota hit" },
-            { value: "auto",   label: "Auto — legacy rolling window" },
+            { value: "auto",   label: "Auto — rolling window (follows Anthropic)" },
             { value: "daily",  label: "Daily — reset at local midnight" },
           ]}
         />
         <Text size="xs" c="dimmed" mt={8} style={{ lineHeight: 1.5 }}>
-          Applies only to tokens created after this setting changes. Existing tokens keep their current mode. Use the bulk switch in Users tab to change existing tokens en masse.
+          <b>Applies to ALL tokens, immediately.</b> Single source of truth — there is no per-token override.
+          {resetMode === "manual" && " When a token hits its limit, requests return 429 until you reset it (or raise the limit) from the Users tab."}
+          {resetMode === "auto"   && " Tokens auto-reset every window AND when the Anthropic 5-hour window rotates."}
+          {resetMode === "daily"  && " Tokens auto-reset once at local midnight. Anthropic rotation is ignored."}
         </Text>
       </Paper>
 

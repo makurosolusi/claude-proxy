@@ -474,7 +474,6 @@ server = serve({
             pinned_model:       tk.pinned_model || "",
             today:              (dailyUsage[today] || {})[k] || 0,
             alltime:            allTimePerUser[u.userId] || 0,
-            reset_mode:         tk.reset_mode || "manual",
             last_reset:         tk.last_reset || 0,
           };
         }
@@ -854,9 +853,7 @@ server = serve({
     "/admin/settings/provider-model": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/provider-override": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/simulate-anthropic-disabled": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/settings/default-reset-mode":          async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/reset-mode":                     async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
-    "/admin/token/reset-mode-bulk":                async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/settings/reset-mode":                  async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
 
     // Proxy endpoints
     "/v1/models": async req => {

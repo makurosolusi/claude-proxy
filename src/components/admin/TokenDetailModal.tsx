@@ -40,24 +40,8 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
   // Optimistic local state for dropdowns — synced to props after reload
   const [providerValue, setProviderValue] = useState(tk.provider || "inherit");
   const [pinValue, setPinValue]           = useState(tk.pinned_model || "");
-  const [resetModeValue, setResetModeValue] = useState((tk.reset_mode || "manual") as "manual" | "auto" | "daily");
-  const [savingResetMode, setSavingResetMode] = useState(false);
   useEffect(() => { setProviderValue(tk.provider || "inherit"); }, [tk.provider]);
   useEffect(() => { setPinValue(tk.pinned_model || ""); }, [tk.pinned_model]);
-  useEffect(() => { setResetModeValue((tk.reset_mode || "manual") as any); }, [tk.reset_mode]);
-
-  const changeResetMode = async (mode: "manual" | "auto" | "daily") => {
-    setResetModeValue(mode);
-    setSavingResetMode(true);
-    try {
-      await adminPost("/admin/token/reset-mode", { token: tk.key, mode });
-      await onSaved();
-      notifications.show({ color: "teal", message: `Reset mode: ${mode}`, autoClose: 2000 });
-    } catch (e: any) {
-      setResetModeValue((tk.reset_mode || "manual") as any);
-      notifications.show({ color: "red", message: e.message || "Failed", autoClose: 3000 });
-    } finally { setSavingResetMode(false); }
-  };
 
   const [savingMeta, setSavingMeta]     = useState(false);
   const [savingLimit, setSavingLimit]   = useState(false);
@@ -345,30 +329,6 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
               </Group>
               <Text size="xs" c="dimmed" mt={6}>
                 Pin will override whichever model the client requests. {modelList.length} {effectiveProvider} model{modelList.length !== 1 ? "s" : ""} available.
-              </Text>
-            </Box>
-            <Box>
-              <Group gap="xs" mb={4}>
-                <Text size="xs" c="dimmed">Reset Mode</Text>
-                {savingResetMode && <Loader size={10} />}
-              </Group>
-              <Select
-                size="xs"
-                value={resetModeValue}
-                onChange={v => v && changeResetMode(v as any)}
-                disabled={savingResetMode}
-                comboboxProps={{ withinPortal: true }}
-                allowDeselect={false}
-                data={[
-                  { value: "manual", label: "Manual — admin must reset" },
-                  { value: "auto",   label: "Auto — rolling window (legacy)" },
-                  { value: "daily",  label: "Daily — reset at local midnight" },
-                ]}
-              />
-              <Text size="xs" c="dimmed" mt={6}>
-                {resetModeValue === "manual" && "When quota is hit, requests return 429 until admin resets or raises the limit."}
-                {resetModeValue === "auto"   && "Auto-resets every window AND when Anthropic 5h window rotates."}
-                {resetModeValue === "daily"  && "Auto-resets once at local midnight. Ignores Anthropic rotation."}
               </Text>
             </Box>
           </Stack>

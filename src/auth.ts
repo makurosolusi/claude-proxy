@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { randomBytes } from "crypto";
 import { prisma } from "./prisma";
-import { users, tokens, settings, dbUpsertUser, dbSetUserRole, dbSetUserStatus, dbInsertToken, slugify, ensureUniqueSlug } from "./state";
+import { users, tokens, dbUpsertUser, dbSetUserRole, dbSetUserStatus, dbInsertToken, slugify, ensureUniqueSlug } from "./state";
 import { config } from "./config";
 
 function generateApiKey(): string {
@@ -57,9 +57,6 @@ export const auth = betterAuth({
           await dbUpsertUser(entry);
 
           const tokenKey    = generateApiKey();
-          const defaultMode = (settings["default_reset_mode"] === "auto" || settings["default_reset_mode"] === "daily")
-            ? settings["default_reset_mode"]
-            : "manual";
           const tokenEntry: import("./types").TokenEntry = {
             limit: config.defaultTokenLimit,
             window: config.windowMs,
@@ -67,7 +64,6 @@ export const auth = betterAuth({
             paused: true, dynamic: true, mode: "inherit", provider: "inherit",
             user_id: id,
             label: "", description: "", pinned_model: "",
-            reset_mode: defaultMode as import("./types").ResetMode,
             last_reset: 0,
           };
           tokens[tokenKey] = tokenEntry;

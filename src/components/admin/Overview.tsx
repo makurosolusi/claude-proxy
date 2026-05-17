@@ -191,6 +191,16 @@ export function AdminOverview({ tokens, upstream, contextAlerts = [], userImages
               <Box w={7} h={7} style={{ borderRadius: "50%", background: `var(--mantine-color-${statusDot}-5)` }} />
               <Text size="xs" c="dimmed" ff="monospace">{upstream.ok ? "upstream ok" : "upstream issues"}</Text>
             </Group>
+            {upstream.resetMode && (
+              <Group gap={4}>
+                <Text size="xs" c="dimmed" ff="monospace">quota</Text>
+                <Badge size="xs"
+                  variant="light"
+                  color={upstream.resetMode === "manual" ? "blue" : upstream.resetMode === "auto" ? "gray" : "teal"}>
+                  {upstream.resetMode}
+                </Badge>
+              </Group>
+            )}
             <Group gap={4}>
               <IconClock size={12} color="var(--mantine-color-dimmed)" />
               <Text size="xs" c="dimmed" ff="monospace">poll {upstream.pollAge ?? "—"}</Text>

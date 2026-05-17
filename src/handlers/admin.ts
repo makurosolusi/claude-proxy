@@ -1,4 +1,4 @@
-import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, dbUpdateResetMode, dbUpdateResetModeBulk, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
 import { prisma } from "../prisma";
 import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
@@ -76,15 +76,11 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
 
     const label       = String(form?.get("label")       || "").trim();
     const description = String(form?.get("description") || "").trim();
-    const defaultMode = (settings["default_reset_mode"] === "auto" || settings["default_reset_mode"] === "daily")
-      ? settings["default_reset_mode"]
-      : "manual";
     const entry: TokenEntry = {
       limit: parsed, window: config.windowMs,
       used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit", provider: "inherit",
       user_id: uid,
       label, description, pinned_model: "",
-      reset_mode: defaultMode as import("../types").ResetMode,
       last_reset: 0,
     };
     tokens[newKey] = entry;
@@ -297,44 +293,14 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return Response.json({ ok: true, enabled });
   }
 
-  if (pathname === "/admin/settings/default-reset-mode" && req.method === "POST") {
+  if (pathname === "/admin/settings/reset-mode" && req.method === "POST") {
     const mode = String(form?.get("mode") || "").trim();
     if (!["manual", "auto", "daily"].includes(mode)) {
       return Response.json({ ok: false, error: "mode must be manual | auto | daily" }, { status: 400 });
     }
-    await dbSaveSetting("default_reset_mode", mode);
+    await dbSaveSetting("reset_mode", mode);
     triggerBroadcast();
     return Response.json({ ok: true, mode });
-  }
-
-  if (pathname === "/admin/token/reset-mode" && req.method === "POST") {
-    const key  = String(form?.get("token") || "").trim();
-    const mode = String(form?.get("mode")  || "").trim() as import("../types").ResetMode;
-    if (!tokens[key]) return Response.json({ ok: false, error: "token not found" }, { status: 404 });
-    if (!["manual", "auto", "daily"].includes(mode)) {
-      return Response.json({ ok: false, error: "mode must be manual | auto | daily" }, { status: 400 });
-    }
-    tokens[key]!.reset_mode = mode;
-    await dbUpdateResetMode(key, mode);
-    triggerBroadcast();
-    return Response.json({ ok: true });
-  }
-
-  if (pathname === "/admin/token/reset-mode-bulk" && req.method === "POST") {
-    const mode   = String(form?.get("mode")    || "").trim() as import("../types").ResetMode;
-    const userId = String(form?.get("user_id") || "").trim();
-    if (!["manual", "auto", "daily"].includes(mode)) {
-      return Response.json({ ok: false, error: "mode must be manual | auto | daily" }, { status: 400 });
-    }
-    // Reflect in memory map
-    for (const [k, tk] of Object.entries(tokens)) {
-      if (userId && tk.user_id !== userId) continue;
-      tk.reset_mode = mode;
-      void k;
-    }
-    const count = await dbUpdateResetModeBulk(mode, userId || undefined);
-    triggerBroadcast();
-    return Response.json({ ok: true, count });
   }
 
   if (pathname === "/admin/users/purge-orphans" && req.method === "POST") {

@@ -13,18 +13,19 @@ export interface UserEntry {
 
 export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter";
 
-// Quota reset semantics:
-// - "manual": never auto-reset. Admin must reset or raise limit when quota is hit.
-// - "auto":   legacy rolling-window — reset every `window` ms AND when Anthropic
-//             5h window rotates. Existing tokens are migrated to this.
+// Quota reset policy — applies globally to ALL tokens via settings.reset_mode.
+// - "manual": never auto-reset. Admin must reset or raise limit when quota hit.
+// - "auto":   legacy rolling-window. Resets every `window` ms AND when Anthropic
+//             5h window rotates.
 // - "daily":  reset at local midnight only; ignores Anthropic rotation.
+// NOTE: This is intentionally NOT a per-token field. Single source of truth.
 export type ResetMode = "manual" | "auto" | "daily";
 
 export interface TokenEntry {
   limit:        number;   // Infinity = unlimited
-  window:       number;   // ms — used by mode=auto
+  window:       number;   // ms — used when global reset_mode = "auto"
   used:         number;
-  windowStart:  number;   // epoch ms — for mode=auto rolling window; for manual/daily this is "since last reset" (display only)
+  windowStart:  number;   // epoch ms — rolling window start (auto) or last-reset timestamp (manual/daily)
   paused:       boolean;
   dynamic:      boolean;
   mode:         "inherit" | "direct" | "cliproxy";
@@ -33,8 +34,7 @@ export interface TokenEntry {
   label:        string;   // admin-set explicit label, optional
   description:  string;   // admin-set description
   pinned_model: string;   // if non-empty, force this model for all requests on this token
-  reset_mode:   ResetMode; // see ResetMode docs above
-  last_reset:   number;   // epoch ms; 0 if never. Used to gate daily mode + UI display.
+  last_reset:   number;   // epoch ms; 0 if never. UI display only.
 }
 
 
