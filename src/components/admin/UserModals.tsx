@@ -14,6 +14,8 @@ export interface ApiToken {
   paused: boolean; dynamic: boolean; today: number; alltime: number; pct: number;
   provider: string;
   label: string; description: string; pinned_model: string;
+  reset_mode?: "manual" | "auto" | "daily";
+  last_reset?: number;
 }
 export interface ApiUser {
   id: string; name: string; email: string; description: string; created_at: number;

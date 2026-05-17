@@ -172,6 +172,7 @@ function makeToken(overrides: Partial<TokenEntry> = {}): TokenEntry {
     paused: false, dynamic: false, mode: "inherit",
     provider: "inherit", user_id: "",
     label: "test", description: "", pinned_model: "",
+    reset_mode: "auto", last_reset: 0,
     ...overrides,
   };
 }

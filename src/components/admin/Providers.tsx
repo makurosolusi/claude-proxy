@@ -11,6 +11,7 @@ interface SettingsData {
   openrouter_api_key?:         string;
   provider_override?:          string;
   simulate_anthropic_disabled?: string;
+  default_reset_mode?:         string;
 }
 
 interface CustomProviderInfo { id: string; name: string; type: "anthropic" | "openai"; color?: string; api_key_set?: boolean; }
@@ -24,6 +25,8 @@ export function AdminProviders() {
   const [loadingInit, setLoadingInit]         = useState(true);
   const [simulateOff, setSimulateOff]         = useState(false);
   const [simSaving, setSimSaving]             = useState(false);
+  const [defaultMode, setDefaultMode]         = useState<"manual" | "auto" | "daily">("manual");
+  const [defaultModeSaving, setDefaultModeSaving] = useState(false);
 
   const deepseekConfigured   = !!settingsData.deepseek_api_key;
   const openrouterConfigured = !!settingsData.openrouter_api_key;
@@ -62,6 +65,8 @@ export function AdminProviders() {
       setOverride(resolvedOverride);
       setSavedOverride(resolvedOverride);
       setSimulateOff(d.simulate_anthropic_disabled === "true");
+      const dm = d.default_reset_mode;
+      setDefaultMode((dm === "auto" || dm === "daily" || dm === "manual") ? dm : "manual");
       setLoadingInit(false);
     });
     return () => { cancelled = true; };
@@ -101,6 +106,23 @@ export function AdminProviders() {
   const effectiveActiveProvider = savedOverride === ""
     ? "anthropic"  // Auto mode defaults to Claude
     : savedOverride;
+
+  const changeDefaultMode = async (next: "manual" | "auto" | "daily") => {
+    setDefaultMode(next); // optimistic
+    setDefaultModeSaving(true);
+    try {
+      const r = await fetch("/admin/settings/default-reset-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ mode: next }),
+      });
+      const d = await r.json() as any;
+      if (!r.ok || !d.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      notifications.show({ color: "teal", message: `Default reset mode: ${next}`, autoClose: 2500 });
+    } catch (e: any) {
+      notifications.show({ color: "red", title: "Save failed", message: e.message, autoClose: 3000 });
+    } finally { setDefaultModeSaving(false); }
+  };
 
   const toggleSimulate = async (next: boolean) => {
     setSimSaving(true);
@@ -206,6 +228,32 @@ export function AdminProviders() {
             Save
           </Button>
         </Group>
+      </Paper>
+
+      {/* Default reset mode for new tokens */}
+      <Paper withBorder p="lg" radius="md">
+        <Group justify="space-between" wrap="nowrap" mb={6}>
+          <Text size="sm" fw={700}>Default reset mode (for new tokens)</Text>
+          <Badge variant="light" color={defaultMode === "manual" ? "blue" : defaultMode === "auto" ? "gray" : "teal"} size="sm">
+            {defaultMode}
+          </Badge>
+        </Group>
+        <Select
+          size="sm"
+          value={defaultMode}
+          onChange={v => v && changeDefaultMode(v as any)}
+          disabled={defaultModeSaving || loadingInit}
+          allowDeselect={false}
+          comboboxProps={{ withinPortal: true }}
+          data={[
+            { value: "manual", label: "Manual — admin must reset when quota hit" },
+            { value: "auto",   label: "Auto — legacy rolling window" },
+            { value: "daily",  label: "Daily — reset at local midnight" },
+          ]}
+        />
+        <Text size="xs" c="dimmed" mt={8} style={{ lineHeight: 1.5 }}>
+          Applies only to tokens created after this setting changes. Existing tokens keep their current mode. Use the bulk switch in Users tab to change existing tokens en masse.
+        </Text>
       </Paper>
 
       {/* Simulate Anthropic disabled — dry-run the fallback-only flow */}

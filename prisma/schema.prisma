@@ -23,6 +23,13 @@ model tokens {
   label        String   @default("")
   description  String   @default("")
   pinned_model String   @default("")
+  // Quota reset behavior. "manual" (default for new tokens) = never auto-reset,
+  // admin must reset or raise limit. "auto" = legacy rolling-window behavior
+  // (resets every window_ms, also resets when Anthropic 5h window rotates).
+  // "daily" = reset at local midnight only, independent of Anthropic.
+  // Existing tokens are migrated to "auto" so behavior is preserved on upgrade.
+  reset_mode   String   @default("manual")
+  last_reset   BigInt?
 }
 
 model request_logs {

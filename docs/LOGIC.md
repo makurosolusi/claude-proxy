@@ -29,9 +29,28 @@ estimatedTokens = ceil(messageChars / 3.5) + 300 + maxOutputTokens
 - Mencegah request yang sudah berjalan sebelum reset untuk inflate counter setelah reset
 
 ## Window Rotation Detection
-Bandingkan `resets_at` dari upstream dengan threshold **> 30 menit**. Saat rotasi terdeteksi, semua `t.used = 0` dan `t.windowStart` di-align ke window baru.
+Bandingkan `resets_at` dari upstream dengan threshold **> 30 menit**. Saat rotasi terdeteksi, hanya token dengan `reset_mode = "auto"` di-reset (`used = 0`, `windowStart` di-align ke window baru). Token dengan `reset_mode = "manual"` atau `"daily"` di-skip — mereka decoupled dari Anthropic window.
 
 **Stale display**: Jika `resets_at` sudah lewat tapi poll belum berhasil, tampilkan ring sebagai 0%/gray ("waiting for poll") bukan data stale.
+
+## Reset Modes (per-token quota refresh policy)
+
+Setiap token punya field `reset_mode` (default `"manual"` untuk token baru):
+
+| Mode | Behavior | Use case |
+|---|---|---|
+| `manual` | TIDAK pernah auto-reset. Quota hit → 429 sampai admin reset atau naikkan limit. | Default. Budget control — admin punya kontrol penuh atas quota. |
+| `auto` | Rolling window legacy: reset tiap `window` ms (default 5h) DAN saat Anthropic 5h window rotate. | Token lama yang di-migrate dari versi pre-reset-mode. Pertahankan behavior lama kalau perlu. |
+| `daily` | Reset sekali di local midnight (timezone server). Tidak peduli Anthropic rotation. | Tengah-tengah: pred lifecycle reset jelas, tidak coupled ke Anthropic. |
+
+**Migration v2026.05.17**: Schema upgrade `add_token_reset_mode` set `reset_mode = "auto"` untuk semua token yang ada (back-compat). Token baru pakai `default_reset_mode` setting (default `"manual"`).
+
+**Admin controls**:
+- Per-token: `TokenDetailModal` → Reset Mode dropdown (POST `/admin/token/reset-mode`)
+- Bulk: Users tab → "All → manual/auto/daily" (POST `/admin/token/reset-mode-bulk`)
+- Global default for new tokens: Providers tab → "Default reset mode" (POST `/admin/settings/default-reset-mode`)
+
+**Implementation**: `checkReset()` di `src/tokens.ts` skip total kalau `mode = "manual"`. Untuk `auto`: rolling window check seperti dulu. Untuk `daily`: bandingkan local-date dari `windowStart` vs sekarang. `dbResetAllTokens` + `dbAlignAllTokens` filter `where: { reset_mode: "auto" }` agar Anthropic poll tidak mengganggu manual/daily.
 
 ## Soft Cap
 Kalau upstream 5-hour utilization ≥ `UPSTREAM_HARD_CAP_PCT` dan **tidak ada provider fallback** (DeepSeek/OpenRouter belum configured), semua request diblok dengan `429` + `retry-after`. Kalau fallback ada → auto-route ke OpenRouter (priority) atau DeepSeek.

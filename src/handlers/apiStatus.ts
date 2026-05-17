@@ -146,6 +146,8 @@ export function buildTokenData(): Record<string, any> {
       pinned_model:    tk.pinned_model || "",
       activeProvider:  effectiveProvider,
       activeModel,
+      reset_mode:      tk.reset_mode || "manual",
+      last_reset:      tk.last_reset || 0,
     };
   }
   return tokenData;

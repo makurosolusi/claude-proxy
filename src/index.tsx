@@ -474,6 +474,8 @@ server = serve({
             pinned_model:       tk.pinned_model || "",
             today:              (dailyUsage[today] || {})[k] || 0,
             alltime:            allTimePerUser[u.userId] || 0,
+            reset_mode:         tk.reset_mode || "manual",
+            last_reset:         tk.last_reset || 0,
           };
         }
       }

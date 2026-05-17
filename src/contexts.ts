@@ -10,6 +10,9 @@ export interface TokenStatus {
   pinned_model:   string;
   activeProvider: string;
   activeModel:    string | null;
+  // Quota reset behavior — "manual" requires admin action when capped.
+  reset_mode?:    "manual" | "auto" | "daily";
+  last_reset?:    number;  // epoch ms; 0 if never
 }
 export interface UpstreamPeriod { utilization: number; resets_at: string; }
 export type OperationMode = "anthropic-primary" | "fallback-only" | "no-provider";
@@ -98,6 +101,8 @@ export interface ProfileToken {
   pinned_model:       string;   // model forced for this token (if any)
   today:   number;
   alltime: number;
+  reset_mode?: "manual" | "auto" | "daily";
+  last_reset?: number;
 }
 
 export interface ProfileResponse {

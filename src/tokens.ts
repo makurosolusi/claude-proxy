@@ -1,6 +1,12 @@
 import { config } from "./config";
-import { tokens, dailyUsage, dbInsertEnvToken, dbUpdateUsage, dbUpsertDailyUsage, dbResetToken } from "./state";
-import type { TokenEntry } from "./types";
+import { tokens, dailyUsage, settings, dbInsertEnvToken, dbUpdateUsage, dbUpsertDailyUsage, dbResetToken } from "./state";
+import type { TokenEntry, ResetMode } from "./types";
+
+function defaultResetMode(): ResetMode {
+  const v = settings["default_reset_mode"];
+  if (v === "auto" || v === "manual" || v === "daily") return v;
+  return "manual";
+}
 
 export function initFromEnv() {
   const now = Date.now();
@@ -22,6 +28,8 @@ export function initFromEnv() {
       label:        "",
       description:  "",
       pinned_model: "",
+      reset_mode:   defaultResetMode(),
+      last_reset:   0,
     };
     tokens[key] = entry;
     inserts.push(dbInsertEnvToken(key, entry));
@@ -31,13 +39,34 @@ export function initFromEnv() {
   console.log("Tokens:", Object.keys(tokens));
 }
 
+function localDateKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+// Mode-aware reset check, called before every request.
+// - manual: NEVER auto-reset. Quota only changes via admin or natural usage.
+// - auto:   legacy rolling window (resets when window elapses).
+// - daily:  reset once when local-time date crosses midnight.
+// The `windowStart` field doubles as "last reset timestamp" so daily mode
+// can detect day-change without a separate field.
 export function checkReset(t: TokenEntry, key: string) {
-  if (Date.now() - t.windowStart >= t.window) {
-    const now = Date.now();
-    t.used = 0;
-    t.windowStart = now;
-    dbResetToken(key, now).catch(e => console.error("[tokens] checkReset error:", e));
+  const mode = t.reset_mode || "manual";
+  if (mode === "manual") return;
+
+  const now = Date.now();
+  let shouldReset = false;
+  if (mode === "auto") {
+    shouldReset = now - t.windowStart >= t.window;
+  } else if (mode === "daily") {
+    shouldReset = localDateKey(t.windowStart || 0) !== localDateKey(now);
   }
+  if (!shouldReset) return;
+
+  t.used = 0;
+  t.windowStart = now;
+  t.last_reset  = now;
+  dbResetToken(key, now).catch(e => console.error("[tokens] checkReset error:", e));
 }
 
 export function todayKey(): string {
