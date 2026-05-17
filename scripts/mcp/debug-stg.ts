@@ -225,12 +225,6 @@ async function toolCheckBrainStrategies(args: { limit?: number; q?: string }) {
   return apiGet(`/api/debug/brain/strategies?${params.toString()}`);
 }
 
-async function toolCheckBrainCache(args: { limit?: number }) {
-  const params = new URLSearchParams();
-  if (args.limit) params.set("limit", String(args.limit));
-  return apiGet(`/api/debug/brain/cache?${params.toString()}`);
-}
-
 async function toolCheckBrainQueue() {
   return apiGet("/api/debug/brain/queue");
 }
@@ -496,18 +490,6 @@ const TOOLS = [
     },
   },
   {
-    name: "check_brain_cache",
-    description:
-      "List Second Brain prompt cache entries (top by hit_count). " +
-      "Includes prompt preview, model, provider, hit_count, age, expiry status.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        limit: { type: "number", description: "Max rows (default 20, max 50)" },
-      },
-    },
-  },
-  {
     name: "check_brain_queue",
     description:
       "Inspect pg-boss worker queue (sb_pgboss schema): active jobs by name+state, " +
@@ -623,7 +605,6 @@ async function callTool(name: string, args: Record<string, unknown>) {
   if (name === "check_extensions")       return toolCheckExtensions();
   if (name === "check_brain_overview")   return toolCheckBrainOverview();
   if (name === "check_brain_strategies") return toolCheckBrainStrategies(args as { limit?: number; q?: string });
-  if (name === "check_brain_cache")      return toolCheckBrainCache(args as { limit?: number });
   if (name === "check_brain_queue")      return toolCheckBrainQueue();
   if (name === "check_db_size")          return toolCheckDbSize();
   if (name === "check_sessions_summary") return toolCheckSessionsSummary();

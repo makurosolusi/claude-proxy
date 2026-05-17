@@ -52,7 +52,7 @@ export async function handleDebugBrainOverview(req: Request): Promise<Response> 
     return Response.json({ error: "Second Brain tables not present — extension never enabled" }, { status: 409 });
   }
   const since = BigInt(Date.now() - 7 * 86400_000);
-  const [counts, topStrategies, cacheStats, totalStrategies] = await Promise.all([
+  const [counts, topStrategies, totalStrategies] = await Promise.all([
     prisma.$queryRawUnsafe<any[]>(
       `SELECT event_type, COUNT(*)::int AS c FROM sb_extension_logs WHERE ts > $1 GROUP BY event_type ORDER BY c DESC`,
       since,
@@ -61,29 +61,11 @@ export async function handleDebugBrainOverview(req: Request): Promise<Response> 
       `SELECT id, title, scope, use_count, success_count, fail_count
          FROM sb_strategies ORDER BY use_count DESC LIMIT 5`,
     ),
-    prisma.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*)::int AS entries, COALESCE(SUM(hit_count), 0)::int AS hits,
-              COUNT(*) FILTER (WHERE expires_at <= $1)::int AS expired
-         FROM sb_prompt_cache`,
-      BigInt(Date.now()),
-    ),
     prisma.$queryRawUnsafe<any[]>(`SELECT COUNT(*)::int AS c FROM sb_strategies`),
   ]);
   const byType: Record<string, number> = Object.fromEntries(counts.map(r => [r.event_type, r.c]));
-  const hits   = (byType.cache_hit_exact || 0) + (byType.cache_hit_semantic || 0);
-  const misses = byType.cache_miss || 0;
-  const hitRate = hits + misses > 0 ? hits / (hits + misses) : 0;
   return Response.json({
     extension_enabled: isEnabled("second-brain"),
-    cache: {
-      entries:         cacheStats[0]?.entries ?? 0,
-      expired:         cacheStats[0]?.expired ?? 0,
-      total_hits:      cacheStats[0]?.hits ?? 0,
-      hit_rate_7d:     Math.round(hitRate * 1000) / 1000,
-      hit_exact_7d:    byType.cache_hit_exact ?? 0,
-      hit_semantic_7d: byType.cache_hit_semantic ?? 0,
-      miss_7d:         misses,
-    },
     strategies: {
       total:           totalStrategies[0]?.c ?? 0,
       mined_7d:        byType.mine_completed ?? 0,
@@ -134,33 +116,6 @@ export async function handleDebugBrainStrategies(req: Request, url: URL): Promis
       use_count: Number(r.use_count), success_count: Number(r.success_count), fail_count: Number(r.fail_count),
       created_at: Number(r.created_at), updated_at: Number(r.updated_at),
       similarity: r.similarity != null ? Math.round(Number(r.similarity) * 1000) / 1000 : undefined,
-    })),
-  });
-}
-
-// GET /api/debug/brain/cache?limit=N
-export async function handleDebugBrainCache(req: Request, url: URL): Promise<Response> {
-  if (!checkMcpSecret(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  if (!await tableExists("sb_prompt_cache")) return Response.json({ error: "sb_prompt_cache table missing" }, { status: 409 });
-  const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "20")));
-  const rows = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT id, prompt, model, provider, user_id, scope, hit_count, created_at, expires_at,
-            length(response_text) AS resp_len
-       FROM sb_prompt_cache ORDER BY hit_count DESC, created_at DESC LIMIT $1`,
-    limit,
-  );
-  const now = Date.now();
-  return Response.json({
-    total: rows.length,
-    entries: rows.map(r => ({
-      id: Number(r.id),
-      prompt_preview: (r.prompt || "").slice(0, 200),
-      model: r.model, provider: r.provider, user_id: r.user_id, scope: r.scope,
-      hit_count: Number(r.hit_count),
-      response_chars: Number(r.resp_len),
-      created_age_sec: Math.round((now - Number(r.created_at)) / 1000),
-      expires_in_sec:  Math.round((Number(r.expires_at) - now) / 1000),
-      expired:         Number(r.expires_at) <= now,
     })),
   });
 }

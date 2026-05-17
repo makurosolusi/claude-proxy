@@ -8,15 +8,6 @@ const STRATEGY_FAIL_RATIO_THRESHOLD = 0.7;
 
 let pruneTimer: ReturnType<typeof setInterval> | null = null;
 
-export async function pruneExpiredCache(): Promise<number> {
-  const now = BigInt(Date.now());
-  const r = await prisma.$executeRawUnsafe(
-    `DELETE FROM sb_prompt_cache WHERE expires_at <= $1`,
-    now,
-  );
-  return Number(r);
-}
-
 export async function pruneLowQualityStrategies(): Promise<number> {
   const cutoff = BigInt(Date.now() - STRATEGY_MIN_AGE_MS);
   const r = await prisma.$executeRawUnsafe(
@@ -40,14 +31,13 @@ export async function pruneOldLogs(daysToKeep = 30): Promise<number> {
 
 async function runPruneCycle(): Promise<void> {
   try {
-    const [cache, strategies, logs] = await Promise.all([
-      pruneExpiredCache(),
+    const [strategies, logs] = await Promise.all([
       pruneLowQualityStrategies(),
       pruneOldLogs(30),
     ]);
-    if (cache || strategies || logs) {
-      console.log(`[second-brain.prune] cache=${cache} low_quality_strategies=${strategies} old_logs=${logs}`);
-      await logEvent("prune_completed", { cache, strategies, logs }).catch(() => {});
+    if (strategies || logs) {
+      console.log(`[second-brain.prune] low_quality_strategies=${strategies} old_logs=${logs}`);
+      await logEvent("prune_completed", { strategies, logs }).catch(() => {});
     }
   } catch (e: any) {
     console.warn("[second-brain.prune] cycle failed:", e?.message ?? e);

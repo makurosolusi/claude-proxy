@@ -183,7 +183,6 @@ async function toolMarkStrategy(args: any) {
 
 async function toolBrainStats() {
   const total = await countStrategies();
-  const cacheRows = await prisma.$queryRawUnsafe<any[]>(`SELECT COUNT(*)::int AS c, COALESCE(SUM(hit_count),0)::int AS hits FROM sb_prompt_cache`);
   const sevenDays = BigInt(Date.now() - 7 * 86400_000);
   const events = await prisma.$queryRawUnsafe<any[]>(
     `SELECT event_type, COUNT(*)::int AS c FROM sb_extension_logs WHERE ts > $1 GROUP BY event_type ORDER BY c DESC`,
@@ -192,8 +191,6 @@ async function toolBrainStats() {
   const summary = events.map(r => `  ${r.event_type}: ${r.c}`).join("\n");
   return toolText(`Second Brain stats:
   total_strategies: ${total}
-  cache_entries:    ${cacheRows[0]?.c || 0}
-  cache_total_hits: ${cacheRows[0]?.hits || 0}
 
 Events (7d):
 ${summary || "  (no activity)"}`);

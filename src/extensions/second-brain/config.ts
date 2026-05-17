@@ -4,11 +4,11 @@ export type ScopeMode = "user" | "shared" | "user-with-shared-fallback";
 // "auto" = pick the best available (anthropic > openrouter > deepseek).
 export type MiningProvider = "auto" | "anthropic" | "openrouter" | "deepseek";
 
+// NOTE: Cache feature was removed (see commit removing src/extensions/second-brain/cache.ts).
+// It caused stale-response bugs in interactive chat and provided no real value.
+// Mining + injection remain — they're additive (modify prompt) not substitutive
+// (serve cached response), so they're fundamentally safer.
 export interface SecondBrainConfig {
-  cacheEnabled:             boolean;
-  cacheTtlHours:            number;
-  cacheSimilarityThreshold: number;
-  cacheJudgeEnabled:        boolean;
   scope:                    ScopeMode;
   miningEnabled:            boolean;
   miningThrottlePerHour:    number;
@@ -20,10 +20,6 @@ export interface SecondBrainConfig {
 }
 
 export const defaultConfig: SecondBrainConfig = {
-  cacheEnabled:             true,
-  cacheTtlHours:            168,
-  cacheSimilarityThreshold: 0.92,
-  cacheJudgeEnabled:        true,
   scope:                    "user",
   miningEnabled:            true,
   miningThrottlePerHour:    20,

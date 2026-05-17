@@ -31,7 +31,7 @@ import {
 } from "./handlers/apiDebugExtra";
 import {
   handleDebugExtensions, handleDebugBrainOverview, handleDebugBrainStrategies,
-  handleDebugBrainCache, handleDebugBrainQueue, handleDebugDbSize,
+  handleDebugBrainQueue, handleDebugDbSize,
   handleDebugSessionsSummary, handleDebugTestUpstream, handleDebugActiveProviders,
   handleDebugAppLogs, handleDebugAppLogsStats,
 } from "./handlers/apiDebugBrain";
@@ -756,7 +756,6 @@ server = serve({
     "/api/debug/extensions":       async req => handleDebugExtensions(req),
     "/api/debug/brain/overview":   async req => handleDebugBrainOverview(req),
     "/api/debug/brain/strategies": async req => handleDebugBrainStrategies(req, new URL(req.url)),
-    "/api/debug/brain/cache":      async req => handleDebugBrainCache(req, new URL(req.url)),
     "/api/debug/brain/queue":      async req => handleDebugBrainQueue(req),
     "/api/debug/db-size":          async req => handleDebugDbSize(req),
     "/api/debug/sessions-summary": async req => handleDebugSessionsSummary(req),
