@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * MCP Debug Server — debug-dev
+ * MCP Debug Server — proxy-dev
  * Bridge ke runtime local dev (localhost:8080).
  * Tidak butuh auth — hanya untuk local development.
  */
@@ -314,7 +314,7 @@ async function handleMessage(raw: string) {
         result = {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "debug-dev", version: "1.0.0" },
+          serverInfo: { name: "proxy-dev", version: "1.0.0" },
         };
         break;
       case "notifications/initialized":

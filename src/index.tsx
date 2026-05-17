@@ -727,7 +727,7 @@ server = serve({
       return Response.json({ blocked: [...chatBlocklist] });
     },
 
-    // Debug endpoints — auth via x-mcp-secret (untuk MCP debug-stg)
+    // Debug endpoints — auth via x-mcp-secret (untuk MCP proxy-stg)
     "/api/debug/query":            async req => handleDebugQuery(req),
     "/api/debug/token/*":          async req => handleDebugToken(req, new URL(req.url)),
     "/api/debug/upstream-history": async req => handleDebugUpstreamHistory(req),

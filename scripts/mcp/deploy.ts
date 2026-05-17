@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * MCP Deploy Server — deploy-stg
+ * MCP Deploy Server — proxy-deploy-stg
  * Pipeline: stg → GHCR (publish.yml) → Portainer (re-pull.yml) → verify
  * Standalone — tidak mengimpor dari src/
  */
@@ -394,7 +394,7 @@ async function handleMessage(raw: string) {
         result = {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "deploy-stg", version: "1.0.0" },
+          serverInfo: { name: "proxy-deploy-stg", version: "1.0.0" },
         };
         break;
       case "notifications/initialized":

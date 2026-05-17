@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * MCP Debug Server — debug-stg
+ * MCP Debug Server — proxy-stg
  * Bridge ke runtime staging: query DB, cek logs, status, dll.
  * Auth via MCP_SECRET → x-mcp-secret header.
  */
@@ -644,7 +644,7 @@ async function handleMessage(raw: string) {
         result = {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "debug-stg", version: "1.0.0" },
+          serverInfo: { name: "proxy-stg", version: "1.0.0" },
         };
         break;
       case "notifications/initialized":

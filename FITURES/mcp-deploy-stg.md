@@ -43,7 +43,7 @@ jumlah server maupun jumlah tool per server.
 ```json
 // Contoh: stdio server (process lokal)
 {
-  "deploy-stg": {
+  "proxy-deploy-stg": {
     "command": "bun",
     "args": ["run", "scripts/mcp/deploy.ts"],
     "env": {
@@ -75,7 +75,7 @@ jumlah server maupun jumlah tool per server.
 4. Server HTTP dipanggil via HTTP POST dengan body JSON-RPC
 5. Semua tool dari semua server muncul di sesi dengan prefix namespace:
    - `mcp__<nama-server>__<nama-tool>`
-   - Contoh: `mcp__deploy-stg__deploy`, `mcp__my-app__check_version`
+   - Contoh: `mcp__proxy-deploy-stg__deploy`, `mcp__my-app__check_version`
 
 ### Environment variable interpolation
 

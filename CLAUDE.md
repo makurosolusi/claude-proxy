@@ -25,8 +25,8 @@ Set `REACT_EDITOR=cursor` (atau `code`, `zed`) di `.env` untuk click-to-source (
 
 ## MCP Debug
 
-- `debug-dev` → `scripts/mcp/debug-dev.ts` — debug local dev (localhost:PORT), auth via `MCP_SECRET`
-- `debug-stg` → `scripts/mcp/debug-stg.ts` — debug staging, auth via `MCP_SECRET`
+- `proxy-dev` → `scripts/mcp/debug-dev.ts` — debug local dev (localhost:PORT), auth via `MCP_SECRET`
+- `proxy-stg` → `scripts/mcp/debug-stg.ts` — debug staging, auth via `MCP_SECRET`
 - Endpoint debug: `/api/debug/query` (SQL), `/api/debug/token/*`, `/api/debug/quota-pressure`, `/api/debug/upstream-history`
 - Auth debug endpoint pakai `x-mcp-secret` header, **bukan** `x-admin-key`
 
@@ -51,9 +51,21 @@ Set `REACT_EDITOR=cursor` (atau `code`, `zed`) di `.env` untuk click-to-source (
 - Default provider chain: anthropic (jika ada) → openrouter → deepseek → first custom. Lihat `src/providerSelection.ts`.
 - Kalau menambah handler baru yang menyentuh Anthropic, **wajib** guard dengan `hasAnthropicCredential()` dari `src/upstream.ts` — jangan asumsikan cred ada.
 
+## Aturan Penambahan Fitur
+
+Setiap penambahan fitur (extension baru, endpoint baru, alur baru yang punya state) **wajib** disertai:
+
+1. **Unit/integration test** — tambah ke `tests/unit.test.ts` (logic murni) atau `tests/db.test.ts` (yang menyentuh DB). Minimal cover: golden path + 1 edge case + 1 failure mode.
+2. **MCP tool baru di dua-duanya** — `scripts/mcp/debug-dev.ts` (`proxy-dev`) DAN `scripts/mcp/debug-stg.ts` (`proxy-stg`). Tujuan: state fitur baru harus bisa diinspeksi tanpa SSH atau buka admin UI.
+   - Pola: tambah handler debug di `src/handlers/apiDebug*.ts` (auth via `x-mcp-secret`), wire ke route di `src/index.tsx`, ekspos sebagai tool MCP di kedua script.
+   - Naming: `check_<fitur>` untuk read, `tail_<fitur>` untuk realtime, tindakan mutatif hanya kalau benar-benar dibutuhkan.
+3. **Update dokumentasi** — kalau fitur menyentuh logic bisnis (quota, provider routing, lifecycle), update `docs/LOGIC.md` atau `docs/ARCHITECTURE.md`.
+
+Tanpa ketiganya, fitur dianggap **belum selesai** — jangan lapor ke user sampai test hijau dan tool MCP tersedia.
+
 ## Aturan Deploy
 
-- **Jangan deploy (`mcp__deploy-stg__deploy`) sebelum ada perintah eksplisit dari user.**
+- **Jangan deploy (`mcp__proxy-deploy-stg__deploy`) sebelum ada perintah eksplisit dari user.**
 - Setelah code selesai dan siap, cukup lapor ke user — tunggu instruksi deploy.
 
 ## Referensi
