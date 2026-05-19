@@ -6,7 +6,7 @@ import {
   Container, Group, Stack, Title, Text, Box, Button, Paper,
   ActionIcon, Tooltip, TextInput, useMantineColorScheme,
   SimpleGrid, Progress, ThemeIcon, Divider, Alert, Badge, Code, Collapse, Loader, Transition,
-  Table, Pagination, Modal, Anchor, Tabs, Overlay, Center, RingProgress,
+  Table, Pagination, Modal, Anchor, Tabs, Overlay, Center, RingProgress, Indicator, Popover, ScrollArea,
 } from "@mantine/core";
 import {
   IconSun, IconMoon, IconLogout, IconLogin,
@@ -16,14 +16,14 @@ import {
   IconBulb, IconX, IconChartBar, IconArrowUp, IconHeartbeat, IconKey,
   IconChartHistogram, IconList, IconLayoutGrid, IconFlame, IconChartPie, IconBolt,
   IconTrophy, IconBrain, IconLayoutDashboard, IconChartLine, IconMessages, IconHistory,
-  IconBrandGoogle, IconShieldCheck, IconCheck,
+  IconBrandGoogle, IconShieldCheck, IconCheck, IconBell, IconBellOff, IconExternalLink, IconChecks,
 } from "@tabler/icons-react";
-import { StatusCtx, ChatCtx } from "./contexts";
-import type { StatusResponse, ChatMsg, ContextAlert } from "./contexts";
+import { StatusCtx, ChatCtx, NotificationsCtx } from "./contexts";
+import type { StatusResponse, ChatMsg, ContextAlert, AppNotification, NotificationsCtxType } from "./contexts";
 import { notifications } from "@mantine/notifications";
-import { pctColor, adminPost, maskToken, avatarColor } from "./utils";
+import { pctColor, adminPost, maskToken, avatarColor, fmtRel } from "./utils";
 import { resolveProvider, shortenModel, type ProviderInfo } from "./providerDisplay";
-import { useStatus } from "./contexts";
+import { useStatus, useNotifications } from "./contexts";
 import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, BlockedPage, UpstreamSection } from "./components/shared";
 import { CompetitionPanel } from "./components/CompetitionPanel";
 import { UserAvatar } from "./components/UserAvatar";
@@ -38,6 +38,7 @@ import { MindPage } from "./components/MindPage";
 import { RacePage } from "./components/RacePage";
 import { SessionHistory } from "./components/SessionHistory";
 import { FloatingChat } from "./components/FloatingChat";
+import { NotificationsPage } from "./components/NotificationsPage";
 
 async function resolveLoginRedirect(): Promise<string> {
   try {
@@ -1253,6 +1254,114 @@ function SessionsTab({ tokens }: { tokens: import("./contexts").StatusResponse["
   );
 }
 
+const NOTIF_COLOR_DOT: Record<string, string> = {
+  red: "var(--mantine-color-red-6)", orange: "var(--mantine-color-orange-6)",
+  teal: "var(--mantine-color-teal-6)", blue: "var(--mantine-color-blue-6)",
+};
+
+function NotificationPopover() {
+  const { items, unread, markAllRead } = useNotifications();
+  const [opened, setOpened] = useState(false);
+  const recent = items.slice(0, 8);
+
+  return (
+    <Popover
+      opened={opened} onChange={setOpened}
+      position="bottom-end" offset={8} withArrow arrowSize={10}
+      shadow="md" radius="md" width={340}
+    >
+      <Popover.Target>
+        <Tooltip label="Notifikasi" position="bottom" withArrow openDelay={600} disabled={opened}>
+          <Indicator
+            label={unread > 99 ? "99+" : unread}
+            size={16} disabled={unread === 0} color="red"
+            style={{ display: "flex" }}
+          >
+            <ActionIcon
+              variant="subtle" size="md" radius="lg"
+              style={{ color: "var(--cp-text-2)" }}
+              onClick={() => setOpened(o => !o)}
+            >
+              <IconBell size={15} />
+            </ActionIcon>
+          </Indicator>
+        </Tooltip>
+      </Popover.Target>
+
+      <Popover.Dropdown p={0} style={{ overflow: "hidden" }}>
+        {/* Header */}
+        <Group justify="space-between" px={14} py={10}
+          style={{ borderBottom: "1px solid var(--cp-border)" }}>
+          <Group gap={8}>
+            <IconBell size={14} style={{ color: "var(--cp-text-2)" }} />
+            <Text fz={13} fw={700} style={{ letterSpacing: "-0.01em" }}>Notifikasi</Text>
+            {unread > 0 && <Badge size="xs" color="red" variant="filled" circle>{unread}</Badge>}
+          </Group>
+          {unread > 0 && (
+            <Tooltip label="Tandai semua dibaca" withArrow>
+              <ActionIcon size="xs" variant="subtle" color="teal" onClick={markAllRead}>
+                <IconChecks size={13} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </Group>
+
+        {/* List */}
+        {recent.length === 0 ? (
+          <Stack align="center" gap={6} py={28}>
+            <IconBellOff size={24} style={{ color: "var(--cp-text-3)" }} />
+            <Text fz={12} c="dimmed">Belum ada notifikasi</Text>
+          </Stack>
+        ) : (
+          <ScrollArea.Autosize mah={320} scrollbarSize={4}>
+            <Stack gap={0}>
+              {recent.map((n, i) => (
+                <Box key={n.id}>
+                  {i > 0 && <Divider />}
+                  <Box px={14} py={10}
+                    style={{
+                      borderLeft: n.read ? "3px solid transparent" : `3px solid ${NOTIF_COLOR_DOT[n.color] ?? NOTIF_COLOR_DOT.blue}`,
+                    }}>
+                    <Group gap={8} wrap="nowrap" align="flex-start">
+                      <Box style={{
+                        width: 7, height: 7, borderRadius: "50%", flexShrink: 0, marginTop: 5,
+                        background: n.read ? "var(--cp-text-3)" : (NOTIF_COLOR_DOT[n.color] ?? NOTIF_COLOR_DOT.blue),
+                        opacity: n.read ? 0.4 : 1,
+                      }} />
+                      <Box style={{ flex: 1, minWidth: 0 }}>
+                        <Group justify="space-between" gap={4} wrap="nowrap">
+                          <Text fz={12} fw={n.read ? 500 : 700} truncate>{n.title}</Text>
+                          <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ flexShrink: 0 }}>
+                            {fmtRel(n.ts)}
+                          </Text>
+                        </Group>
+                        <Text fz={11} c="dimmed" lineClamp={2} mt={2}>{n.message}</Text>
+                      </Box>
+                    </Group>
+                  </Box>
+                </Box>
+              ))}
+            </Stack>
+          </ScrollArea.Autosize>
+        )}
+
+        {/* Footer */}
+        <Box px={14} py={10} style={{ borderTop: "1px solid var(--cp-border)" }}>
+          <Button
+            component="a" href="/notifications"
+            variant="light" size="xs" radius="lg" fullWidth
+            rightSection={<IconExternalLink size={12} />}
+            style={{ fontWeight: 600, fontSize: 12 }}
+            onClick={() => setOpened(false)}
+          >
+            Lihat semua notifikasi
+          </Button>
+        </Box>
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
 function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?: import("./contexts").ProfileResponse; wsSignal?: number }) {
   const status = useStatus()!;
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
@@ -1436,6 +1545,7 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
             </Group>
 
             <Group gap={6} wrap="nowrap">
+              <NotificationPopover />
               <Tooltip label="Toggle theme" position="bottom" withArrow openDelay={600}>
                 <ActionIcon variant="subtle" size="md" radius="lg" onClick={() => toggleColorScheme()}
                   style={{ color: "var(--cp-text-2)" }}>
@@ -2411,12 +2521,49 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
   );
 }
 
+const NOTIF_KEY = "cp_notifications";
+const MAX_NOTIFS = 200;
+
+function loadNotifs(): AppNotification[] {
+  try { return JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]"); } catch { return []; }
+}
+function saveNotifs(items: AppNotification[]) {
+  try { localStorage.setItem(NOTIF_KEY, JSON.stringify(items)); } catch {}
+}
+
 export function App() {
   const [status, setStatus]     = useState<StatusResponse | null>(null);
   const [profile, setProfile]   = useState<import("./contexts").ProfileResponse | null | "loading">("loading");
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
   const [wsSignal, setWsSignal] = useState(0);
+  const [notifItems, setNotifItems] = useState<AppNotification[]>(loadNotifs);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const notifCtx = useMemo<NotificationsCtxType>(() => ({
+    items: notifItems,
+    unread: notifItems.filter(n => !n.read).length,
+    push(n) {
+      setNotifItems(prev => {
+        const next: AppNotification[] = [
+          { ...n, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, ts: Date.now(), read: false },
+          ...prev,
+        ].slice(0, MAX_NOTIFS);
+        saveNotifs(next);
+        return next;
+      });
+    },
+    markAllRead() {
+      setNotifItems(prev => {
+        const next = prev.map(n => ({ ...n, read: true }));
+        saveNotifs(next);
+        return next;
+      });
+    },
+    clearAll() {
+      setNotifItems([]);
+      saveNotifs([]);
+    },
+  }), [notifItems]);
 
   const sendChat = useCallback((nick: string, text: string) => {
     wsRef.current?.send(JSON.stringify({ type: "chat", nick, text }));
@@ -2437,19 +2584,26 @@ export function App() {
           if (data.type === "chat_message")  {
             const msg: ChatMsg = data.message;
             setChatMsgs(prev => [...prev.slice(-99), msg]);
-            // System messages → toast notification agar terlihat tanpa buka chat
+            // System messages → toast notification + simpan ke store
             if (msg.type === "system") {
-              const text  = msg.text;
-              const isErr = text.includes("🚨") || text.includes("quota") || text.includes("besar") || text.includes("blocked");
+              const text   = msg.text;
+              const isErr  = text.includes("🚨") || text.includes("quota") || text.includes("besar") || text.includes("blocked");
               const isWarn = text.includes("⚠️") || text.includes("nearing") || text.includes("80%");
               const isGood = text.includes("🔄") || text.includes("reset") || text.includes("✅");
+              const color  = (isErr ? "red" : isWarn ? "orange" : isGood ? "teal" : "blue") as AppNotification["color"];
+              const title  = isErr ? "Peringatan sistem" : isGood ? "Info sistem" : "Sistem";
+              const body   = text.replace(/^[⚡🚨⚠️🔄✅🗑️🚫]\s?/, "");
               notifications.show({
-                id:       msg.id,
-                title:    isErr ? "Peringatan sistem" : isGood ? "Info sistem" : "Sistem",
-                message:  text.replace(/^[⚡🚨⚠️🔄✅🗑️🚫]\s?/, ""),
-                color:    isErr ? "red" : isWarn ? "orange" : isGood ? "teal" : "blue",
-                autoClose: isErr ? 10000 : 6000,
-                withBorder: true,
+                id: msg.id, title, message: body, color,
+                autoClose: isErr ? 10000 : 6000, withBorder: true,
+              });
+              setNotifItems(prev => {
+                const next: AppNotification[] = [
+                  { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, title, message: body, color, ts: Date.now(), read: false },
+                  ...prev,
+                ].slice(0, MAX_NOTIFS);
+                saveNotifs(next);
+                return next;
               });
             }
             return;
@@ -2473,30 +2627,37 @@ export function App() {
   }, []);
 
   return (
-    <ChatCtx.Provider value={{ messages: chatMsgs, send: sendChat }}>
-      <StatusCtx.Provider value={status}>
-        <Routes>
-          <Route path="/" element={
-            <RequireAuth profile={profile}>
-              {status ? <Dashboard isAdmin={profile !== "loading" && (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN")} profile={profile as import("./contexts").ProfileResponse} wsSignal={wsSignal} /> : <LoadingScreen />}
-            </RequireAuth>
-          } />
-          <Route path="/admin" element={
-            <RequireAdmin>
-              <AdminDashboard />
-            </RequireAdmin>
-          } />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/login/redirect" element={<LoginRedirect />} />
-          <Route path="/menunggu" element={<WaitingPage />} />
-          <Route path="/diblokir" element={<BlockedPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/mind" element={<MindPage />} />
-          <Route path="/race" element={<RacePage />} />
-          <Route path="/sessions/:user" element={<SessionHistory />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </StatusCtx.Provider>
-    </ChatCtx.Provider>
+    <NotificationsCtx.Provider value={notifCtx}>
+      <ChatCtx.Provider value={{ messages: chatMsgs, send: sendChat }}>
+        <StatusCtx.Provider value={status}>
+          <Routes>
+            <Route path="/" element={
+              <RequireAuth profile={profile}>
+                {status ? <Dashboard isAdmin={profile !== "loading" && (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN")} profile={profile as import("./contexts").ProfileResponse} wsSignal={wsSignal} /> : <LoadingScreen />}
+              </RequireAuth>
+            } />
+            <Route path="/admin" element={
+              <RequireAdmin>
+                <AdminDashboard />
+              </RequireAdmin>
+            } />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/login/redirect" element={<LoginRedirect />} />
+            <Route path="/menunggu" element={<WaitingPage />} />
+            <Route path="/diblokir" element={<BlockedPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/mind" element={<MindPage />} />
+            <Route path="/race" element={<RacePage />} />
+            <Route path="/sessions/:user" element={<SessionHistory />} />
+            <Route path="/notifications" element={
+              <RequireAuth profile={profile}>
+                <NotificationsPage isSuperAdmin={profile !== "loading" && profile?.role === "SUPER_ADMIN"} />
+              </RequireAuth>
+            } />
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </StatusCtx.Provider>
+      </ChatCtx.Provider>
+    </NotificationsCtx.Provider>
   );
 }

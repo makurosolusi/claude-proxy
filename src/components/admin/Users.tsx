@@ -139,7 +139,8 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     });
   };
 
-  useEffect(() => { reload(); }, [reload]);
+  const statusTs = status?.ts;
+  useEffect(() => { reload(); }, [reload, statusTs]);
 
   useEffect(() => {
     fetch("/api/admin/settings")

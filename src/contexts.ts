@@ -118,8 +118,30 @@ export interface ProfileResponse {
 export interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
 export interface ChatCtxType { messages: ChatMsg[]; send: (nick: string, text: string) => void; }
 
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  color: "red" | "orange" | "teal" | "blue";
+  ts: number;
+  read: boolean;
+}
+export interface NotificationsCtxType {
+  items: AppNotification[];
+  unread: number;
+  push: (n: Omit<AppNotification, "id" | "ts" | "read">) => void;
+  markAllRead: () => void;
+  clearAll: () => void;
+}
+
 export const StatusCtx = createContext<StatusResponse | null>(null);
 export function useStatus() { return useContext(StatusCtx); }
 
 export const ChatCtx = createContext<ChatCtxType>({ messages: [], send: () => {} });
 export function useChat() { return useContext(ChatCtx); }
+
+export const NotificationsCtx = createContext<NotificationsCtxType>({
+  items: [], unread: 0,
+  push: () => {}, markAllRead: () => {}, clearAll: () => {},
+});
+export function useNotifications() { return useContext(NotificationsCtx); }
