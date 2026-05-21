@@ -237,6 +237,14 @@ async function toolCheckSessionsSummary() {
   return apiGet("/api/debug/sessions-summary");
 }
 
+async function toolCheckNotifications(args: { limit?: number; include_deleted?: boolean }) {
+  const params = new URLSearchParams();
+  if (args.limit) params.set("limit", String(args.limit));
+  if (args.include_deleted) params.set("include_deleted", "true");
+  const q = params.toString();
+  return apiGet(`/api/debug/notifications${q ? `?${q}` : ""}`);
+}
+
 async function toolCheckTestUpstream(args: { provider: string }) {
   if (!args.provider) return { error: "provider is required (anthropic|deepseek|openrouter|<custom-id>)" };
   return apiGet(`/api/debug/test-upstream/${encodeURIComponent(args.provider)}`);
@@ -512,6 +520,19 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {} },
   },
   {
+    name: "check_notifications",
+    description:
+      "List admin broadcast notifications + per-notif dismissal counts on staging. " +
+      "Use to verify a broadcast went out and how many users have closed it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit:           { type: "number",  description: "Max notifications (default 50, max 200)" },
+        include_deleted: { type: "boolean", description: "Include soft-deleted notifications (default false)" },
+      },
+    },
+  },
+  {
     name: "check_test_upstream",
     description:
       "Live probe upstream connectivity by sending a tiny test request. " +
@@ -613,6 +634,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
   if (name === "check_app_logs")         return toolCheckAppLogs(args);
   if (name === "tail_app_logs")          return toolTailAppLogs(args);
   if (name === "check_app_logs_stats")   return toolCheckAppLogsStats(args);
+  if (name === "check_notifications")    return toolCheckNotifications(args as { limit?: number; include_deleted?: boolean });
   throw new Error(`Unknown tool: ${name}`);
 }
 

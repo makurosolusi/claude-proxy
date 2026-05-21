@@ -161,6 +161,14 @@ async function toolCheckUsers() {
   return toolQueryDb({ sql: "SELECT id, name, email, role, status FROM users ORDER BY created_at DESC LIMIT 20" });
 }
 
+async function toolCheckNotifications(args: { limit?: number; include_deleted?: boolean }) {
+  const params = new URLSearchParams();
+  if (args.limit) params.set("limit", String(args.limit));
+  if (args.include_deleted) params.set("include_deleted", "true");
+  const q = params.toString();
+  return apiGet(`/api/debug/notifications${q ? `?${q}` : ""}`);
+}
+
 async function toolCheckSessions() {
   return toolQueryDb({ sql: "SELECT s.id, s.\"userId\", s.\"expiresAt\", s.\"userAgent\", s.\"ipAddress\", u.email FROM session s JOIN \"user\" u ON s.\"userId\" = u.id ORDER BY s.\"createdAt\" DESC LIMIT 10" });
 }
@@ -265,6 +273,17 @@ const TOOLS = [
     description: "List active Better Auth sessions with user email. Use to debug login issues.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "check_notifications",
+    description: "List admin broadcast notifications + per-notif dismissal count. Use to verify a broadcast went out and how many users have closed it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit:            { type: "number",  description: "Max notifications (default 50, max 200)" },
+        include_deleted:  { type: "boolean", description: "Include soft-deleted notifications (default false)" },
+      },
+    },
+  },
 ];
 
 async function callTool(name: string, args: Record<string, unknown>) {
@@ -281,6 +300,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
     case "query_prisma":           return toolQueryPrisma(args as { sql: string });
     case "check_users":            return toolCheckUsers();
     case "check_sessions":         return toolCheckSessions();
+    case "check_notifications":    return toolCheckNotifications(args as { limit?: number; include_deleted?: boolean });
     default: throw new Error(`Unknown tool: ${name}`);
   }
 }

@@ -20,6 +20,7 @@ import type { ApiUser, ApiToken } from "./UserModals";
 import { UserCard, userAggregates } from "./UserCard";
 import type { UserCardActions, ProviderInfo } from "./UserCard";
 import { TokenDetailModal } from "./TokenDetailModal";
+import { NotificationBroadcast } from "./NotificationBroadcast";
 
 type UserStatus = "pending" | "approved" | "blocked";
 type SortKey = "name" | "usage" | "tokens" | "newest";
@@ -299,6 +300,9 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
         </Group>
       </Paper>
 
+
+      {/* Broadcast notification to users */}
+      <NotificationBroadcast apiUsers={apiUsers} />
 
       {/* Token lifecycle actions — 2x2 grid */}
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">

@@ -55,6 +55,8 @@ docs/
 | `daily_usage` | (date, token_key, used) — prune otomatis 30 hari |
 | `request_logs` | ts, token_key, model, input/output/cache tokens, stream, status, stop_reason, tool_use_count, duration_ms, turns, prompt (2000 char), system_prompt (500 char) |
 | `admin_sessions` | session token, created_at, last_used (30-day TTL) — fallback admin auth (selain Better Auth session) |
+| `admin_notifications` | id, message, created_at, created_by, target_type (`all`/`specific`), target_ids (JSON array), deleted — broadcast pemberitahuan admin → user |
+| `notification_dismissals` | (notification_id, user_id) PK, dismissed_at — per-user "sudah close modal" record |
 
 ## API Endpoints
 
@@ -95,6 +97,11 @@ docs/
 | POST | `/admin/auth/import` | admin | Paste-JSON credential import (no PKCE flow) |
 | POST | `/admin/logs/clear` | admin | Hapus request logs |
 | GET | `/api/profile` | session | Current user profile + tokens (with `effective_provider`, `pinned_model`) + `custom_providers` |
+| GET | `/api/notifications/pending` | session | List notifikasi admin yang belum di-dismiss user ini (target: all atau spesifik) |
+| POST | `/api/notifications/:id/dismiss` | session | Tandai notifikasi sudah di-close oleh user ini |
+| GET | `/api/admin/notifications` | admin | List notifikasi yang masih aktif (+ `dismissed_count` per item) |
+| POST | `/api/admin/notifications` | admin | Kirim notifikasi: `{ message, target_type: "all"\|"specific", target_ids?: string[] }` |
+| DELETE | `/api/admin/notifications/:id` | admin | Soft-delete notifikasi (langsung hilang dari semua user) |
 | GET | `/v1/models` | user token | List model |
 | GET | `/v1/usage` | user token | Usage info token |
 | POST | `/v1/messages` | user token | Proxy ke upstream |

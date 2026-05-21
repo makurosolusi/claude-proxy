@@ -41,6 +41,7 @@ import { FloatingChat } from "./components/FloatingChat";
 import { NotificationsPage } from "./components/NotificationsPage";
 import { ContextPunishmentScreen } from "./components/ContextPunishmentScreen";
 import { GraceBanner } from "./components/GraceBanner";
+import { UserNotificationModal } from "./components/UserNotificationModal";
 
 async function resolveLoginRedirect(): Promise<string> {
   try {
@@ -2538,6 +2539,7 @@ export function App() {
   const [profile, setProfile]   = useState<import("./contexts").ProfileResponse | null | "loading">("loading");
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
   const [wsSignal, setWsSignal] = useState(0);
+  const [notifBroadcastSignal, setNotifBroadcastSignal] = useState(0);
   const [notifItems, setNotifItems] = useState<AppNotification[]>(loadNotifs);
   const wsRef        = useRef<WebSocket | null>(null);
   const seenThresh   = useRef<Set<string>>(new Set());
@@ -2615,6 +2617,7 @@ export function App() {
         try {
           const data = JSON.parse(e.data);
           if (data.type === "force_reload")   { window.location.reload(); return; }
+          if (data.type === "notif_changed")  { setNotifBroadcastSignal(n => n + 1); return; }
           if (data.type === "chat_history")  { setChatMsgs(data.messages); return; }
           if (data.type === "chat_message")  {
             const msg: ChatMsg = data.message;
@@ -2651,7 +2654,17 @@ export function App() {
       ws.onclose = () => { if (!dead) setTimeout(connect, 3000); };
     }
     connect();
-    return () => { dead = true; ws?.close(); };
+    return () => {
+      dead = true;
+      if (!ws) return;
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        // Defer close until open — avoids "closed before established" browser warning
+        ws.onopen  = () => ws.close();
+        ws.onclose = () => {};
+      }
+    };
   }, []);
 
   const statusTs = status?.ts;
@@ -2662,10 +2675,13 @@ export function App() {
       .catch(() => setProfile({ authenticated: false }));
   }, [statusTs]);
 
+  const authenticated = profile && profile !== "loading" && profile.authenticated === true;
+
   return (
     <NotificationsCtx.Provider value={notifCtx}>
       <ChatCtx.Provider value={{ messages: chatMsgs, send: sendChat }}>
         <StatusCtx.Provider value={status}>
+          {authenticated && <UserNotificationModal refreshSignal={notifBroadcastSignal} />}
           <Routes>
             <Route path="/" element={
               <RequireAuth profile={profile}>

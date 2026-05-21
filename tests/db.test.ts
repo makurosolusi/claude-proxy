@@ -385,3 +385,122 @@ describe("dbGetTokenNames / dbGetTokenKeys", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 });
+
+// ── 7. Admin notifications + dismissals ───────────────────────────────────────
+describe("admin_notifications + notification_dismissals", () => {
+  const A_UID = "test-user-notif-a";
+  const B_UID = "test-user-notif-b";
+  const C_UID = "test-user-notif-c";
+  const NIDS: string[] = [];
+
+  beforeAll(async () => {
+    await prisma.notification_dismissals.deleteMany({ where: { user_id: { startsWith: "test-user-notif-" } } });
+    await prisma.admin_notifications.deleteMany({ where: { id: { startsWith: "test-notif-" } } });
+    await prisma.users.deleteMany({ where: { id: { in: [A_UID, B_UID, C_UID] } } });
+    const now = Date.now();
+    await prisma.users.createMany({
+      data: [
+        { id: A_UID, name: "Notif A", email: "", description: "", created_at: BigInt(now), role: "USER", status: "approved" },
+        { id: B_UID, name: "Notif B", email: "", description: "", created_at: BigInt(now), role: "USER", status: "approved" },
+        { id: C_UID, name: "Notif C", email: "", description: "", created_at: BigInt(now), role: "USER", status: "approved" },
+      ],
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.notification_dismissals.deleteMany({ where: { user_id: { startsWith: "test-user-notif-" } } });
+    await prisma.admin_notifications.deleteMany({ where: { id: { in: NIDS } } });
+    await prisma.users.deleteMany({ where: { id: { in: [A_UID, B_UID, C_UID] } } });
+  });
+
+  test("broadcast to all: every user sees the notification", async () => {
+    const id = `test-notif-all-${Date.now()}`;
+    NIDS.push(id);
+    await prisma.admin_notifications.create({
+      data: {
+        id, message: "Hello everyone", created_at: BigInt(Date.now()),
+        created_by: "admin@test", target_type: "all", target_ids: "", deleted: false,
+      },
+    });
+    const row = await prisma.admin_notifications.findUnique({ where: { id } });
+    expect(row?.target_type).toBe("all");
+    expect(row?.message).toBe("Hello everyone");
+  });
+
+  test("dismissal hides the notification only for the dismisser", async () => {
+    const id = `test-notif-dismiss-${Date.now()}`;
+    NIDS.push(id);
+    await prisma.admin_notifications.create({
+      data: {
+        id, message: "Read me", created_at: BigInt(Date.now()),
+        created_by: "admin@test", target_type: "all", target_ids: "", deleted: false,
+      },
+    });
+    await prisma.notification_dismissals.create({
+      data: { notification_id: id, user_id: A_UID, dismissed_at: BigInt(Date.now()) },
+    });
+    const aDismissed = await prisma.notification_dismissals.findUnique({
+      where: { notification_id_user_id: { notification_id: id, user_id: A_UID } },
+    });
+    const bDismissed = await prisma.notification_dismissals.findUnique({
+      where: { notification_id_user_id: { notification_id: id, user_id: B_UID } },
+    });
+    expect(aDismissed).not.toBeNull();
+    expect(bDismissed).toBeNull();
+  });
+
+  test("specific targeting: only listed user_ids match", async () => {
+    const id = `test-notif-specific-${Date.now()}`;
+    NIDS.push(id);
+    await prisma.admin_notifications.create({
+      data: {
+        id, message: "Only A and B", created_at: BigInt(Date.now()),
+        created_by: "admin@test", target_type: "specific",
+        target_ids: JSON.stringify([A_UID, B_UID]), deleted: false,
+      },
+    });
+    const row = await prisma.admin_notifications.findUnique({ where: { id } });
+    const targets = JSON.parse(row!.target_ids);
+    expect(targets).toEqual([A_UID, B_UID]);
+    expect(targets).not.toContain(C_UID);
+  });
+
+  test("upsert dismissal is idempotent (no duplicate pk error)", async () => {
+    const id = `test-notif-idem-${Date.now()}`;
+    NIDS.push(id);
+    await prisma.admin_notifications.create({
+      data: {
+        id, message: "x", created_at: BigInt(Date.now()),
+        created_by: "", target_type: "all", target_ids: "", deleted: false,
+      },
+    });
+    await prisma.notification_dismissals.upsert({
+      where:  { notification_id_user_id: { notification_id: id, user_id: A_UID } },
+      create: { notification_id: id, user_id: A_UID, dismissed_at: BigInt(Date.now()) },
+      update: { dismissed_at: BigInt(Date.now()) },
+    });
+    await prisma.notification_dismissals.upsert({
+      where:  { notification_id_user_id: { notification_id: id, user_id: A_UID } },
+      create: { notification_id: id, user_id: A_UID, dismissed_at: BigInt(Date.now()) },
+      update: { dismissed_at: BigInt(Date.now() + 1) },
+    });
+    const cnt = await prisma.notification_dismissals.count({ where: { notification_id: id } });
+    expect(cnt).toBe(1);
+  });
+
+  test("soft delete hides the notification from active list query", async () => {
+    const id = `test-notif-soft-${Date.now()}`;
+    NIDS.push(id);
+    await prisma.admin_notifications.create({
+      data: {
+        id, message: "ephemeral", created_at: BigInt(Date.now()),
+        created_by: "", target_type: "all", target_ids: "", deleted: false,
+      },
+    });
+    await prisma.admin_notifications.update({ where: { id }, data: { deleted: true } });
+    const active = await prisma.admin_notifications.findMany({ where: { id, deleted: false } });
+    expect(active).toEqual([]);
+    const all = await prisma.admin_notifications.findUnique({ where: { id } });
+    expect(all?.deleted).toBe(true);
+  });
+});

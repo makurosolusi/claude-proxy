@@ -36,6 +36,7 @@ import {
   handleDebugSessionsSummary, handleDebugTestUpstream, handleDebugActiveProviders,
   handleDebugAppLogs, handleDebugAppLogsStats,
 } from "./handlers/apiDebugBrain";
+import { handleDebugNotifications } from "./handlers/apiDebugNotifications";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModels } from "./handlers/apiModels";
@@ -49,7 +50,11 @@ import { handleSecondBrainAdmin } from "./extensions/second-brain/admin-api";
 import { handleLogManagementAdmin } from "./extensions/log-management/admin-api";
 import { handleMcpSecondBrain } from "./extensions/second-brain/mcp";
 import { auth } from "./auth";
-import { _broadcast, _broadcastSystemMsg, triggerBroadcast } from "./broadcast";
+import { _broadcast, _broadcastSystemMsg, _broadcastNotifChanged, triggerBroadcast } from "./broadcast";
+import {
+  handleAdminCreateNotification, handleAdminListNotifications, handleAdminDeleteNotification,
+  handleUserPendingNotifications, handleUserDismissNotification,
+} from "./handlers/apiNotifications";
 import { installConsoleInterceptor, recordUncaught, recordUnhandled } from "./consoleBuffer";
 
 // ── Console interceptor + global error handlers ──────────────────────────────
@@ -68,6 +73,35 @@ process.on("unhandledRejection", (reason: unknown) => {
     console.error("[unhandledRejection]", reason, "type=" + typeof reason);
   }
 });
+
+// ── Startup migrations (idempotent, IF NOT EXISTS) ───────────────────────────
+{
+  const migrations = [
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS context_blocked_at BIGINT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS context_block_reason TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS context_block_grace_until BIGINT`,
+    `CREATE TABLE IF NOT EXISTS admin_notifications (
+      id TEXT PRIMARY KEY,
+      message TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      target_type TEXT NOT NULL DEFAULT 'all',
+      target_ids TEXT NOT NULL DEFAULT '',
+      deleted BOOLEAN NOT NULL DEFAULT FALSE
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_admin_notif_active ON admin_notifications (deleted, created_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS notification_dismissals (
+      notification_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      dismissed_at BIGINT NOT NULL,
+      PRIMARY KEY (notification_id, user_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_notif_dismiss_user ON notification_dismissals (user_id)`,
+  ];
+  for (const sql of migrations) {
+    await prisma.$executeRawUnsafe(sql).catch(e => console.warn("[migration]", sql.slice(0, 60), e?.message));
+  }
+}
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 await loadFromDb();
@@ -264,6 +298,12 @@ _broadcast.fn = () => {
 
 _broadcastSystemMsg.fn = (text: string) => {
   broadcastChatMsg({ id: crypto.randomUUID(), type: "system", nick: "system", text, ts: Date.now() });
+};
+
+_broadcastNotifChanged.fn = () => {
+  if (!wsClients.size) return;
+  const payload = JSON.stringify({ type: "notif_changed" });
+  for (const ws of wsClients) ws.send(payload);
 };
 
 function extractKey(req: Request): string {
@@ -753,6 +793,7 @@ server = serve({
     "/api/debug/active-providers": async req => handleDebugActiveProviders(req, new URL(req.url)),
     "/api/debug/app-logs":         async req => handleDebugAppLogs(req, new URL(req.url)),
     "/api/debug/app-logs/stats":   async req => handleDebugAppLogsStats(req, new URL(req.url)),
+    "/api/debug/notifications":   async req => handleDebugNotifications(req, new URL(req.url)),
     "/api/debug/ws":               async req => {
       // WS stats inline because wsClients lives in this module
       const t = req.headers.get("x-mcp-secret") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -800,6 +841,39 @@ server = serve({
       dbSetUserRole(userId, role);
       triggerBroadcast();
       return Response.json({ ok: true });
+    },
+
+    // Admin notifications (broadcast to all/specific users)
+    "/api/admin/notifications": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (req.method === "GET") return handleAdminListNotifications();
+      if (req.method === "POST") {
+        let adminEmail = "";
+        try { adminEmail = (await auth.api.getSession({ headers: req.headers }))?.user?.email || ""; } catch {}
+        return handleAdminCreateNotification(req, adminEmail);
+      }
+      return new Response("Method not allowed", { status: 405 });
+    },
+    "/api/admin/notifications/:id": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (req.method !== "DELETE") return new Response("Method not allowed", { status: 405 });
+      const id = decodeURIComponent(new URL(req.url).pathname.split("/").pop() || "");
+      return handleAdminDeleteNotification(id);
+    },
+
+    // User-facing notifications (pending + dismiss)
+    "/api/notifications/pending": async req => {
+      const u = await checkUser(req);
+      if (!u) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleUserPendingNotifications(u.userId);
+    },
+    "/api/notifications/:id/dismiss": async req => {
+      const u = await checkUser(req);
+      if (!u) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      const parts = new URL(req.url).pathname.split("/");
+      const id = decodeURIComponent(parts[3] || "");
+      return handleUserDismissNotification(u.userId, id);
     },
 
     "/api/admin/broadcast/refresh": async req => {

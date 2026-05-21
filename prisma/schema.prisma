@@ -110,6 +110,27 @@ model extensions {
   updated_at   BigInt  @default(0)
 }
 
+model admin_notifications {
+  id          String  @id
+  message     String
+  created_at  BigInt
+  created_by  String  @default("")
+  target_type String  @default("all")
+  target_ids  String  @default("")
+  deleted     Boolean @default(false)
+
+  @@index([deleted, created_at(sort: Desc)], name: "idx_admin_notif_active")
+}
+
+model notification_dismissals {
+  notification_id String
+  user_id         String
+  dismissed_at    BigInt
+
+  @@id([notification_id, user_id])
+  @@index([user_id], name: "idx_notif_dismiss_user")
+}
+
 // ── Better Auth tables ────────────────────────────────────────────────────────
 
 model user {

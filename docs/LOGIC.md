@@ -226,6 +226,30 @@ Link types: `ud` (user→date), `dh` (date→hour), `hr` (hour→request).
 ## FOUC Prevention
 `index.html` punya inline script yang set `data-mantine-color-scheme` + `background-color` sebelum CSS/JS load, berdasarkan `localStorage("mantine-color-scheme-value")` atau `prefers-color-scheme`.
 
+## Admin Broadcast Notifications
+
+Admin bisa kirim modal pemberitahuan ke user via Admin → Users → "Send Notification".
+
+**Targeting:**
+- `target_type = "all"` — semua user yang authenticated lihat modal
+- `target_type = "specific"` — hanya `target_ids[]` (user IDs) yang lihat
+
+**Lifecycle:**
+1. Admin POST `/api/admin/notifications` → row baru di `admin_notifications`
+2. Server push WS `{ type: "notif_changed" }` ke SEMUA client (broadcast bukan targeted — client refetch dan filter sendiri di server side)
+3. Setiap client authenticated mount `UserNotificationModal` yang fetch `/api/notifications/pending` saat mount + saat terima `notif_changed`
+4. Server filter pending list per user: skip yang sudah ada di `notification_dismissals` (per-user) + skip yang `target_type=specific` tapi user bukan target
+5. User klik "Saya mengerti" → POST `/api/notifications/:id/dismiss` → insert row ke `notification_dismissals` → modal advance ke notifikasi berikutnya (kalau ada)
+6. Admin klik Delete → `deleted=true` (soft delete) → broadcast `notif_changed` → semua client refetch, notifikasi hilang dari pending
+
+**Dismissal model**: sekali close = selesai untuk user itu. Tidak ada expiry — admin yang hapus.
+
+**Ordering**: oldest-first (FIFO). Kalau ada 3 notifikasi pending, user lihat yang paling lama dulu, close, lalu yang berikutnya.
+
+**Anti-spoofing**: dismiss endpoint validate user adalah target (untuk `specific` type) — 404 kalau bukan, biar user lain tidak bisa "tandai sudah baca" milik orang lain.
+
+**MCP debug tool**: `check_notifications` (dev & stg) — list semua notifikasi aktif + dismissed_count per item. Useful untuk verifikasi broadcast sampai dan track adopsi.
+
 ## Dynamic Background (Public Page `/`)
 Background public page shift ke gradient dark red sesuai upstream 5h utilization:
 - `t = max(0, min(1, (util - 20) / 70))` — mulai di 20%, full di 90%
