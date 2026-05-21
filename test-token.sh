@@ -3,15 +3,15 @@
 # Example: ./test-token.sh sk-cp-abc123
 #          ./test-token.sh sk-cp-abc123 https://claude-proxy.wibudev.com
 
-TOKEN="sk-cp-RTey9eRCons8pIBKePW5vNqizZ1nwAh-"
+API_KEY="${1:?Usage: $0 <token> [base_url]}"
 BASE="https://claude-proxy.wibudev.com"
 
 # Auto-detect model pertama dari /v1/models
-MODEL=$(curl -s "$BASE/v1/models" -H "x-api-key: $TOKEN" | jq -r '.data[0].id // "claude-haiku-4-5-20251001"')
+MODEL=$(curl -s "$BASE/v1/models" -H "x-api-key: $API_KEY" | jq -r '.data[0].id // "claude-haiku-4-5-20251001"')
 echo "Model : $MODEL"
 
 RESP=$(curl -s -X POST "$BASE/v1/messages" \
-  -H "x-api-key: $TOKEN" \
+  -H "x-api-key: $API_KEY" \
   -H "content-type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d "{
