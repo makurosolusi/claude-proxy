@@ -23,7 +23,9 @@ function maybeContextBlock(userId: string, inputTokens: number) {
   const u = users[userId];
   if (!u || u.context_blocked_at) return;
   const reason = `Context terlalu besar: ${(inputTokens / 1000).toFixed(0)}k tokens input. Jalankan /compact atau /clear di terminal Claude Code.`;
-  dbSetContextBlock(userId, reason).catch(e => console.error("[proxy] context_block error:", e));
+  dbSetContextBlock(userId, reason)
+    .then(() => broadcastSystemMsg(`🚨 ${u.name}: akses diblokir — context ${(inputTokens/1000).toFixed(0)}k tokens.`))
+    .catch(e => console.error("[proxy] context_block error:", e));
 }
 
 // Strip Claude Code system-injected XML tags from user message content

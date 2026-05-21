@@ -2653,12 +2653,13 @@ export function App() {
     return () => { dead = true; ws?.close(); };
   }, []);
 
+  const statusTs = status?.ts;
   useEffect(() => {
     fetch("/api/profile", { credentials: "include" })
       .then(r => r.json())
       .then(d => setProfile(d))
       .catch(() => setProfile({ authenticated: false }));
-  }, []);
+  }, [statusTs]);
 
   return (
     <NotificationsCtx.Provider value={notifCtx}>
