@@ -90,8 +90,9 @@ model users {
   created_at            BigInt
   role                  String  @default("USER")
   status                String  @default("pending")
-  context_blocked_at    BigInt?
-  context_block_reason  String?
+  context_blocked_at       BigInt?
+  context_block_reason     String?
+  context_block_grace_until BigInt?
 }
 
 model settings {

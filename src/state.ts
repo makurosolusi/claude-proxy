@@ -182,13 +182,22 @@ export async function dbSetUserStatus(id: string, status: import("./types").User
 
 export async function dbSetContextBlock(id: string, reason: string) {
   const now = Date.now();
-  await prisma.users.update({ where: { id }, data: { context_blocked_at: BigInt(now), context_block_reason: reason } });
-  if (users[id]) { users[id]!.context_blocked_at = now; users[id]!.context_block_reason = reason; }
+  await prisma.users.update({ where: { id }, data: { context_blocked_at: BigInt(now), context_block_reason: reason, context_block_grace_until: null } });
+  if (users[id]) { users[id]!.context_blocked_at = now; users[id]!.context_block_reason = reason; delete users[id]!.context_block_grace_until; }
 }
 
+const GRACE_MS = 30 * 60 * 1000; // 30 menit
+
 export async function dbClearContextBlock(id: string) {
-  await prisma.users.update({ where: { id }, data: { context_blocked_at: null, context_block_reason: null } });
-  if (users[id]) { delete users[id]!.context_blocked_at; delete users[id]!.context_block_reason; }
+  const graceUntil = Date.now() + GRACE_MS;
+  await prisma.users.update({ where: { id }, data: { context_blocked_at: null, context_block_reason: null, context_block_grace_until: BigInt(graceUntil) } });
+  if (users[id]) { delete users[id]!.context_blocked_at; delete users[id]!.context_block_reason; users[id]!.context_block_grace_until = graceUntil; }
+}
+
+export async function dbSetContextGrace(id: string, minutes: number) {
+  const graceUntil = Date.now() + minutes * 60 * 1000;
+  await prisma.users.update({ where: { id }, data: { context_block_grace_until: BigInt(graceUntil) } });
+  if (users[id]) users[id]!.context_block_grace_until = graceUntil;
 }
 
 export async function dbUpdateUser(id: string, name: string, description: string) {
@@ -412,8 +421,9 @@ export async function loadFromDb() {
       description: row.description || "", created_at: Number(row.created_at),
       role:   (row.role   as import("./types").UserRole)   || "USER",
       status: (row.status as import("./types").UserStatus) || "pending",
-      context_blocked_at:   row.context_blocked_at   ? Number(row.context_blocked_at)   : undefined,
-      context_block_reason: row.context_block_reason ?? undefined,
+      context_blocked_at:        row.context_blocked_at        ? Number(row.context_blocked_at)        : undefined,
+      context_block_reason:      row.context_block_reason      ?? undefined,
+      context_block_grace_until: row.context_block_grace_until ? Number(row.context_block_grace_until) : undefined,
     };
   }
 

@@ -4,7 +4,7 @@ import {
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
-  IconKey, IconPlus, IconCheck, IconBan, IconClock, IconPinnedOff, IconLockOpen,
+  IconKey, IconPlus, IconCheck, IconBan, IconClock, IconPinnedOff, IconLockOpen, IconHourglass,
 } from "@tabler/icons-react";
 import { adminPost, fmtRel } from "../../utils";
 import { UserAvatar } from "../UserAvatar";
@@ -86,6 +86,7 @@ export interface UserCardActions {
   onResetUserPins: (u: ApiUser) => void;
   onBlockContext: (u: ApiUser) => void;
   onUnblockContext: (u: ApiUser) => void;
+  onForceGrace: (u: ApiUser) => void;
 }
 
 interface TokenRowProps {
@@ -199,7 +200,7 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
   const statusLabel = u.status === "approved" ? "Approved" : u.status === "blocked" ? "Blocked" : "Pending";
   const StatusIcon  = u.status === "approved" ? IconCheck : u.status === "blocked" ? IconBan : IconClock;
 
-  const { statusBusy, onEditUser, onDeleteUser, onSetStatus, onEditAllLimits, onAddToken, onResetUserPins, onBlockContext, onUnblockContext } = actions;
+  const { statusBusy, onEditUser, onDeleteUser, onSetStatus, onEditAllLimits, onAddToken, onResetUserPins, onBlockContext, onUnblockContext, onForceGrace } = actions;
   const hasPinnedTokens = u.tokens.some(t => t.pinned_model);
 
   const tokensList = u.tokens.length === 0 ? (
@@ -287,16 +288,27 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
     const body = (
       <Stack gap="sm">
         {u.context_blocked_at && (
-          <Alert color="red" variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
+          <Alert color={u.context_block_grace_until && u.context_block_grace_until > Date.now() ? "yellow" : "red"}
+            variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
             <Group justify="space-between" wrap="nowrap" gap="xs">
               <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-                <Text size="xs" fw={700}>⛔ Context Block aktif</Text>
+                <Text size="xs" fw={700}>
+                  {u.context_block_grace_until && u.context_block_grace_until > Date.now() ? "⏳ Grace aktif" : "⛔ Context Block aktif"}
+                </Text>
                 <Text size="xs" c="dimmed" lineClamp={2}>{u.context_block_reason}</Text>
               </Stack>
-              <Button size="xs" color="red" variant="filled" leftSection={<IconLockOpen size={12} />}
-                onClick={() => onUnblockContext(u)} style={{ flexShrink: 0 }}>
-                Unblock
-              </Button>
+              <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+                <Tooltip label="Beri 30 menit grace — user bisa /compact tanpa re-block" withArrow>
+                  <Button size="xs" color="yellow" variant="light" leftSection={<IconHourglass size={12} />}
+                    onClick={() => onForceGrace(u)}>
+                    Force 30m
+                  </Button>
+                </Tooltip>
+                <Button size="xs" color="red" variant="filled" leftSection={<IconLockOpen size={12} />}
+                  onClick={() => onUnblockContext(u)}>
+                  Unblock
+                </Button>
+              </Group>
             </Group>
           </Alert>
         )}
@@ -366,16 +378,27 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
   const gridBody = (
     <Stack gap="sm">
       {u.context_blocked_at && (
-        <Alert color="red" variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
+        <Alert color={u.context_block_grace_until && u.context_block_grace_until > Date.now() ? "yellow" : "red"}
+          variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
           <Group justify="space-between" wrap="nowrap" gap="xs">
             <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-              <Text size="xs" fw={700}>⛔ Context Block aktif</Text>
+              <Text size="xs" fw={700}>
+                {u.context_block_grace_until && u.context_block_grace_until > Date.now() ? "⏳ Grace aktif" : "⛔ Context Block aktif"}
+              </Text>
               <Text size="xs" c="dimmed" lineClamp={2}>{u.context_block_reason}</Text>
             </Stack>
-            <Button size="xs" color="red" variant="filled" leftSection={<IconLockOpen size={12} />}
-              onClick={() => onUnblockContext(u)} style={{ flexShrink: 0 }}>
-              Unblock
-            </Button>
+            <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+              <Tooltip label="Beri 30 menit grace" withArrow>
+                <Button size="xs" color="yellow" variant="light" leftSection={<IconHourglass size={12} />}
+                  onClick={() => onForceGrace(u)}>
+                  30m
+                </Button>
+              </Tooltip>
+              <Button size="xs" color="red" variant="filled" leftSection={<IconLockOpen size={12} />}
+                onClick={() => onUnblockContext(u)}>
+                Unblock
+              </Button>
+            </Group>
           </Group>
         </Alert>
       )}

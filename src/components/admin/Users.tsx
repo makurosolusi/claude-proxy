@@ -121,6 +121,16 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     } finally { setBulkAction(null); }
   };
 
+  const forceGrace = async (u: ApiUser) => {
+    try {
+      await adminPost("/admin/user/context-grace", { user_id: u.id, minutes: "30" });
+      await reload();
+      notifications.show({ color: "yellow", message: `Grace 30 menit aktif untuk ${u.name} — bisa /compact sekarang`, autoClose: 4000 });
+    } catch (e: any) {
+      notifications.show({ color: "red", title: "Error", message: e.message || "Failed", autoClose: 4000 });
+    }
+  };
+
   const blockContext = async (u: ApiUser) => {
     try {
       await adminPost("/admin/user/block-context", { user_id: u.id, reason: "Diblokir manual oleh admin." });
@@ -225,6 +235,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     onResetUserPins: resetUserPins,
     onBlockContext: blockContext,
     onUnblockContext: unblockContext,
+    onForceGrace: forceGrace,
   };
 
   return (

@@ -114,9 +114,10 @@ export interface ProfileResponse {
   status?:   "pending" | "approved" | "blocked";
   tokens?:   Record<string, ProfileToken>;
   custom_providers?: { id: string; name: string; color: string; type: "anthropic" | "openai" }[];
-  context_blocked?:       boolean;
-  context_block_reason?:  string | null;
-  context_blocked_at?:    number | null;
+  context_blocked?:            boolean;
+  context_block_reason?:       string | null;
+  context_blocked_at?:         number | null;
+  context_block_grace_until?:  number | null;
 }
 export interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
 export interface ChatCtxType { messages: ChatMsg[]; send: (nick: string, text: string) => void; }

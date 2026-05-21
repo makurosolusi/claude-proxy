@@ -40,6 +40,7 @@ import { SessionHistory } from "./components/SessionHistory";
 import { FloatingChat } from "./components/FloatingChat";
 import { NotificationsPage } from "./components/NotificationsPage";
 import { ContextPunishmentScreen } from "./components/ContextPunishmentScreen";
+import { GraceBanner } from "./components/GraceBanner";
 
 async function resolveLoginRedirect(): Promise<string> {
   try {
@@ -2668,12 +2669,21 @@ export function App() {
           <Routes>
             <Route path="/" element={
               <RequireAuth profile={profile}>
-                {profile !== "loading" && profile?.context_blocked
-                  ? <ContextPunishmentScreen reason={profile.context_block_reason} blockedAt={profile.context_blocked_at} />
-                  : status
-                    ? <Dashboard isAdmin={profile !== "loading" && (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN")} profile={profile as import("./contexts").ProfileResponse} wsSignal={wsSignal} />
-                    : <LoadingScreen />
-                }
+                {(() => {
+                  if (profile === "loading" || !status) return <LoadingScreen />;
+                  const isAdmin = profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN";
+                  const graceActive = profile?.context_block_grace_until && profile.context_block_grace_until > Date.now();
+                  if (profile?.context_blocked && !graceActive)
+                    return <ContextPunishmentScreen reason={profile.context_block_reason} blockedAt={profile.context_blocked_at} />;
+                  return (
+                    <>
+                      {profile?.context_blocked && graceActive && (
+                        <GraceBanner graceUntil={profile.context_block_grace_until!} />
+                      )}
+                      <Dashboard isAdmin={isAdmin} profile={profile as import("./contexts").ProfileResponse} wsSignal={wsSignal} />
+                    </>
+                  );
+                })()}
               </RequireAuth>
             } />
             <Route path="/admin" element={

@@ -9,8 +9,9 @@ export interface UserEntry {
   created_at:           number;   // epoch ms
   role:                 UserRole;
   status:               UserStatus;
-  context_blocked_at?:  number;   // epoch ms; set when auto-blocked for oversized context
-  context_block_reason?: string;
+  context_blocked_at?:        number;   // epoch ms; set when auto-blocked for oversized context
+  context_block_reason?:      string;
+  context_block_grace_until?: number;   // epoch ms; proxy allows through during this window
 }
 
 export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter";

@@ -21,7 +21,10 @@ function pushAlert(msg: string) { broadcastSystemMsg(`⚡ ${msg}`); }
 function maybeContextBlock(userId: string, inputTokens: number) {
   if (inputTokens < 100_000 || !userId) return;
   const u = users[userId];
-  if (!u || u.context_blocked_at) return;
+  if (!u) return;
+  // Skip if already blocked or grace window is active (user is compacting)
+  if (u.context_blocked_at) return;
+  if (u.context_block_grace_until && u.context_block_grace_until > Date.now()) return;
   const reason = `Context terlalu besar: ${(inputTokens / 1000).toFixed(0)}k tokens input. Jalankan /compact atau /clear di terminal Claude Code.`;
   dbSetContextBlock(userId, reason)
     .then(() => broadcastSystemMsg(`🚨 ${u.name}: akses diblokir — context ${(inputTokens/1000).toFixed(0)}k tokens.`))
@@ -238,14 +241,18 @@ export async function handleProxy(
   // Context block check — user must run /compact or /clear first
   const tokenOwner = t.user_id ? users[t.user_id] : null;
   if (tokenOwner?.context_blocked_at) {
-    const reason = tokenOwner.context_block_reason || "Context terlalu besar.";
-    console.error(`[proxy] BLOCKED [${key.slice(-6)}] user=${t.user_id} reason=${reason}`);
-    return Response.json({
-      error: {
-        type:    "permission_error",
-        message: `⛔ Akses diblokir: ${reason}\n\nJalankan /compact atau /clear di terminal Claude Code, lalu hubungi admin untuk membuka blokir.`,
-      },
-    }, { status: 429 });
+    const graceActive = tokenOwner.context_block_grace_until && tokenOwner.context_block_grace_until > Date.now();
+    if (!graceActive) {
+      const reason = tokenOwner.context_block_reason || "Context terlalu besar.";
+      console.error(`[proxy] BLOCKED [${key.slice(-6)}] user=${t.user_id} reason=${reason}`);
+      return Response.json({
+        error: {
+          type:    "permission_error",
+          message: `⛔ Akses diblokir: ${reason}\n\nJalankan /compact atau /clear di terminal Claude Code, lalu hubungi admin untuk membuka blokir.`,
+        },
+      }, { status: 429 });
+    }
+    console.log(`[proxy] grace active for user=${t.user_id}, allowing through`);
   }
 
   checkReset(t, key);

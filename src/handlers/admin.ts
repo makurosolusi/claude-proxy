@@ -1,4 +1,4 @@
-import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, dbSetContextBlock, dbClearContextBlock, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, dbSetContextBlock, dbClearContextBlock, dbSetContextGrace, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
 import { prisma } from "../prisma";
 import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
@@ -348,6 +348,15 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       return Response.json({ ok: false, error: "Seconds must be 10–300 (10s to 5 min)" }, { status: 400 });
     }
     await dbSaveSetting("poll_interval_ms", String(seconds * 1000));
+    return redirect();
+  }
+
+  if (pathname === "/admin/user/context-grace" && req.method === "POST") {
+    const userId  = form ? String(form.get("user_id") || "").trim() : "";
+    const minutes = parseInt(form ? String(form.get("minutes") || "30") : "30") || 30;
+    if (!userId || !users[userId]) return new Response("User not found\n", { status: 404 });
+    await dbSetContextGrace(userId, minutes);
+    console.log(`[admin] context_grace set for user=${userId} minutes=${minutes}`);
     return redirect();
   }
 
