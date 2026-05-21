@@ -1,5 +1,5 @@
 import { config }          from "../config";
-import { upstream, users, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName } from "../state";
+import { upstream, users, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName, dbSetContextBlock } from "../state";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken, hasAnthropicCredential } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
@@ -17,6 +17,14 @@ import type { ProxyContext } from "../extensions";
 import type { TokenEntry } from "../types";
 
 function pushAlert(msg: string) { broadcastSystemMsg(`⚡ ${msg}`); }
+
+function maybeContextBlock(userId: string, inputTokens: number) {
+  if (inputTokens < 100_000 || !userId) return;
+  const u = users[userId];
+  if (!u || u.context_blocked_at) return;
+  const reason = `Context terlalu besar: ${(inputTokens / 1000).toFixed(0)}k tokens input. Jalankan /compact atau /clear di terminal Claude Code.`;
+  dbSetContextBlock(userId, reason).catch(e => console.error("[proxy] context_block error:", e));
+}
 
 // Strip Claude Code system-injected XML tags from user message content
 function stripInjections(text: string): string {
@@ -676,7 +684,8 @@ export async function handleProxy(
             response_text: responseText.slice(0, 3000) }).catch(e => console.error("[proxy] dbLogRequest error:", e));
           runPostRequest(extCtx, { status: httpStatus, inputTokens, outputTokens, durationMs: Date.now() - ts, responseText: responseText.slice(0, 3000), stopReason })
             .catch(e => console.warn("[proxy] postRequest hook error:", e?.message ?? e));
-          // Real-time threshold alerts
+          // Real-time threshold alerts + context block
+          maybeContextBlock(t.user_id || "", inputTokens);
           if (inputTokens > 80_000)
             pushAlert(`${displayName}: ${(inputTokens/1000).toFixed(0)}k tokens input — context sangat besar, jalankan /compact`);
           if (t.limit !== Infinity) {
@@ -721,6 +730,7 @@ export async function handleProxy(
       response_text: finalResponseText }).catch(e => console.error("[proxy] dbLogRequest error:", e));
     runPostRequest(extCtx, { status: resp.status, inputTokens, outputTokens, durationMs: Date.now() - ts, responseText: finalResponseText, stopReason })
       .catch(e => console.warn("[proxy] postRequest hook error:", e?.message ?? e));
+    maybeContextBlock(t.user_id || "", inputTokens);
     if (inputTokens > 80_000)
       pushAlert(`${displayName}: ${(inputTokens/1000).toFixed(0)}k tokens input — jalankan /compact`);
     if (t.limit !== Infinity) {

@@ -121,6 +121,16 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     } finally { setBulkAction(null); }
   };
 
+  const blockContext = async (u: ApiUser) => {
+    try {
+      await adminPost("/admin/user/block-context", { user_id: u.id, reason: "Diblokir manual oleh admin." });
+      await reload();
+      notifications.show({ color: "orange", message: `Context block aktif untuk ${u.name}`, autoClose: 3000 });
+    } catch (e: any) {
+      notifications.show({ color: "red", title: "Error", message: e.message || "Failed", autoClose: 4000 });
+    }
+  };
+
   const unblockContext = async (u: ApiUser) => {
     try {
       await adminPost("/admin/user/unblock-context", { user_id: u.id });
@@ -213,6 +223,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     onOpenDetail: setDetailToken,
     onRowAction: runRowAction,
     onResetUserPins: resetUserPins,
+    onBlockContext: blockContext,
     onUnblockContext: unblockContext,
   };
 

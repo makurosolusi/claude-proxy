@@ -84,6 +84,7 @@ export interface UserCardActions {
   onOpenDetail: (token: ApiToken) => void;
   onRowAction: (key: string, act: string, fn: () => Promise<void>, msg: string) => Promise<void>;
   onResetUserPins: (u: ApiUser) => void;
+  onBlockContext: (u: ApiUser) => void;
   onUnblockContext: (u: ApiUser) => void;
 }
 
@@ -198,7 +199,7 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
   const statusLabel = u.status === "approved" ? "Approved" : u.status === "blocked" ? "Blocked" : "Pending";
   const StatusIcon  = u.status === "approved" ? IconCheck : u.status === "blocked" ? IconBan : IconClock;
 
-  const { statusBusy, onEditUser, onDeleteUser, onSetStatus, onEditAllLimits, onAddToken, onResetUserPins, onUnblockContext } = actions;
+  const { statusBusy, onEditUser, onDeleteUser, onSetStatus, onEditAllLimits, onAddToken, onResetUserPins, onBlockContext, onUnblockContext } = actions;
   const hasPinnedTokens = u.tokens.some(t => t.pinned_model);
 
   const tokensList = u.tokens.length === 0 ? (
@@ -307,6 +308,14 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
         <Group justify="space-between">
           <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
           <Group gap="xs">
+            {!u.context_blocked_at && (
+              <Tooltip label="Paksa layar merah context-block pada user ini" withArrow>
+                <Button size="xs" variant="subtle" color="red" leftSection={<IconAlertTriangle size={12} />}
+                  onClick={() => onBlockContext(u)}>
+                  Block Context
+                </Button>
+              </Tooltip>
+            )}
             {hasPinnedTokens && <Button size="xs" variant="subtle" color="gray" leftSection={<IconPinnedOff size={12} />} onClick={() => onResetUserPins(u)}>Reset Pinned</Button>}
             {u.tokens.length > 0 && <Button size="xs" variant="subtle" color="gray" leftSection={<IconPencil size={12} />} onClick={() => onEditAllLimits(u)}>Edit All Limits</Button>}
             <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={12} />} onClick={() => onAddToken(u)}>Add Token</Button>
@@ -386,6 +395,14 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
       <Group justify="space-between" align="center">
         <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
         <Group gap={4}>
+          {!u.context_blocked_at && (
+            <Tooltip label="Paksa layar merah context-block" withArrow>
+              <Button size="xs" variant="subtle" color="red" leftSection={<IconAlertTriangle size={11} />}
+                onClick={() => onBlockContext(u)}>
+                Block
+              </Button>
+            </Tooltip>
+          )}
           {hasPinnedTokens && <Button size="xs" variant="subtle" color="gray" leftSection={<IconPinnedOff size={11} />} onClick={() => onResetUserPins(u)}>Reset</Button>}
           {u.tokens.length > 0 && <Button size="xs" variant="subtle" color="gray" leftSection={<IconPencil size={11} />} onClick={() => onEditAllLimits(u)}>Edit All</Button>}
           <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={11} />} onClick={() => onAddToken(u)}>Add</Button>
