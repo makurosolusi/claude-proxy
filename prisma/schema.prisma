@@ -83,13 +83,15 @@ model upstream_state {
 }
 
 model users {
-  id          String @id
-  name        String
-  email       String @default("")
-  description String @default("")
-  created_at  BigInt
-  role        String @default("USER")
-  status      String @default("pending")
+  id                    String  @id
+  name                  String
+  email                 String  @default("")
+  description           String  @default("")
+  created_at            BigInt
+  role                  String  @default("USER")
+  status                String  @default("pending")
+  context_blocked_at    BigInt?
+  context_block_reason  String?
 }
 
 model settings {

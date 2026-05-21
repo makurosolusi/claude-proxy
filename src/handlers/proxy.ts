@@ -1,5 +1,5 @@
 import { config }          from "../config";
-import { upstream, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName } from "../state";
+import { upstream, users, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName } from "../state";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken, hasAnthropicCredential } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
@@ -224,6 +224,19 @@ export async function handleProxy(
     { error: { type: "permission_error", message: "Token is paused by administrator." } },
     { status: 403 }
   );
+
+  // Context block check — user must run /compact or /clear first
+  const tokenOwner = t.user_id ? users[t.user_id] : null;
+  if (tokenOwner?.context_blocked_at) {
+    const reason = tokenOwner.context_block_reason || "Context terlalu besar.";
+    console.error(`[proxy] BLOCKED [${key.slice(-6)}] user=${t.user_id} reason=${reason}`);
+    return Response.json({
+      error: {
+        type:    "permission_error",
+        message: `⛔ Akses diblokir: ${reason}\n\nJalankan /compact atau /clear di terminal Claude Code, lalu hubungi admin untuk membuka blokir.`,
+      },
+    }, { status: 429 });
+  }
 
   checkReset(t, key);
 

@@ -39,6 +39,7 @@ import { RacePage } from "./components/RacePage";
 import { SessionHistory } from "./components/SessionHistory";
 import { FloatingChat } from "./components/FloatingChat";
 import { NotificationsPage } from "./components/NotificationsPage";
+import { ContextPunishmentScreen } from "./components/ContextPunishmentScreen";
 
 async function resolveLoginRedirect(): Promise<string> {
   try {
@@ -2537,7 +2538,8 @@ export function App() {
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
   const [wsSignal, setWsSignal] = useState(0);
   const [notifItems, setNotifItems] = useState<AppNotification[]>(loadNotifs);
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef        = useRef<WebSocket | null>(null);
+  const seenThresh   = useRef<Set<string>>(new Set());
 
   const notifCtx = useMemo<NotificationsCtxType>(() => ({
     items: notifItems,
@@ -2564,6 +2566,38 @@ export function App() {
       saveNotifs([]);
     },
   }), [notifItems]);
+
+  useEffect(() => {
+    const alerts = status?.thresholdAlerts ?? [];
+    const TITLE: Record<string, string> = {
+      quota_80:     "Quota 80%",
+      quota_95:     "Quota 95%",
+      high_context: "High Context",
+      upstream_85:  "Upstream 85%",
+      error_storm:  "Error Storm",
+    };
+    const COLOR: Record<string, AppNotification["color"]> = {
+      quota_95:     "red",
+      error_storm:  "red",
+      quota_80:     "orange",
+      upstream_85:  "orange",
+      high_context: "blue",
+    };
+    for (const a of alerts) {
+      const key = `${a.label}:${a.type}:${a.ts}`;
+      if (seenThresh.current.has(key)) continue;
+      seenThresh.current.add(key);
+      const color = COLOR[a.type] ?? "orange";
+      setNotifItems(prev => {
+        const next: AppNotification[] = [
+          { id: `th-${key}`, title: `${TITLE[a.type] ?? a.type} — ${a.label}`, message: a.msg, color, ts: a.ts, read: false },
+          ...prev,
+        ].slice(0, MAX_NOTIFS);
+        saveNotifs(next);
+        return next;
+      });
+    }
+  }, [status?.thresholdAlerts]);
 
   const sendChat = useCallback((nick: string, text: string) => {
     wsRef.current?.send(JSON.stringify({ type: "chat", nick, text }));
@@ -2633,7 +2667,12 @@ export function App() {
           <Routes>
             <Route path="/" element={
               <RequireAuth profile={profile}>
-                {status ? <Dashboard isAdmin={profile !== "loading" && (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN")} profile={profile as import("./contexts").ProfileResponse} wsSignal={wsSignal} /> : <LoadingScreen />}
+                {profile !== "loading" && profile?.context_blocked
+                  ? <ContextPunishmentScreen reason={profile.context_block_reason} blockedAt={profile.context_blocked_at} />
+                  : status
+                    ? <Dashboard isAdmin={profile !== "loading" && (profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN")} profile={profile as import("./contexts").ProfileResponse} wsSignal={wsSignal} />
+                    : <LoadingScreen />
+                }
               </RequireAuth>
             } />
             <Route path="/admin" element={

@@ -20,6 +20,8 @@ export interface ApiUser {
   id: string; name: string; email: string; description: string; created_at: number;
   role: string; status: "pending" | "approved" | "blocked";
   tokens: ApiToken[];
+  context_blocked_at?:   number;
+  context_block_reason?: string;
 }
 
 export function CopyButton({ value }: { value: string }) {

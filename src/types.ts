@@ -2,13 +2,15 @@ export type UserRole   = "SUPER_ADMIN" | "ADMIN" | "USER";
 export type UserStatus = "pending" | "approved" | "blocked";
 
 export interface UserEntry {
-  id:          string;   // stable slug, never changes
-  name:        string;   // display name (editable)
-  email:       string;   // Google account email (for OAuth login)
-  description: string;
-  created_at:  number;   // epoch ms
-  role:        UserRole;
-  status:      UserStatus;
+  id:                   string;   // stable slug, never changes
+  name:                 string;   // display name (editable)
+  email:                string;   // Google account email (for OAuth login)
+  description:          string;
+  created_at:           number;   // epoch ms
+  role:                 UserRole;
+  status:               UserStatus;
+  context_blocked_at?:  number;   // epoch ms; set when auto-blocked for oversized context
+  context_block_reason?: string;
 }
 
 export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter";

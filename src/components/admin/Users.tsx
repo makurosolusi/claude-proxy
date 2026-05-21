@@ -121,6 +121,16 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     } finally { setBulkAction(null); }
   };
 
+  const unblockContext = async (u: ApiUser) => {
+    try {
+      await adminPost("/admin/user/unblock-context", { user_id: u.id });
+      await reload();
+      notifications.show({ color: "teal", message: `Context block cleared for ${u.name}`, autoClose: 3000 });
+    } catch (e: any) {
+      notifications.show({ color: "red", title: "Error", message: e.message || "Failed", autoClose: 4000 });
+    }
+  };
+
   const resetUserPins = (u: ApiUser) => {
     modals.openConfirmModal({
       title: "Reset Pinned Models",
@@ -203,6 +213,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     onOpenDetail: setDetailToken,
     onRowAction: runRowAction,
     onResetUserPins: resetUserPins,
+    onUnblockContext: unblockContext,
   };
 
   return (

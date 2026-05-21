@@ -180,6 +180,17 @@ export async function dbSetUserStatus(id: string, status: import("./types").User
   if (users[id]) users[id]!.status = status;
 }
 
+export async function dbSetContextBlock(id: string, reason: string) {
+  const now = Date.now();
+  await prisma.users.update({ where: { id }, data: { context_blocked_at: BigInt(now), context_block_reason: reason } });
+  if (users[id]) { users[id]!.context_blocked_at = now; users[id]!.context_block_reason = reason; }
+}
+
+export async function dbClearContextBlock(id: string) {
+  await prisma.users.update({ where: { id }, data: { context_blocked_at: null, context_block_reason: null } });
+  if (users[id]) { delete users[id]!.context_blocked_at; delete users[id]!.context_block_reason; }
+}
+
 export async function dbUpdateUser(id: string, name: string, description: string) {
   await prisma.users.update({ where: { id }, data: { name, description } });
 }
@@ -401,6 +412,8 @@ export async function loadFromDb() {
       description: row.description || "", created_at: Number(row.created_at),
       role:   (row.role   as import("./types").UserRole)   || "USER",
       status: (row.status as import("./types").UserStatus) || "pending",
+      context_blocked_at:   row.context_blocked_at   ? Number(row.context_blocked_at)   : undefined,
+      context_block_reason: row.context_block_reason ?? undefined,
     };
   }
 

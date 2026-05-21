@@ -1,4 +1,4 @@
-import { tokens, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, settings, resolveTokenName, resolveOwnerName, resolveTokenLabel } from "../state";
+import { tokens, users, upstream, dailyUsage, totalTokensAllTime, allTimePerUser, recentLogs, settings, resolveTokenName, resolveOwnerName, resolveTokenLabel, dbSetContextBlock } from "../state";
 import type { ContextAlert, ThresholdAlert, UserInsight, UserProfile } from "../contexts";
 import { todayKey } from "../tokens";
 import { getCustomProvider } from "../customProviders";
@@ -231,6 +231,15 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
       severity:     isCritical ? "critical" : "warning",
       ts:           log.ts,
     });
+
+    // Auto-block: critical context → lock user until admin releases
+    if (isCritical && td.user_id) {
+      const u = users[td.user_id];
+      if (u && !u.context_blocked_at) {
+        const reason = `Context terlalu besar: ${(inp / 1000).toFixed(0)}k tokens input pada ${new Date(log.ts).toLocaleString("id-ID")}. Jalankan /compact atau /clear.`;
+        dbSetContextBlock(td.user_id, reason).catch(() => {});
+      }
+    }
   }
   // Worst severity first
   contextAlerts.sort((a, b) =>
