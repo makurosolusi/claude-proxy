@@ -4,6 +4,9 @@ import { broadcastNotifChanged } from "../broadcast";
 
 const MAX_MESSAGE_LEN = 4000;
 
+type DeliverVia = "web" | "terminal" | "both";
+type Priority   = "info" | "warning" | "critical";
+
 type Notification = {
   id: string;
   message: string;
@@ -11,6 +14,8 @@ type Notification = {
   created_by: string;
   target_type: "all" | "specific";
   target_ids: string[];
+  deliver_via: DeliverVia;
+  priority:    Priority;
 };
 
 function rowToNotification(row: any): Notification {
@@ -19,6 +24,8 @@ function rowToNotification(row: any): Notification {
     try { const parsed = JSON.parse(row.target_ids); if (Array.isArray(parsed)) ids = parsed.map(String); }
     catch {}
   }
+  const dv = row.deliver_via === "terminal" || row.deliver_via === "both" ? row.deliver_via : "web";
+  const pr = row.priority === "warning" || row.priority === "critical" ? row.priority : "info";
   return {
     id:          row.id,
     message:     row.message,
@@ -26,6 +33,8 @@ function rowToNotification(row: any): Notification {
     created_by:  row.created_by || "",
     target_type: row.target_type === "specific" ? "specific" : "all",
     target_ids:  ids,
+    deliver_via: dv as DeliverVia,
+    priority:    pr as Priority,
   };
 }
 
@@ -48,6 +57,11 @@ export async function handleAdminCreateNotification(req: Request, adminEmail: st
     }
   }
 
+  const dvRaw = String(body.deliver_via || "web");
+  const deliverVia: DeliverVia = dvRaw === "terminal" || dvRaw === "both" ? dvRaw : "web";
+  const prRaw = String(body.priority || "info");
+  const priority: Priority = prRaw === "warning" || prRaw === "critical" ? prRaw : "info";
+
   const id = crypto.randomUUID();
   const now = Date.now();
   await prisma.admin_notifications.create({
@@ -55,6 +69,8 @@ export async function handleAdminCreateNotification(req: Request, adminEmail: st
       id, message, created_at: BigInt(now), created_by: adminEmail || "",
       target_type: targetType,
       target_ids: targetType === "specific" ? JSON.stringify(targetIds) : "",
+      deliver_via: deliverVia,
+      priority,
     },
   });
 
@@ -67,6 +83,7 @@ export async function handleAdminCreateNotification(req: Request, adminEmail: st
     notification: {
       id, message, created_at: now, created_by: adminEmail || "",
       target_type: targetType, target_ids: targetIds,
+      deliver_via: deliverVia, priority,
     },
   });
 }
@@ -158,9 +175,69 @@ async function loadPendingForUser(userId: string): Promise<Notification[]> {
     if (dismissedIds.has(row.id)) continue;
     const n = rowToNotification(row);
     if (n.target_type === "specific" && !n.target_ids.includes(userId)) continue;
+    // Web modal only shows web/both deliveries
+    if (n.deliver_via === "terminal") continue;
     out.push(n);
   }
   return out;
+}
+
+// ── Terminal injection support (used by proxy.ts) ────────────────────────────
+
+/**
+ * Returns notifications that should be injected into the next /v1/messages
+ * response for this user. Skips deleted, already-delivered-to-terminal, and
+ * not-targeted-at-user. Oldest first.
+ */
+export async function getPendingTerminalForUser(userId: string): Promise<Notification[]> {
+  const delivered = await prisma.notification_terminal_deliveries.findMany({
+    where:  { user_id: userId },
+    select: { notification_id: true },
+  });
+  const deliveredIds = new Set(delivered.map(d => d.notification_id));
+
+  const rows = await prisma.admin_notifications.findMany({
+    where:   { deleted: false },
+    orderBy: { created_at: "asc" },
+    take:    20,
+  });
+
+  const out: Notification[] = [];
+  for (const row of rows) {
+    if (deliveredIds.has(row.id)) continue;
+    const n = rowToNotification(row);
+    if (n.deliver_via !== "terminal" && n.deliver_via !== "both") continue;
+    if (n.target_type === "specific" && !n.target_ids.includes(userId)) continue;
+    out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Mark a notification as delivered-to-terminal for this user. Idempotent —
+ * upsert ensures double-delivery doesn't happen even on race conditions.
+ */
+export async function markTerminalDelivered(notificationId: string, userId: string): Promise<void> {
+  await prisma.notification_terminal_deliveries.upsert({
+    where:  { notification_id_user_id: { notification_id: notificationId, user_id: userId } },
+    create: { notification_id: notificationId, user_id: userId, delivered_at: BigInt(Date.now()) },
+    update: {},
+  });
+}
+
+/**
+ * Format a notification for terminal display. Visual border so user
+ * can't confuse it with Claude's own output. Priority-driven icon.
+ */
+export function formatTerminalAnnouncement(n: Notification): string {
+  const icon = n.priority === "critical" ? "🚨"
+             : n.priority === "warning"  ? "⚠️"
+             : "📢";
+  const tag = n.priority === "critical" ? "CRITICAL ADMIN NOTICE"
+            : n.priority === "warning"  ? "ADMIN WARNING"
+            : "ADMIN ANNOUNCEMENT";
+  const body = n.message.slice(0, 800); // hard cap to avoid spamming terminal
+  return `\n${"━".repeat(60)}\n${icon} [${tag}]\n${body}\n${"━".repeat(60)}\n\n`;
 }
 
 function triggerNotificationsChanged() {

@@ -907,6 +907,22 @@ function LoginPage() {
   const [errorParam, setErrorParam] = useState<string | null>(null);
   const [version, setVersion] = useState<string>("");
   const [upstreamOk, setUpstreamOk] = useState<boolean>(true);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // Already-authenticated users must not see the login page — redirect to
+  // their proper landing (dashboard / admin / blocked / pending).
+  useEffect(() => {
+    fetch("/api/profile", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: any) => {
+        if (d?.authenticated) {
+          resolveLoginRedirect().then(url => window.location.replace(url));
+          return;
+        }
+        setAuthChecked(true);
+      })
+      .catch(() => setAuthChecked(true));
+  }, []);
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
@@ -920,6 +936,8 @@ function LoginPage() {
       })
       .catch(() => {});
   }, []);
+
+  if (!authChecked) return <LoadingScreen />;
 
   const handleSignIn = async () => {
     setSigning(true);

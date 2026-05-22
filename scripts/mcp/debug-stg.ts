@@ -5,8 +5,9 @@
  * Auth via MCP_SECRET → x-mcp-secret header.
  */
 
-const STAGING_URL = process.env.BASE_URL ?? "https://claude-proxy.wibudev.com";
-const MCP_SECRET  = process.env.MCP_SECRET  ?? "";
+const STAGING_URL      = process.env.BASE_URL          ?? "https://claude-proxy.wibudev.com";
+const MCP_SECRET       = process.env.MCP_SECRET        ?? "";
+const DEV_LOGIN_SECRET = process.env.DEV_LOGIN_SECRET  ?? "";
 
 function log(...a: unknown[]) { process.stderr.write(a.join(" ") + "\n"); }
 function send(obj: Record<string, unknown>) { process.stdout.write(JSON.stringify(obj) + "\n"); }
@@ -235,6 +236,37 @@ async function toolCheckDbSize() {
 
 async function toolCheckSessionsSummary() {
   return apiGet("/api/debug/sessions-summary");
+}
+
+async function toolDevLogin(args: { email: string; name?: string }) {
+  if (!DEV_LOGIN_SECRET) {
+    return { error: "DEV_LOGIN_SECRET not configured in MCP env. Set it in .mcp.json to enable this tool." };
+  }
+  const res = await fetch(`${STAGING_URL}/api/dev/login`, {
+    method:  "POST",
+    headers: { "content-type": "application/json", "x-dev-secret": DEV_LOGIN_SECRET },
+    body:    JSON.stringify({ email: args.email, name: args.name }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    return { error: `HTTP ${res.status}`, body: text.slice(0, 200) };
+  }
+  const data = await res.json() as any;
+  return {
+    user: data.user,
+    playwright_cookies: [{
+      name:     data.cookie.name,
+      value:    data.cookie.value,
+      domain:   data.cookie.domain,
+      path:     data.cookie.path,
+      httpOnly: data.cookie.httpOnly,
+      secure:   data.cookie.secure,
+      sameSite: data.cookie.sameSite,
+      expires:  data.cookie.expires,
+    }],
+    cookie_header: `${data.cookie.name}=${data.cookie.value}`,
+    hint: "Next: inject playwright_cookies via browser_run_code_unsafe → page.context().addCookies(...), then browser_navigate to a protected route.",
+  };
 }
 
 async function toolCheckNotifications(args: { limit?: number; include_deleted?: boolean }) {
@@ -533,6 +565,22 @@ const TOOLS = [
     },
   },
   {
+    name: "dev_login",
+    description:
+      "Login as a user via dev backdoor on staging (skips Google OAuth). Returns Playwright-ready cookies. " +
+      "CALL THIS BEFORE mcp__playwright__browser_navigate to any protected route (/, /admin, /profile) — " +
+      "Google OAuth cannot be automated by Playwright. Auto-creates the user with approved status if not exists. " +
+      "Requires DEV_LOGIN_SECRET env var (set in .mcp.json) AND staging must have DEV_LOGIN_SECRET configured.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "Email to login as. Auto-created on first call with approved status + default token." },
+        name:  { type: "string", description: "Optional display name (defaults to email local-part)" },
+      },
+      required: ["email"],
+    },
+  },
+  {
     name: "check_test_upstream",
     description:
       "Live probe upstream connectivity by sending a tiny test request. " +
@@ -635,6 +683,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
   if (name === "tail_app_logs")          return toolTailAppLogs(args);
   if (name === "check_app_logs_stats")   return toolCheckAppLogsStats(args);
   if (name === "check_notifications")    return toolCheckNotifications(args as { limit?: number; include_deleted?: boolean });
+  if (name === "dev_login")              return toolDevLogin(args as { email: string; name?: string });
   throw new Error(`Unknown tool: ${name}`);
 }
 

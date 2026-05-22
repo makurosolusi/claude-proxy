@@ -44,6 +44,7 @@ import { handleApiCredits } from "./handlers/apiCredits";
 import { handleApiCustomProviders } from "./handlers/apiCustomProviders";
 import { generateSyncToken, listSyncTokens, revokeSyncToken, handleDbExport, handleDbSync, loadSyncTokens } from "./handlers/apiDbSync";
 import { handleProxy }     from "./handlers/proxy";
+import { handleDevLogin }  from "./handlers/apiDevLogin";
 import { handleApiExtensions } from "./handlers/apiExtensions";
 import { bootstrapExtensions } from "./extensions";
 import { handleSecondBrainAdmin } from "./extensions/second-brain/admin-api";
@@ -97,6 +98,15 @@ process.on("unhandledRejection", (reason: unknown) => {
       PRIMARY KEY (notification_id, user_id)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notif_dismiss_user ON notification_dismissals (user_id)`,
+    `ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS deliver_via TEXT NOT NULL DEFAULT 'web'`,
+    `ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS priority    TEXT NOT NULL DEFAULT 'info'`,
+    `CREATE TABLE IF NOT EXISTS notification_terminal_deliveries (
+      notification_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      delivered_at BIGINT NOT NULL,
+      PRIMARY KEY (notification_id, user_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_notif_term_user ON notification_terminal_deliveries (user_id)`,
   ];
   for (const sql of migrations) {
     await prisma.$executeRawUnsafe(sql).catch(e => console.warn("[migration]", sql.slice(0, 60), e?.message));
@@ -460,6 +470,11 @@ server = serve({
       headers.set("Location", "/login");
       return new Response(null, { status: 303, headers });
     },
+
+    // Dev-only backdoor for E2E/Playwright. Guard: env DEV_LOGIN_SECRET must
+    // be set AND request must carry matching x-dev-secret header. Production
+    // never sets this var → endpoint returns 404 there.
+    "/api/dev/login": async req => handleDevLogin(req),
 
     // User profile API
     "/api/profile": async req => {

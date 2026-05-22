@@ -1,5 +1,6 @@
 import { config }          from "../config";
 import { upstream, users, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName, dbSetContextBlock } from "../state";
+import { getPendingTerminalForUser, markTerminalDelivered, formatTerminalAnnouncement } from "./apiNotifications";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken, hasAnthropicCredential } from "../upstream";
 import { broadcastSystemMsg } from "../broadcast";
@@ -17,6 +18,22 @@ import type { ProxyContext } from "../extensions";
 import type { TokenEntry } from "../types";
 
 function pushAlert(msg: string) { broadcastSystemMsg(`⚡ ${msg}`); }
+
+// Detect whether this /v1/messages request is a continuation of a tool flow
+// (last user message contains tool_result blocks). We skip terminal injection
+// for continuations to avoid corrupting tool_use/tool_result pairing — the
+// model expects a clean tool_result, not an interleaved admin text block.
+function isToolResultContinuation(bodyJson: any): boolean {
+  const msgs = bodyJson?.messages;
+  if (!Array.isArray(msgs) || msgs.length === 0) return false;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m?.role !== "user") continue;
+    if (Array.isArray(m.content) && m.content.some((b: any) => b?.type === "tool_result")) return true;
+    return false; // most recent user msg is regular text → not a continuation
+  }
+  return false;
+}
 
 function maybeContextBlock(userId: string, inputTokens: number) {
   if (inputTokens < 100_000 || !userId) return;
@@ -633,54 +650,90 @@ export async function handleProxy(
       const { readable, writable } = new TransformStream();
       const writer = writable.getWriter();
       const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
       const httpStatus = resp.status;
       // Streaming async — reservation released in its own finally
       const needModelFix = provider !== "anthropic" && !!originalModel;
+      // Terminal notification injection — fetch once, decide after message_start
+      const userIdForInject = t.user_id || "";
+      const continuationSkip = isToolResultContinuation(bodyJson);
+      const pendingAnnouncePromise = userIdForInject && !continuationSkip
+        ? getPendingTerminalForUser(userIdForInject).catch(() => [])
+        : Promise.resolve([]);
       (async () => {
         let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
         let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
         let stopReason = "", toolUseCount = 0, responseText = "";
         let modelFixPending = needModelFix;
+        let injected = false;          // have we emitted our content_block?
+        let indexShift = 0;            // +1 once we inject (shifts upstream indices)
+        const announcements = await pendingAnnouncePromise;
         try {
           reader = resp.body!.getReader();
           let buffer = "";
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            const decoded = decoder.decode(value, { stream: true });
-            let toWrite: Uint8Array = value;
-            if (modelFixPending && decoded.includes('"message_start"')) {
-              toWrite = new TextEncoder().encode(
-                decoded.replace(`"model":"${model}"`, `"model":"${originalModel}"`)
-              );
-              modelFixPending = false;
-            }
-            await writer.write(toWrite);
-            buffer += decoded;
+            buffer += decoder.decode(value, { stream: true });
+            // Split on newlines but keep terminator so we can rewrite correctly
             const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.type === "message_start" && data.message?.usage) {
-                  inputTokens   = data.message.usage.input_tokens || 0;
-                  cacheRead     = data.message.usage.cache_read_input_tokens || 0;
-                  cacheCreation = data.message.usage.cache_creation_input_tokens || 0;
-                  incrementUsage(key, inputTokens, reqGen);
-                }
-                if (data.type === "message_delta" && data.usage) {
-                  outputTokens = data.usage.output_tokens || 0;
-                  stopReason   = data.delta?.stop_reason || stopReason;
-                  incrementUsage(key, outputTokens, reqGen);
-                  console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
-                }
-                if (data.type === "content_block_start" && data.content_block?.type === "tool_use") toolUseCount++;
-                if (data.type === "content_block_delta" && data.delta?.type === "text_delta" && responseText.length < 3000)
-                  responseText += data.delta.text || "";
-              } catch {}
+            buffer = lines.pop() ?? "";
+            for (let line of lines) {
+              // Try parse for tracking + transformation
+              if (line.startsWith("data: ") && line !== "data: [DONE]") {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  // ── Usage / state tracking (unchanged) ─────────────────
+                  if (data.type === "message_start" && data.message?.usage) {
+                    inputTokens   = data.message.usage.input_tokens || 0;
+                    cacheRead     = data.message.usage.cache_read_input_tokens || 0;
+                    cacheCreation = data.message.usage.cache_creation_input_tokens || 0;
+                    incrementUsage(key, inputTokens, reqGen);
+                  }
+                  if (data.type === "message_delta" && data.usage) {
+                    outputTokens = data.usage.output_tokens || 0;
+                    stopReason   = data.delta?.stop_reason || stopReason;
+                    incrementUsage(key, outputTokens, reqGen);
+                    console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
+                  }
+                  if (data.type === "content_block_start" && data.content_block?.type === "tool_use") toolUseCount++;
+                  if (data.type === "content_block_delta" && data.delta?.type === "text_delta" && responseText.length < 3000)
+                    responseText += data.delta.text || "";
+
+                  // ── Model rename on message_start ──────────────────────
+                  if (modelFixPending && data.type === "message_start" && data.message?.model === model) {
+                    data.message.model = originalModel;
+                    modelFixPending = false;
+                    line = `data: ${JSON.stringify(data)}`;
+                  }
+
+                  // ── Inject our content_block right after message_start ─
+                  if (!injected && announcements.length > 0 && data.type === "message_start") {
+                    // First, write the message_start line (potentially model-fixed above)
+                    await writer.write(encoder.encode(line + "\n"));
+                    // Then write our 3 events at index 0 (text block)
+                    const text = announcements.map(formatTerminalAnnouncement).join("");
+                    const cbStart  = `event: content_block_start\ndata: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}\n\n`;
+                    const cbDelta  = `event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })}\n\n`;
+                    const cbStop   = `event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: 0 })}\n\n`;
+                    await writer.write(encoder.encode(cbStart + cbDelta + cbStop));
+                    injected = true;
+                    indexShift = 1;
+                    for (const n of announcements) markTerminalDelivered(n.id, userIdForInject).catch(() => {});
+                    continue; // we've already written message_start above
+                  }
+
+                  // ── Shift index of subsequent content_block events ─────
+                  if (indexShift > 0 && typeof data.index === "number") {
+                    data.index += indexShift;
+                    line = `data: ${JSON.stringify(data)}`;
+                  }
+                } catch {}
+              }
+              await writer.write(encoder.encode(line + "\n"));
             }
           }
+          if (buffer) await writer.write(encoder.encode(buffer));
         } finally {
           await writer.close().catch(() => {});
           releaseInFlight(key, reservationId);
@@ -747,6 +800,23 @@ export async function handleProxy(
       if (pct >= 95) pushAlert(`${displayName}: quota ${pct}% — hampir habis!`);
     }
     if (provider !== "anthropic" && originalModel && body?.model) body.model = originalModel;
+
+    // Terminal notification injection (non-streaming). Skip if request is a
+    // tool_result continuation or response has tool_use blocks — both would
+    // corrupt the conversation flow. Only inject into clean text responses.
+    try {
+      const userId = t.user_id || "";
+      const hasToolUse = Array.isArray(body?.content) && body.content.some((b: any) => b?.type === "tool_use");
+      if (userId && Array.isArray(body?.content) && !hasToolUse && !isToolResultContinuation(bodyJson)) {
+        const pending = await getPendingTerminalForUser(userId);
+        if (pending.length > 0) {
+          const announceText = pending.map(formatTerminalAnnouncement).join("");
+          body.content = [{ type: "text", text: announceText }, ...body.content];
+          for (const n of pending) markTerminalDelivered(n.id, userId).catch(() => {});
+        }
+      }
+    } catch (e) { console.warn("[proxy] terminal inject (non-stream) failed:", e); }
+
     return Response.json(body, { status: resp.status, headers: rateHeaders });
 
   } catch (err: any) {

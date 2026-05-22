@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Stack, Text, Group, Paper, Textarea, ThemeIcon, Modal, Button, Radio,
-  MultiSelect, Badge, ActionIcon, Tooltip, ScrollArea, Divider,
+  MultiSelect, Badge, ActionIcon, Tooltip, ScrollArea, Divider, Select,
 } from "@mantine/core";
 import {
-  IconSend, IconTrash, IconUsers, IconUserCheck, IconBell,
+  IconSend, IconTrash, IconUsers, IconUserCheck, IconBell, IconTerminal2, IconLayoutDashboard,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import type { ApiUser } from "./UserModals";
+
+type DeliverVia = "web" | "terminal" | "both";
+type Priority   = "info" | "warning" | "critical";
 
 type SentNotification = {
   id: string;
@@ -18,6 +21,20 @@ type SentNotification = {
   target_type: "all" | "specific";
   target_ids: string[];
   dismissed_count: number;
+  deliver_via: DeliverVia;
+  priority:    Priority;
+};
+
+const DELIVER_LABEL: Record<DeliverVia, string> = {
+  web:      "Web modal",
+  terminal: "CLI inject",
+  both:     "Web + CLI",
+};
+const DELIVER_COLOR: Record<DeliverVia, string> = {
+  web: "blue", terminal: "orange", both: "violet",
+};
+const PRIORITY_COLOR: Record<Priority, string> = {
+  info: "gray", warning: "yellow", critical: "red",
 };
 
 const MAX_LEN = 4000;
@@ -85,10 +102,19 @@ export function NotificationBroadcast({ apiUsers }: { apiUsers: ApiUser[] | null
                   <Paper key={n.id} withBorder p="sm" radius="sm">
                     <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
                       <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
-                        <Group gap="xs" wrap="nowrap">
+                        <Group gap="xs" wrap="wrap">
                           {n.target_type === "all"
                             ? <Badge size="xs" color="grape" variant="light" leftSection={<IconUsers size={11} />}>All users</Badge>
                             : <Badge size="xs" color="blue"  variant="light" leftSection={<IconUserCheck size={11} />}>{n.target_ids.length} user(s)</Badge>}
+                          <Badge size="xs" color={DELIVER_COLOR[n.deliver_via]} variant="light"
+                            leftSection={n.deliver_via === "terminal" ? <IconTerminal2 size={11} /> : <IconLayoutDashboard size={11} />}>
+                            {DELIVER_LABEL[n.deliver_via]}
+                          </Badge>
+                          {n.priority !== "info" && (
+                            <Badge size="xs" color={PRIORITY_COLOR[n.priority]} variant="filled">
+                              {n.priority.toUpperCase()}
+                            </Badge>
+                          )}
                           <Text size="xs" c="dimmed">{new Date(n.created_at).toLocaleString()}</Text>
                           <Text size="xs" c="dimmed">· {n.dismissed_count} dismissed</Text>
                         </Group>
@@ -127,6 +153,8 @@ function NotificationComposeModal({
   const [message, setMessage]     = useState("");
   const [target, setTarget]       = useState<"all" | "specific">("all");
   const [selected, setSelected]   = useState<string[]>([]);
+  const [deliverVia, setDeliverVia] = useState<DeliverVia>("web");
+  const [priority, setPriority]   = useState<Priority>("info");
   const [sending, setSending]     = useState(false);
 
   const userOptions = useMemo(() => {
@@ -154,6 +182,8 @@ function NotificationComposeModal({
           message: message.trim(),
           target_type: target,
           target_ids: target === "specific" ? selected : undefined,
+          deliver_via: deliverVia,
+          priority,
         }),
       });
       if (!r.ok) {
@@ -207,6 +237,46 @@ function NotificationComposeModal({
           error={message.length > MAX_LEN ? `Max ${MAX_LEN} chars (${message.length})` : undefined}
           description={`${message.length}/${MAX_LEN}`}
         />
+
+        <Group grow align="flex-start">
+          <Select
+            label="Deliver via"
+            description="Web = modal di dashboard. CLI = injeksi ke response terminal Claude Code."
+            value={deliverVia}
+            onChange={v => setDeliverVia((v as DeliverVia) || "web")}
+            data={[
+              { value: "web",      label: "Web modal only" },
+              { value: "terminal", label: "CLI terminal only" },
+              { value: "both",     label: "Web + CLI" },
+            ]}
+            allowDeselect={false}
+          />
+          <Select
+            label="Priority"
+            description="Affect icon + label di terminal (📢/⚠️/🚨)"
+            value={priority}
+            onChange={v => setPriority((v as Priority) || "info")}
+            data={[
+              { value: "info",     label: "Info (📢)" },
+              { value: "warning",  label: "Warning (⚠️)" },
+              { value: "critical", label: "Critical (🚨)" },
+            ]}
+            allowDeselect={false}
+          />
+        </Group>
+
+        {(deliverVia === "terminal" || deliverVia === "both") && (
+          <Paper withBorder p="xs" radius="sm" bg="var(--mantine-color-yellow-light)" style={{ borderColor: "var(--mantine-color-yellow-4)" }}>
+            <Group gap={6} wrap="nowrap" align="flex-start">
+              <IconTerminal2 size={14} color="var(--mantine-color-yellow-7)" />
+              <Text size="xs" c="dimmed" style={{ lineHeight: 1.5 }}>
+                Pesan akan disisipkan ke <Text span fw={700}>response /v1/messages</Text> berikutnya untuk
+                setiap user target. Tidak akan double-deliver (tracking per user). Otomatis
+                di-skip kalau request adalah tool_result continuation atau response berisi tool_use.
+              </Text>
+            </Group>
+          </Paper>
+        )}
 
         <Group justify="flex-end" mt="xs">
           <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>

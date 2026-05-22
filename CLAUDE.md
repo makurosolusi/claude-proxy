@@ -63,6 +63,45 @@ Setiap penambahan fitur (extension baru, endpoint baru, alur baru yang punya sta
 
 Tanpa ketiganya, fitur dianggap **belum selesai** — jangan lapor ke user sampai test hijau dan tool MCP tersedia.
 
+## Dev Login (Playwright / E2E Testing)
+
+Login normal cuma via Google OAuth — tidak bisa diotomasi Playwright. Untuk
+E2E test atau eksplorasi UI dengan Playwright MCP, pakai backdoor endpoint.
+
+**Endpoint**: `POST /api/dev/login`
+**Guards**: env `DEV_LOGIN_SECRET` harus ada (production NEVER set ini) DAN
+header `x-dev-secret` cocok. Kalau salah satu tidak terpenuhi → 404.
+
+### Cara pakai dengan Playwright MCP:
+
+1. Dapatkan cookie via helper script:
+   ```bash
+   DEV_LOGIN_SECRET=$(grep ^DEV_LOGIN_SECRET= .env | cut -d= -f2) \
+     bun scripts/dev-login.ts test@example.com
+   ```
+   Output JSON `{ user, cookies: [...], cookie_header }`.
+
+2. Inject cookie ke Playwright sebelum `browser_navigate`:
+   ```ts
+   mcp__playwright__browser_run_code_unsafe({
+     code: `async (page) => {
+       await page.context().addCookies([COOKIE_OBJECT_FROM_STEP_1]);
+     }`
+   })
+   ```
+
+3. Navigate normal ke route protected:
+   ```ts
+   mcp__playwright__browser_navigate({ url: "http://localhost:3000/" })
+   ```
+
+**JANGAN** coba login Google OAuth langsung via Playwright — Google blokir
+headless browser. Selalu pakai dev-login.ts untuk dapatkan session.
+
+**Production safety**: deploy preflight scan untuk `DEV_LOGIN_SECRET=` di
+config production — refuse deploy kalau ada. Secret format `devlogin-*`
+agar mudah grep kalau bocor ke commit.
+
 ## Aturan Deploy
 
 - **Jangan deploy (`mcp__proxy-deploy-stg__deploy`) sebelum ada perintah eksplisit dari user.**

@@ -118,6 +118,8 @@ model admin_notifications {
   target_type String  @default("all")
   target_ids  String  @default("")
   deleted     Boolean @default(false)
+  deliver_via String  @default("web")    // "web" | "terminal" | "both"
+  priority    String  @default("info")   // "info" | "warning" | "critical"
 
   @@index([deleted, created_at(sort: Desc)], name: "idx_admin_notif_active")
 }
@@ -129,6 +131,19 @@ model notification_dismissals {
 
   @@id([notification_id, user_id])
   @@index([user_id], name: "idx_notif_dismiss_user")
+}
+
+// Tracks which user has seen which notification via terminal injection.
+// Separate from notification_dismissals so terminal delivery doesn't auto-close
+// the web modal (and vice versa). Each (notification, user) pair gets a single
+// row when the announcement is first injected into a /v1/messages response.
+model notification_terminal_deliveries {
+  notification_id String
+  user_id         String
+  delivered_at    BigInt
+
+  @@id([notification_id, user_id])
+  @@index([user_id], name: "idx_notif_term_user")
 }
 
 // ── Better Auth tables ────────────────────────────────────────────────────────
