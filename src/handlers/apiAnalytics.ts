@@ -59,18 +59,25 @@ export async function handleApiAnalytics(isAdmin: boolean): Promise<Response> {
     };
   });
 
-  // Cache hit rate per user
-  const cacheRows = await prisma.$queryRaw<{ display_name: string; inp: bigint; cr: bigint; cc: bigint; reqs: bigint }[]>`
-    SELECT COALESCE(NULLIF(name, ''), token_key) AS display_name,
-           SUM(input_tokens) AS inp, SUM(cache_read) AS cr,
-           SUM(cache_creation) AS cc, COUNT(*) AS reqs
-    FROM request_logs WHERE status < 400
-    GROUP BY display_name
+  // Cache hit rate per user — group by token OWNER (users.name), so tokens
+  // like `deepseek` / `opus` / `bip-deepseek` etc. roll up under the human
+  // who owns them instead of appearing as separate rows.
+  const cacheRows = await prisma.$queryRaw<{ owner_name: string; inp: bigint; cr: bigint; cc: bigint; reqs: bigint }[]>`
+    SELECT COALESCE(NULLIF(u.name, ''), NULLIF(t.label, ''), rl.token_key) AS owner_name,
+           SUM(rl.input_tokens)   AS inp,
+           SUM(rl.cache_read)     AS cr,
+           SUM(rl.cache_creation) AS cc,
+           COUNT(*)               AS reqs
+    FROM request_logs rl
+    LEFT JOIN tokens t ON rl.token_key = t.key
+    LEFT JOIN users  u ON t.user_id    = u.id
+    WHERE rl.status < 400
+    GROUP BY owner_name
   `;
   const cacheHitRate = cacheRows.map(r => {
     const total   = Number(r.inp) + Number(r.cr);
     const hitRate = total > 0 ? Math.round((Number(r.cr) / total) * 100) : 0;
-    return { label: r.display_name, hitRate, totalInput: Number(r.inp), totalCached: Number(r.cr), requests: Number(r.reqs) };
+    return { label: r.owner_name, hitRate, totalInput: Number(r.inp), totalCached: Number(r.cr), requests: Number(r.reqs) };
   }).sort((a, b) => b.requests - a.requests);
 
   // Peak hours (last 7 days)
@@ -118,10 +125,17 @@ export async function handleApiAnalytics(isAdmin: boolean): Promise<Response> {
     .filter(e => e.alltime > 0)
     .sort((a, b) => b.today - a.today || b.alltime - a.alltime);
 
-  // Anomaly scores
+  // Anomaly scores — label = OWNER name (resolved from token_key via nameMap),
+  // not the snapshot stored in request_logs.name. Otherwise tokens labeled
+  // `opus` / `deepseek` etc. show as anonymous entries.
   const anomalyRows = recentLogs.slice(0, 100).map(l => {
     const score = anomalyScore(l.input_tokens, l.output_tokens, l.tool_use_count, l.duration_ms);
-    return { id: l.id, ts: l.ts, label: l.name, input_tokens: l.input_tokens, output_tokens: l.output_tokens, turns: l.turns, tool_use: l.tool_use_count, duration_ms: l.duration_ms, score };
+    return {
+      id: l.id, ts: l.ts,
+      label: keyToName(nameMap, l.token_key),
+      input_tokens: l.input_tokens, output_tokens: l.output_tokens,
+      turns: l.turns, tool_use: l.tool_use_count, duration_ms: l.duration_ms, score,
+    };
   }).filter(r => r.score > 0).sort((a, b) => b.score - a.score).slice(0, 20);
 
   // Stop reason distribution

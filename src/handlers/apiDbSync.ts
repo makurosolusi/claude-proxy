@@ -60,56 +60,112 @@ export function listSyncTokens(): SyncToken[] {
   return [...syncTokens.values()];
 }
 
-// ── Export handler (stg side) ─────────────────────────────────────────────────
+// BigInt → string agar JSON-serializable. Module-level so both export +
+// sync paths share the same helper.
+function serialize(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === "bigint") return obj.toString();
+  if (Array.isArray(obj)) return obj.map(serialize);
+  if (typeof obj === "object") {
+    const out: any = {};
+    for (const [k, v] of Object.entries(obj)) out[k] = serialize(v);
+    return out;
+  }
+  return obj;
+}
 
+// ── Export handler (stg side) — NDJSON stream ─────────────────────────────────
+// Streams one row per line as NDJSON. Memory bounded: large tables
+// (request_logs) are paginated from DB in batches of 500. Reverse proxies
+// flush as bytes arrive instead of waiting for the full response — eliminates
+// the 502 / OOM that hit when this was a single Response.json() blob.
+//
+// Wire protocol (one JSON object per line, separated by \n):
+//   {"type":"meta","version":2,"exported_at":"..."}
+//   {"type":"row","table":"users","data":{...}}
+//   {"type":"row","table":"users","data":{...}}
+//   {"type":"table_end","table":"users","count":N}
+//   ... per-table rows + table_end ...
+//   {"type":"end"}
+//
+// Client must read line-by-line. See handleDbSync for the consumer.
 export async function handleDbExport(req: Request): Promise<Response> {
   const token = new URL(req.url).searchParams.get("token") || "";
   if (!validateSyncToken(token)) {
     return Response.json({ error: "Invalid sync token" }, { status: 401 });
   }
 
-  // Fetch semua tabel yang relevan secara paralel
-  const [
-    usersRows,
-    tokensRows,
-    logsRows,
-    dailyRows,
-    upstreamRow,
-    settingsRows,
-  ] = await Promise.all([
-    prisma.users.findMany(),
-    prisma.tokens.findMany(),
-    prisma.request_logs.findMany({ orderBy: { ts: "desc" }, take: 10_000 }),
-    prisma.daily_usage.findMany(),
-    prisma.upstream_state.findUnique({ where: { id: 1 } }),
-    prisma.settings.findMany(),
-  ]);
+  const enc = new TextEncoder();
+  const REQUEST_LOGS_MAX = 10_000;
+  const PAGE_SIZE        = 500;
 
-  // BigInt → string agar JSON-serializable
-  const serialize = (obj: any): any => {
-    if (obj === null || obj === undefined) return obj;
-    if (typeof obj === "bigint") return obj.toString();
-    if (Array.isArray(obj)) return obj.map(serialize);
-    if (typeof obj === "object") {
-      const out: any = {};
-      for (const [k, v] of Object.entries(obj)) out[k] = serialize(v);
-      return out;
-    }
-    return obj;
-  };
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const writeLine = (obj: unknown) => {
+        controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+      };
 
-  return Response.json({
-    version:     1,
-    exported_at: new Date().toISOString(),
-    tables: {
-      users:          serialize(usersRows),
-      tokens:         serialize(tokensRows),
-      request_logs:   serialize(logsRows),
-      daily_usage:    serialize(dailyRows),
-      upstream_state: upstreamRow ? serialize(upstreamRow) : null,
-      settings:       serialize(settingsRows),
+      try {
+        writeLine({ type: "meta", version: 2, exported_at: new Date().toISOString() });
+
+        // Small tables — fetch all at once, stream rows out
+        const smallTables: Array<{ name: string; fetch: () => Promise<any[]> }> = [
+          { name: "users",       fetch: () => prisma.users.findMany() },
+          { name: "tokens",      fetch: () => prisma.tokens.findMany() },
+          { name: "daily_usage", fetch: () => prisma.daily_usage.findMany() },
+          { name: "settings",    fetch: () => prisma.settings.findMany() },
+        ];
+
+        for (const { name, fetch } of smallTables) {
+          const rows = await fetch();
+          for (const row of rows) writeLine({ type: "row", table: name, data: serialize(row) });
+          writeLine({ type: "table_end", table: name, count: rows.length });
+        }
+
+        // upstream_state — single row
+        const upRow = await prisma.upstream_state.findUnique({ where: { id: 1 } });
+        if (upRow) writeLine({ type: "row", table: "upstream_state", data: serialize(upRow) });
+        writeLine({ type: "table_end", table: "upstream_state", count: upRow ? 1 : 0 });
+
+        // request_logs — paginated, memory-bounded. Cap at REQUEST_LOGS_MAX
+        // to match historical behavior; raise this constant if needed.
+        let cursor = 0;
+        let totalLogs = 0;
+        while (cursor < REQUEST_LOGS_MAX) {
+          const batch = await prisma.request_logs.findMany({
+            orderBy: { ts: "desc" },
+            skip: cursor,
+            take: Math.min(PAGE_SIZE, REQUEST_LOGS_MAX - cursor),
+          });
+          if (batch.length === 0) break;
+          for (const row of batch) writeLine({ type: "row", table: "request_logs", data: serialize(row) });
+          totalLogs += batch.length;
+          cursor    += batch.length;
+          if (batch.length < PAGE_SIZE) break;
+        }
+        writeLine({ type: "table_end", table: "request_logs", count: totalLogs });
+
+        writeLine({ type: "end" });
+        controller.close();
+      } catch (e: any) {
+        // Best-effort error line so client knows why stream ended early.
+        try {
+          writeLine({ type: "error", message: e?.message || "Unknown export error" });
+        } catch {}
+        try { controller.close(); } catch {}
+      }
     },
-  }, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type":      "application/x-ndjson",
+      "Cache-Control":     "no-store",
+      // Disable reverse-proxy buffering — critical so chunks reach the client
+      // as soon as written, not pooled into a single big buffer.
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
 
 // ── Sync handler (dev side) ───────────────────────────────────────────────────
@@ -176,12 +232,21 @@ export async function handleDbSync(req: Request): Promise<Response> {
         emit("start", { source: url, tables: tablesToSync, started_at: new Date().toISOString() });
 
         // ── Fetch export from remote ─────────────────────────────────────
+        // Modern path: NDJSON stream (one row per line, memory-bounded).
+        // Legacy path: JSON blob (kept for cross-version compatibility while
+        // older servers are still in the wild).
         emit("phase", { phase: "fetching_export", source: url });
-        let exportData: any;
+        const tables: Record<string, any[]> = {};
+        let exportedAt = "";
+        let exportVersion = 0;
+
         try {
           const exportUrl = new URL("/api/admin/db/export", url.replace(/\/$/, ""));
           exportUrl.searchParams.set("token", token);
-          const res = await fetch(exportUrl.toString(), { signal: AbortSignal.timeout(60_000) });
+          // 5min ceiling for large exports — we no longer need to wait for the
+          // whole blob, but the connection itself can take a while on slow
+          // upstreams. AbortSignal also lets us cancel cleanly.
+          const res = await fetch(exportUrl.toString(), { signal: AbortSignal.timeout(300_000) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as any;
             return emitError("export_fetch", `Export endpoint returned HTTP ${res.status}`, {
@@ -189,15 +254,99 @@ export async function handleDbSync(req: Request): Promise<Response> {
               remote_error: err.error || null,
             });
           }
-          const raw = await res.text();
-          emit("phase", { phase: "exported", size_bytes: raw.length });
-          try {
-            exportData = JSON.parse(raw);
-          } catch (e: any) {
-            return emitError("export_parse", `Failed to parse export payload as JSON: ${e.message}`, {
-              size_bytes: raw.length,
-              preview: raw.slice(0, 200),
-            });
+
+          const contentType = res.headers.get("content-type") || "";
+          const isNdjson    = contentType.includes("application/x-ndjson");
+
+          if (isNdjson) {
+            // ── NDJSON stream reader ─────────────────────────────────────
+            const reader  = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let buf       = "";
+            let bytes     = 0;
+            let rows      = 0;
+            let lastEmit  = 0;
+            let streamErr: string | null = null;
+
+            const processLine = (line: string) => {
+              if (!line.trim()) return;
+              const obj = JSON.parse(line);
+              if (obj.type === "meta") {
+                exportVersion = obj.version || 0;
+                exportedAt    = obj.exported_at || "";
+              } else if (obj.type === "row") {
+                (tables[obj.table] ||= []).push(obj.data);
+                rows++;
+              } else if (obj.type === "table_end") {
+                // info only — used for progress UX in the future
+              } else if (obj.type === "end") {
+                // marker; loop will end when reader done
+              } else if (obj.type === "error") {
+                streamErr = obj.message || "Remote stream error";
+              }
+            };
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (cancelled) { reader.cancel().catch(() => {}); break; }
+
+              bytes += value.length;
+              buf   += decoder.decode(value, { stream: true });
+              const lines = buf.split("\n");
+              buf = lines.pop() ?? "";
+
+              for (const line of lines) {
+                try { processLine(line); }
+                catch (e: any) {
+                  return emitError("export_parse", `Failed to parse NDJSON line: ${e.message}`, {
+                    line_preview: line.slice(0, 200),
+                  });
+                }
+              }
+
+              // Throttled progress event (every 250ms) so client UI shows
+              // streaming activity without spamming WS.
+              const now = Date.now();
+              if (now - lastEmit > 250) {
+                emit("phase", { phase: "downloading", bytes, rows });
+                lastEmit = now;
+              }
+            }
+
+            // Flush any tail bytes that didn't end with \n
+            if (buf.trim()) {
+              try { processLine(buf); } catch {}
+            }
+
+            if (streamErr) {
+              return emitError("export_stream", `Remote stream error: ${streamErr}`, {});
+            }
+
+            emit("phase", { phase: "exported", size_bytes: bytes, rows });
+          } else {
+            // ── Legacy JSON blob path ────────────────────────────────────
+            const raw = await res.text();
+            emit("phase", { phase: "exported", size_bytes: raw.length });
+            try {
+              const exportData = JSON.parse(raw);
+              if (exportData.version !== 1) {
+                return emitError("export_parse", `Incompatible export version: expected 1, got ${exportData.version}`, {
+                  received_version: exportData.version,
+                });
+              }
+              exportVersion = exportData.version;
+              exportedAt    = exportData.exported_at;
+              for (const [k, v] of Object.entries(exportData.tables || {})) {
+                if (Array.isArray(v)) tables[k] = v as any[];
+                else if (v) tables[k] = [v]; // upstream_state historically a single object
+              }
+            } catch (e: any) {
+              return emitError("export_parse", `Failed to parse export payload as JSON: ${e.message}`, {
+                size_bytes: raw.length,
+                preview: raw.slice(0, 200),
+              });
+            }
           }
         } catch (e: any) {
           return emitError("export_fetch", `Network error fetching export: ${e.message}`, {
@@ -207,13 +356,12 @@ export async function handleDbSync(req: Request): Promise<Response> {
 
         if (cancelled) { try { controller.close(); } catch {} return; }
 
-        if (exportData.version !== 1) {
-          return emitError("export_parse", `Incompatible export version: expected 1, got ${exportData.version}`, {
-            received_version: exportData.version,
+        if (exportVersion !== 1 && exportVersion !== 2) {
+          return emitError("export_parse", `Incompatible export version: ${exportVersion}`, {
+            received_version: exportVersion,
           });
         }
 
-        const { tables } = exportData as { tables: Record<TableName, any[]> };
         const stats: Record<string, number> = {};
 
         const toBigIntFields = (row: Record<string, any>, fields: string[]): Record<string, any> => {
@@ -269,7 +417,7 @@ export async function handleDbSync(req: Request): Promise<Response> {
               }, { timeout: 30_000 });
               stats[tbl] = rows.length;
             } else if (tbl === "upstream_state") {
-              const row = tables.upstream_state as any;
+              const row = Array.isArray(tables.upstream_state) ? tables.upstream_state[0] : null;
               if (row) {
                 const data = toBigIntFields(row, ["detected_window_ms", "last_poll"]) as any;
                 await prisma.upstream_state.upsert({ where: { id: 1 }, create: data, update: data });
@@ -313,7 +461,7 @@ export async function handleDbSync(req: Request): Promise<Response> {
           ok:          true,
           synced_at:   new Date().toISOString(),
           source:      url,
-          exported_at: exportData.exported_at,
+          exported_at: exportedAt,
           stats,
         });
         try { controller.close(); } catch {}

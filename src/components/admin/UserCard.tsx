@@ -1,7 +1,34 @@
+import { useState, useEffect } from "react";
 import {
   Stack, Text, Group, Paper, Table, ThemeIcon, Box, Badge, ActionIcon, Tooltip,
   Button, Progress, Alert, Divider,
 } from "@mantine/core";
+
+function fmtMs(ms: number): string {
+  if (ms <= 0) return "habis";
+  const s   = Math.floor(ms / 1000);
+  const m   = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+// Isolated counter so we don't rerender the entire UserCard every second.
+function GraceCountdown({ until, urgent }: { until: number; urgent: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const remaining = until - now;
+  const isUrgent  = urgent || remaining < 5 * 60 * 1000;
+  return (
+    <Badge size="md" radius="sm" variant="filled" color={isUrgent ? "orange" : "yellow"}
+      style={{ fontFamily: "Geist Mono, monospace", fontWeight: 800, fontSize: 12,
+        minWidth: 58, textAlign: "center", color: isUrgent ? "#fff7ed" : "#1c1917" }}>
+      {fmtMs(remaining)}
+    </Badge>
+  );
+}
 import {
   IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
   IconKey, IconPlus, IconCheck, IconBan, IconClock, IconPinnedOff, IconLockOpen, IconHourglass,
@@ -287,31 +314,37 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
 
     const body = (
       <Stack gap="sm">
-        {u.context_blocked_at && (
-          <Alert color={u.context_block_grace_until && u.context_block_grace_until > Date.now() ? "yellow" : "red"}
-            variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
-            <Group justify="space-between" wrap="nowrap" gap="xs">
-              <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-                <Text size="xs" fw={700}>
-                  {u.context_block_grace_until && u.context_block_grace_until > Date.now() ? "⏳ Grace aktif" : "⛔ Context Block aktif"}
-                </Text>
-                <Text size="xs" c="dimmed" lineClamp={2}>{u.context_block_reason}</Text>
-              </Stack>
-              <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-                <Tooltip label="Beri 30 menit grace — user bisa /compact tanpa re-block" withArrow>
-                  <Button size="xs" color="yellow" variant="light" leftSection={<IconHourglass size={12} />}
-                    onClick={() => onForceGrace(u)}>
-                    Force 30m
+        {u.context_blocked_at && (() => {
+          const graceActive = !!(u.context_block_grace_until && u.context_block_grace_until > Date.now());
+          return (
+            <Alert color={graceActive ? "yellow" : "red"}
+              variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
+              <Group justify="space-between" wrap="nowrap" gap="xs">
+                <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                  <Group gap={6} wrap="nowrap" align="center">
+                    <Text size="xs" fw={700}>
+                      {graceActive ? "⏳ Grace aktif" : "⛔ Context Block aktif"}
+                    </Text>
+                    {graceActive && <GraceCountdown until={u.context_block_grace_until!} urgent={false} />}
+                  </Group>
+                  <Text size="xs" c="dimmed" lineClamp={2}>{u.context_block_reason}</Text>
+                </Stack>
+                <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+                  <Tooltip label="Beri 30 menit grace — user bisa /compact tanpa re-block" withArrow>
+                    <Button size="xs" color="yellow" variant="light" leftSection={<IconHourglass size={12} />}
+                      onClick={() => onForceGrace(u)}>
+                      Force 30m
+                    </Button>
+                  </Tooltip>
+                  <Button size="xs" color="red" variant="filled" leftSection={<IconLockOpen size={12} />}
+                    onClick={() => onUnblockContext(u)}>
+                    Unblock
                   </Button>
-                </Tooltip>
-                <Button size="xs" color="red" variant="filled" leftSection={<IconLockOpen size={12} />}
-                  onClick={() => onUnblockContext(u)}>
-                  Unblock
-                </Button>
+                </Group>
               </Group>
-            </Group>
-          </Alert>
-        )}
+            </Alert>
+          );
+        })()}
         {!u.email && (
           <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
             <Text size="xs"><b>Legacy user</b> — no Google account linked. Set an email via Edit to allow migration, or purge once all users have migrated.</Text>
@@ -377,31 +410,37 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
 
   const gridBody = (
     <Stack gap="sm">
-      {u.context_blocked_at && (
-        <Alert color={u.context_block_grace_until && u.context_block_grace_until > Date.now() ? "yellow" : "red"}
-          variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
-          <Group justify="space-between" wrap="nowrap" gap="xs">
-            <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-              <Text size="xs" fw={700}>
-                {u.context_block_grace_until && u.context_block_grace_until > Date.now() ? "⏳ Grace aktif" : "⛔ Context Block aktif"}
-              </Text>
-              <Text size="xs" c="dimmed" lineClamp={2}>{u.context_block_reason}</Text>
-            </Stack>
-            <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-              <Tooltip label="Beri 30 menit grace" withArrow>
-                <Button size="xs" color="yellow" variant="light" leftSection={<IconHourglass size={12} />}
-                  onClick={() => onForceGrace(u)}>
-                  30m
+      {u.context_blocked_at && (() => {
+        const graceActive = !!(u.context_block_grace_until && u.context_block_grace_until > Date.now());
+        return (
+          <Alert color={graceActive ? "yellow" : "red"}
+            variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
+            <Group justify="space-between" wrap="nowrap" gap="xs">
+              <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                <Group gap={6} wrap="nowrap" align="center">
+                  <Text size="xs" fw={700}>
+                    {graceActive ? "⏳ Grace aktif" : "⛔ Context Block aktif"}
+                  </Text>
+                  {graceActive && <GraceCountdown until={u.context_block_grace_until!} urgent={false} />}
+                </Group>
+                <Text size="xs" c="dimmed" lineClamp={2}>{u.context_block_reason}</Text>
+              </Stack>
+              <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+                <Tooltip label="Beri 30 menit grace" withArrow>
+                  <Button size="xs" color="yellow" variant="light" leftSection={<IconHourglass size={12} />}
+                    onClick={() => onForceGrace(u)}>
+                    30m
+                  </Button>
+                </Tooltip>
+                <Button size="xs" color="red" variant="filled" leftSection={<IconLockOpen size={12} />}
+                  onClick={() => onUnblockContext(u)}>
+                  Unblock
                 </Button>
-              </Tooltip>
-              <Button size="xs" color="red" variant="filled" leftSection={<IconLockOpen size={12} />}
-                onClick={() => onUnblockContext(u)}>
-                Unblock
-              </Button>
+              </Group>
             </Group>
-          </Group>
-        </Alert>
-      )}
+          </Alert>
+        );
+      })()}
       {!u.email && (
         <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={14} />} p="xs" radius="sm">
           <Text size="xs"><b>Legacy user</b> — no Google account linked. Set an email via Edit to allow migration.</Text>

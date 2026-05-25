@@ -288,6 +288,7 @@ function SyncFromRemoteSection() {
   const phaseLabel: Record<string, string> = {
     starting:         "Memulai…",
     fetching_export:  "Mengambil data dari remote…",
+    downloading:      "Streaming data dari remote…",
     exported:         "Data diterima, memproses…",
     writing:          "Menulis ke database…",
     reloading_state:  "Memuat ulang state runtime…",
