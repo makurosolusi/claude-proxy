@@ -119,6 +119,19 @@ export interface ProfileResponse {
   context_blocked_at?:         number | null;
   context_block_grace_until?:  number | null;
 }
+export interface AnalyticsData {
+  modelDist:      { model: string; requests: number; tokens: number; pct: number }[];
+  cacheHitRate:   { label: string; hitRate: number; totalInput: number; totalCached: number; requests: number }[];
+  peakHours:      { h: number; requests: number; tokens: number }[];
+  peakHour:       number;
+  leaderboard:    { label: string; today: number; alltime: number; peakHour: number | null; paused: boolean }[];
+  anomalyScores:  { id: number; ts: number; label: string; input_tokens: number; output_tokens: number; turns: number; tool_use: number; duration_ms: number; score: number }[];
+  stopReasonDist: { stop_reason: string; n: number }[];
+  dailyByUser:    { date: string; by_user: Record<string, number> }[];
+  dailyUsers:     string[];
+  allTimeByUser:  { user: string; total: number }[];
+}
+
 export interface ChatMsg { id: string; type: "chat" | "system"; nick: string; text: string; ts: number; }
 export interface ChatCtxType { messages: ChatMsg[]; send: (nick: string, text: string) => void; }
 

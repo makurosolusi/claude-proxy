@@ -40,6 +40,34 @@ export function avatarColor(name: string) {
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return palette[h % palette.length] || "blue";
 }
+export function fmtHour(h: number) { return `${String(h).padStart(2, "0")}:00`; }
+export function anomalyScoreColor(s: number) {
+  if (s >= 70) return "#e03131";
+  if (s >= 40) return "#f76707";
+  if (s >= 20) return "#fab005";
+  return "#12b886";
+}
+export async function resolveLoginRedirect(): Promise<string> {
+  try {
+    const r = await fetch("/api/profile", { credentials: "include" });
+    const d = await r.json() as any;
+    if (!d?.authenticated) return "/login";
+    if (d?.status === "blocked")  return "/diblokir";
+    if (d?.status === "pending")  return "/menunggu";
+    if (d?.role === "SUPER_ADMIN" || d?.role === "ADMIN") return "/admin";
+  } catch {}
+  return "/";
+}
+export async function signInWithGoogle() {
+  const r = await fetch("/api/auth/sign-in/social", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ provider: "google", callbackURL: "/login/redirect" }),
+  });
+  const d = await r.json() as any;
+  if (d?.url) window.location.href = d.url;
+}
 export async function adminPost(path: string, fields: Record<string, string> = {}) {
   await fetch(path, {
     method: "POST",
