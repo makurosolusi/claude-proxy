@@ -93,7 +93,7 @@ export function LeaderboardPanel({ analytics, userImages }: LeaderboardPanelProp
                     trigger: "axis", axisPointer: { type: "shadow" },
                     formatter: (params: any[]) => {
                       const p = params[0];
-                      return p.name + "<br/>" + nf.format(p.value) + " tokens";
+                      return p.name + "<" + "br/>" + nf.format(p.value) + " tokens";
                     },
                   },
                   grid: { top: 8, bottom: 8, left: "2%", right: "14%", containLabel: true },
@@ -154,13 +154,15 @@ export function LeaderboardPanel({ analytics, userImages }: LeaderboardPanelProp
                   tooltip: {
                     trigger: "axis", axisPointer: { type: "cross" },
                     formatter: (params: any[]) => {
-                      const br = "<br/>", bOpen = "<b>", bClose = "</b>";
-                      const spanOpen = (color: string) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px">`;
+                      const br = "<" + "br/>";
+                      const bOpen = "<" + "b>", bClose = "<" + "/b>";
+                      const spanOpen = (color: string) => "<" + `span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px">`;
+                      const spanClose = "<" + "/span>";
                       const date = params[0]?.axisValue ?? "";
                       const lines = params
                         .filter((p: any) => p.value > 0)
                         .sort((a: any, b: any) => b.value - a.value)
-                        .map((p: any) => spanOpen(p.color) + "</span>" + p.seriesName + ": " + nf.format(p.value));
+                        .map((p: any) => spanOpen(p.color) + spanClose + p.seriesName + ": " + nf.format(p.value));
                       return [bOpen + date + bClose, ...lines].join(br);
                     },
                   },
