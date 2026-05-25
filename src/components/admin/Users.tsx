@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, ThemeIcon,
-  Loader, Select, Switch, SegmentedControl,
+  Loader, Select, Switch, SegmentedControl, Button,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
@@ -24,6 +24,26 @@ import { NotificationBroadcast } from "./NotificationBroadcast";
 
 type UserStatus = "pending" | "approved" | "blocked";
 type SortKey = "name" | "usage" | "tokens" | "newest";
+
+function FilterModal({ options, action, onConfirm }: {
+  options: string[]; action: "reset" | "edit";
+  onConfirm: (val: string, limit: string) => void;
+}) {
+  const [val, setVal] = useState<string | null>(null);
+  const [limit, setLimit] = useState("40000");
+  return (
+    <Stack gap="sm" mt="xs">
+      <Select placeholder="Select…" searchable data={options} value={val} onChange={setVal} />
+      {action === "edit" && <TextInput label="New limit" placeholder="e.g. 40000 or unlimited" value={limit} onChange={e => setLimit(e.currentTarget.value)} />}
+      <Group justify="flex-end" gap="xs">
+        <Button variant="subtle" size="sm" onClick={() => modals.closeAll()}>Cancel</Button>
+        <Button size="sm" color={action === "reset" ? "red" : "blue"} disabled={!val || (action === "edit" && !limit)} onClick={() => val && onConfirm(val, limit)}>
+          {action === "reset" ? "Reset" : "Apply"}
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
 
 export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, TokenStatus> }) {
   const status = useStatus();
@@ -49,7 +69,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     catch { return "grid"; }
   });
   const [rowAction, setRowAction]           = useState<{ key: string; act: string } | null>(null);
-  const [bulkAction, setBulkAction]         = useState<"reset" | "pause" | "purge" | null>(null);
+  const [bulkAction, setBulkAction]         = useState<string | null>(null);
   const [statusBusy, setStatusBusy]         = useState<string | null>(null);
   const [demoMode, setDemoMode]             = useState(false);
   const [demoSaving, setDemoSaving]         = useState(false);
@@ -112,7 +132,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     } finally { setRowAction(null); }
   };
 
-  const runBulkAction = async (act: "reset" | "pause" | "purge", fn: () => Promise<void>, msg: string) => {
+  const runBulkAction = async (act: string, fn: () => Promise<void>, msg: string) => {
     setBulkAction(act);
     try {
       await fn(); await reload();
@@ -121,6 +141,21 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
       notifications.show({ color: "red", title: "Error", message: e.message || "Action failed", autoClose: 4000 });
     } finally { setBulkAction(null); }
   };
+
+  const openFilterReset = (by: "provider" | "model") => modals.open({
+    title: `Reset by ${by === "provider" ? "Provider" : "Model"}`,
+    children: <FilterModal options={by === "provider" ? uniqueProviders : uniqueModels} action="reset"
+      onConfirm={async (val) => { modals.closeAll();
+        const keys = entries.filter(([,t]) => (by === "provider" ? t.activeProvider : t.pinned_model) === val).map(([k]) => k);
+        await runBulkAction(`reset-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/reset", { token: k }))); }, `${keys.length} token(s) reset`); }} />,
+  });
+  const openFilterEdit = (by: "provider" | "model") => modals.open({
+    title: `Edit Limit by ${by === "provider" ? "Provider" : "Model"}`,
+    children: <FilterModal options={by === "provider" ? uniqueProviders : uniqueModels} action="edit"
+      onConfirm={async (val, lim) => { modals.closeAll();
+        const keys = entries.filter(([,t]) => (by === "provider" ? t.activeProvider : t.pinned_model) === val).map(([k]) => k);
+        await runBulkAction(`edit-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/token/edit", { token: k, limit: lim }))); }, `${keys.length} token(s) updated`); }} />,
+  });
 
   const forceGrace = async (u: ApiUser) => {
     try {
@@ -223,6 +258,8 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const total      = entries.length;
   const paused     = entries.filter(([, t]) => t.paused).length;
   const overLimit  = entries.filter(([, t]) => t.pct > 100).length;
+  const uniqueProviders = useMemo(() => [...new Set(Object.values(tokenStatuses).map(t => t.activeProvider).filter(Boolean))].sort(), [tokenStatuses]);
+  const uniqueModels    = useMemo(() => [...new Set(Object.values(tokenStatuses).map(t => t.pinned_model).filter(Boolean))].sort(), [tokenStatuses]);
 
   const cardActions: UserCardActions = {
     rowAction, statusBusy, customProviders,
@@ -317,6 +354,20 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
           </Group>
         </Paper>
         {([
+          { key: "edit-provider", label: "Edit by Provider", desc: "Set limit for a specific provider's tokens", by: "provider" as const },
+          { key: "edit-model",    label: "Edit by Model",    desc: "Set limit for tokens with a pinned model",  by: "model" as const },
+        ]).map(({ key, label, desc, by }) => (
+          <Paper key={key} withBorder p="sm" radius="md" style={{ cursor: bulkAction === key ? "default" : "pointer", opacity: bulkAction === key ? 0.7 : 1 }}
+            onClick={bulkAction === key ? undefined : () => openFilterEdit(by)}>
+            <Group gap="sm" wrap="nowrap">
+              <ThemeIcon variant="light" color="blue" size="lg" radius="md">
+                {bulkAction === key ? <Loader size={16} color="var(--mantine-color-dimmed)" /> : <IconPencil size={18} />}
+              </ThemeIcon>
+              <div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{desc}</Text></div>
+            </Group>
+          </Paper>
+        ))}
+        {([
           { act: "reset" as const, color: "gray",   icon: <IconRefresh size={18} />,     label: "Reset All Usage",    desc: "Zero out window counters for all tokens" },
           { act: "pause" as const, color: "orange", icon: <IconPlayerPause size={18} />, label: "Pause All Tokens",   desc: "Suspend all tokens temporarily" },
           { act: "purge" as const,        color: "red",    icon: <IconTrash size={18} />,       label: "Purge Orphan Users",  desc: "Delete users with no tokens" },
@@ -359,6 +410,20 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             </Paper>
           );
         })}
+        {([
+          { key: "reset-provider", label: "Reset by Provider", desc: "Zero out counters for a provider's tokens", by: "provider" as const },
+          { key: "reset-model",    label: "Reset by Model",    desc: "Zero out counters for a pinned model's tokens", by: "model" as const },
+        ]).map(({ key, label, desc, by }) => (
+          <Paper key={key} withBorder p="sm" radius="md" style={{ cursor: bulkAction === key ? "default" : "pointer", opacity: bulkAction === key ? 0.7 : 1 }}
+            onClick={bulkAction === key ? undefined : () => openFilterReset(by)}>
+            <Group gap="sm" wrap="nowrap">
+              <ThemeIcon variant="light" color="gray" size="lg" radius="md">
+                {bulkAction === key ? <Loader size={16} color="var(--mantine-color-dimmed)" /> : <IconRefresh size={18} />}
+              </ThemeIcon>
+              <div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{desc}</Text></div>
+            </Group>
+          </Paper>
+        ))}
       </SimpleGrid>
 
       {/* Users list */}

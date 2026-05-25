@@ -61,9 +61,6 @@ export function FeedEntry({
         background: compact ? "var(--cp-surface-2)" : severityGradient(sev, isErr),
         opacity: compact ? 0.88 : 1,
         position: "relative",
-        borderLeft: !compact && sev !== "normal"
-          ? `2px solid ${isErr ? "#ef4444" : SEV_COLOR[sev]}`
-          : "2px solid transparent",
         transition: "background 0.3s ease",
       }}
     >
@@ -243,7 +240,6 @@ export function GroupedEntry({
           borderBottom: "1px solid var(--cp-border)",
           cursor: "pointer",
           background: severityGradient(sev, isErr),
-          borderLeft: sev !== "normal" ? `2px solid ${isErr ? "#ef4444" : SEV_COLOR[sev]}` : "2px solid transparent",
           transition: "background 0.3s ease",
         }}
       >

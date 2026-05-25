@@ -2003,16 +2003,18 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                   return (
                     <Box key={g.groupKey}>
                       {/* User header row */}
-                      <Group gap="sm" wrap="nowrap" mb={6}>
-                        <Group gap={8} style={{ minWidth: isAdmin ? 140 : 110, maxWidth: isAdmin ? 200 : 160, flexShrink: 0 }} wrap="nowrap">
+                      <Group gap="sm" wrap="nowrap" mb={6} align="center">
+                        <Group gap={8} style={{ width: isAdmin ? 170 : 140, flexShrink: 0 }} wrap="nowrap" align="center">
                           <UserAvatar name={headerName} imageUrl={headerImage} size={26} />
-                          <Text size="sm" fw={600} truncate>{headerName}</Text>
-                          {g.rows.length > 1 && <Badge size="xs" variant="light" color="gray">{g.rows.length} tokens</Badge>}
+                          <Text size="sm" fw={600} truncate style={{ flex: 1, minWidth: 0 }}>{headerName}</Text>
                         </Group>
                         <Progress value={pctTotal} color={colorTotal} size="sm" radius="sm" style={{ flex: 1 }} />
-                        <Text size="xs" ff="monospace" c="dimmed" ta="right" style={{ flexShrink: 0, minWidth: 100 }}>
-                          {nf.format(g.totalUsed)}{!g.hasInf && g.totalLimit > 0 && ` / ${nf.format(g.totalLimit)}`}
-                        </Text>
+                        <Group gap={6} style={{ width: 150, flexShrink: 0, justifyContent: "flex-end" }} wrap="nowrap">
+                          {g.rows.length > 1 && <Badge size="xs" variant="light" color="gray" style={{ flexShrink: 0 }}>{g.rows.length} tok</Badge>}
+                          <Text size="xs" ff="monospace" c="dimmed" ta="right" style={{ flexShrink: 0 }}>
+                            {nf.format(g.totalUsed)}{!g.hasInf && g.totalLimit > 0 && ` / ${nf.format(g.totalLimit)}`}
+                          </Text>
+                        </Group>
                       </Group>
                       {/* Token rows nested under owner */}
                       <Stack gap={4} pl={isAdmin ? 36 : 30}>
@@ -2029,20 +2031,19 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                           const isExplicit = !!explicitLabel;
                           return (
                             <Group key={key} gap="sm" wrap="nowrap" style={{ cursor: "pointer" }} onClick={() => setSelectedToken({ key, tk })}>
-                              <Group gap={4} style={{ minWidth: isAdmin ? 140 : 110, maxWidth: isAdmin ? 200 : 160, flexShrink: 0 }} wrap="nowrap">
-                                <Tooltip label={explicitLabel || `default token · ${tk.activeModel || "auto"}`} withArrow openDelay={400}>
-                                  <Text size="xs" ff="monospace" c="dimmed" truncate fs={isExplicit ? undefined : "italic"}>
-                                    {maskToken(rowLabel)}
-                                  </Text>
-                                </Tooltip>
-                              </Group>
+                              <Tooltip label={explicitLabel || `default token · ${tk.activeModel || "auto"}`} withArrow openDelay={400}>
+                                <Text size="xs" ff="monospace" c="dimmed" truncate fs={isExplicit ? undefined : "italic"}
+                                  style={{ width: isAdmin ? 130 : 110, flexShrink: 0 }}>
+                                  {maskToken(rowLabel)}
+                                </Text>
+                              </Tooltip>
                               <Progress value={pct} color={color} size="xs" radius="sm" style={{ flex: 1 }} />
-                              <Group gap={4} style={{ minWidth: 72, justifyContent: "flex-end", flexShrink: 0 }} wrap="nowrap">
+                              {/* provider + alerts — fixed slot */}
+                              <Group gap={4} style={{ width: 72, justifyContent: "flex-end", flexShrink: 0 }} wrap="nowrap">
                                 {spike && <Tooltip label="Spike hari ini >2× rata-rata" withArrow><IconAlertTriangle size={11} color="var(--mantine-color-orange-5)" /></Tooltip>}
                                 {tk.activeProvider && tk.activeProvider !== "anthropic" && (
-                                  <Text size="10px" ff="monospace"
-                                    c={tk.activeProvider === "deepseek" ? "violet" : tk.activeProvider === "openrouter" ? "orange" : "blue"}
-                                    style={{ flexShrink: 0 }}>
+                                  <Text size="10px" ff="monospace" style={{ flexShrink: 0 }}
+                                    c={tk.activeProvider === "deepseek" ? "violet" : tk.activeProvider === "openrouter" ? "orange" : "blue"}>
                                     {tk.activeProvider}
                                   </Text>
                                 )}
@@ -2051,10 +2052,11 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                                     {hoursL < 1 ? "<1h" : `~${hoursL.toFixed(0)}h`}
                                   </Text>
                                 )}
-                                <Text size="10px" ff="monospace" c="dimmed" ta="right" style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
-                                  {nf.format(tk.used)}{tk.limit != null && ` / ${nf.format(tk.limit)}`}
-                                </Text>
                               </Group>
+                              {/* number — fixed slot, always aligned */}
+                              <Text size="10px" ff="monospace" c="dimmed" ta="right" style={{ width: 110, flexShrink: 0 }}>
+                                {nf.format(tk.used)}{tk.limit != null && ` / ${nf.format(tk.limit)}`}
+                              </Text>
                             </Group>
                           );
                         })}

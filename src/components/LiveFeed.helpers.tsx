@@ -83,7 +83,7 @@ export function briefExplanation(
 ): string {
   if (isErr) return `Error ${status}`;
   if (ctx === "critical") return "Context penuh — segera /compact";
-  if (tot === "critical") return "Request sangat besar — boros tokens";
+  if (tot === "critical") return "Request sangat besar";
   if (ctx === "heavy")    return "Context tinggi — pertimbangkan /compact";
   if (tot === "heavy")    return "Request berat";
   if (durationMs > 30_000) return "Request lambat";
