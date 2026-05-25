@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, ThemeIcon,
-  Loader, Select, Switch, SegmentedControl, Button,
+  Loader, Select, Switch, SegmentedControl, Button, ActionIcon, Tooltip,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
@@ -74,6 +74,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [demoMode, setDemoMode]             = useState(false);
   const [demoSaving, setDemoSaving]         = useState(false);
   const [customProviders, setCustomProviders] = useState<ProviderInfo[]>([]);
+  const [reloading, setReloading]             = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/custom-providers")
@@ -87,9 +88,9 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   }, []);
 
   const reload = useCallback(async () => {
-    const res = await fetch("/api/admin/users");
-    const data = await res.json();
-    setApiUsers(data.users ?? data);
+    setReloading(true);
+    try { const d = await (await fetch("/api/admin/users")).json(); setApiUsers(d.users ?? d); }
+    finally { setReloading(false); }
   }, []);
 
   // Auto-refresh detailToken when apiUsers reloads — keeps modal in sync
@@ -142,19 +143,14 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     } finally { setBulkAction(null); }
   };
 
-  const openFilterReset = (by: "provider" | "model") => modals.open({
-    title: `Reset by ${by === "provider" ? "Provider" : "Model"}`,
-    children: <FilterModal options={by === "provider" ? uniqueProviders : uniqueModels} action="reset"
-      onConfirm={async (val) => { modals.closeAll();
-        const keys = entries.filter(([,t]) => (by === "provider" ? t.activeProvider : t.pinned_model) === val).map(([k]) => k);
-        await runBulkAction(`reset-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/reset", { token: k }))); }, `${keys.length} token(s) reset`); }} />,
-  });
-  const openFilterEdit = (by: "provider" | "model") => modals.open({
-    title: `Edit Limit by ${by === "provider" ? "Provider" : "Model"}`,
-    children: <FilterModal options={by === "provider" ? uniqueProviders : uniqueModels} action="edit"
+  const openFilter = (type: "reset" | "edit", by: "provider" | "model") => modals.open({
+    title: `${type === "reset" ? "Reset" : "Edit Limit"} by ${by === "provider" ? "Provider" : "Model"}`,
+    children: <FilterModal options={by === "provider" ? uniqueProviders : uniqueModels} action={type}
       onConfirm={async (val, lim) => { modals.closeAll();
         const keys = entries.filter(([,t]) => (by === "provider" ? t.activeProvider : t.pinned_model) === val).map(([k]) => k);
-        await runBulkAction(`edit-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/token/edit", { token: k, limit: lim }))); }, `${keys.length} token(s) updated`); }} />,
+        if (type === "reset") await runBulkAction(`reset-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/reset", { token: k }))); }, `${keys.length} token(s) reset`);
+        else await runBulkAction(`edit-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/token/edit", { token: k, limit: lim }))); }, `${keys.length} token(s) updated`);
+      }} />,
   });
 
   const forceGrace = async (u: ApiUser) => {
@@ -358,7 +354,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
           { key: "edit-model",    label: "Edit by Model",    desc: "Set limit for tokens with a pinned model",  by: "model" as const },
         ]).map(({ key, label, desc, by }) => (
           <Paper key={key} withBorder p="sm" radius="md" style={{ cursor: bulkAction === key ? "default" : "pointer", opacity: bulkAction === key ? 0.7 : 1 }}
-            onClick={bulkAction === key ? undefined : () => openFilterEdit(by)}>
+            onClick={bulkAction === key ? undefined : () => openFilter("edit", by)}>
             <Group gap="sm" wrap="nowrap">
               <ThemeIcon variant="light" color="blue" size="lg" radius="md">
                 {bulkAction === key ? <Loader size={16} color="var(--mantine-color-dimmed)" /> : <IconPencil size={18} />}
@@ -415,7 +411,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
           { key: "reset-model",    label: "Reset by Model",    desc: "Zero out counters for a pinned model's tokens", by: "model" as const },
         ]).map(({ key, label, desc, by }) => (
           <Paper key={key} withBorder p="sm" radius="md" style={{ cursor: bulkAction === key ? "default" : "pointer", opacity: bulkAction === key ? 0.7 : 1 }}
-            onClick={bulkAction === key ? undefined : () => openFilterReset(by)}>
+            onClick={bulkAction === key ? undefined : () => openFilter("reset", by)}>
             <Group gap="sm" wrap="nowrap">
               <ThemeIcon variant="light" color="gray" size="lg" radius="md">
                 {bulkAction === key ? <Loader size={16} color="var(--mantine-color-dimmed)" /> : <IconRefresh size={18} />}
@@ -428,7 +424,15 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
       {/* Users list */}
       <Stack gap="sm">
-        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Users</Text>
+        <Group justify="space-between" align="center">
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Users</Text>
+          <Tooltip label="Reload user data" withArrow openDelay={400}>
+            <ActionIcon size="sm" variant="subtle" color="dimmed" loading={reloading} onClick={reload}>
+              <IconRefresh size={14} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+        {reloading && <Loader size="xs" type="bars" style={{ alignSelf: "center" }} />}
 
         <Group gap="sm" wrap="wrap">
           <TextInput
