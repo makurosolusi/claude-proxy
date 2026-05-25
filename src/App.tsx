@@ -124,94 +124,169 @@ function ContextAlertCard({ alert: a, onDismiss }: { alert: ContextAlert; onDism
   const [open, setOpen] = useState(false);
   const isCrit = a.severity === "critical";
   const color  = isCrit ? "red" : "orange";
+  const colorHex = isCrit ? "#dc2626" : "#ea580c";
   const Icon   = isCrit ? IconAlertHexagon : IconAlertTriangle;
   const msg    = contextMessage(a);
 
   return (
-    <Paper withBorder radius="md" style={{ borderColor: `var(--mantine-color-${color}-6)`, overflow: "hidden" }}>
-      {/* Header */}
-      <Group justify="space-between" px="md" py="sm"
+    <Paper withBorder radius="md" style={{
+      borderColor: colorHex,
+      borderLeftWidth: 3,
+      overflow: "hidden",
+    }}>
+      {/* Header — collapsed clickable summary */}
+      <Group justify="space-between" wrap="nowrap" px="md" py="sm" gap="sm"
         style={{ background: `var(--mantine-color-${color}-light)`, cursor: "pointer" }}
         onClick={() => setOpen(o => !o)}>
-        <Group gap="sm">
-          <Icon size={18} color={`var(--mantine-color-${color}-6)`} />
-          <Box>
-            <Group gap="xs">
-              <Badge color={color} variant="filled" size="xs">{isCrit ? "CRITICAL" : "WARNING"}</Badge>
-              <Text size="xs" c="dimmed" ff="monospace">{a.label}</Text>
+        <Group gap="sm" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+          <Icon size={20} color={colorHex} style={{ flexShrink: 0 }} />
+          <Box style={{ minWidth: 0, flex: 1 }}>
+            <Group gap={6} mb={3} wrap="nowrap">
+              <Badge color={color} variant="filled" size="xs" tt="uppercase" style={{ flexShrink: 0 }}>
+                {isCrit ? "Critical" : "Warning"}
+              </Badge>
+              <Text size="xs" c="dimmed" ff="monospace" truncate>{a.label}</Text>
             </Group>
-            <Text size="sm" fw={600} mt={2}>{msg.title}</Text>
+            <Text size="sm" fw={700} lh={1.35} style={{ letterSpacing: "-0.005em" }}>{msg.title}</Text>
           </Box>
         </Group>
-        <Group gap="xs">
-          <Text size="xs" c="dimmed">{open ? "sembunyikan" : "lihat solusi"}</Text>
-          {open ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-          <ActionIcon size="xs" variant="subtle" color="gray" onClick={e => { e.stopPropagation(); onDismiss(); }}>
-            <IconX size={12} />
+        <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+          <Text size="xs" c="dimmed" visibleFrom="sm">{open ? "tutup" : "detail"}</Text>
+          <ActionIcon size="sm" variant="subtle" color={color}
+            onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+            aria-label={open ? "Collapse" : "Expand"}>
+            {open ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+          </ActionIcon>
+          <ActionIcon size="sm" variant="subtle" color="gray"
+            onClick={e => { e.stopPropagation(); onDismiss(); }}
+            aria-label="Dismiss alert">
+            <IconX size={13} />
           </ActionIcon>
         </Group>
       </Group>
 
       <Collapse expanded={open}>
-        <Stack gap="md" p="md">
-          {/* Stats */}
-          <Group gap="xl" wrap="wrap">
-            <Box style={{ maxWidth: "100%", overflow: "hidden" }}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Input tokens</Text>
-              <Text size="lg" fw={700} ff="monospace" c={color} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{nf.format(a.input_tokens)}</Text>
+        <Box p="md" style={{ background: "var(--cp-surface)" }}>
+          <Stack gap="lg">
+            {/* ── Stats grid ───────────────────────────────────── */}
+            <Box>
+              <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={8} style={{ letterSpacing: ".07em" }}>
+                Metrik Request
+              </Text>
+              <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
+                <AlertStat label="Input"  value={nf.format(a.input_tokens)}  accent={colorHex} highlight />
+                <AlertStat label="Output" value={nf.format(a.output_tokens)} />
+                <AlertStat label="Rasio"  value={`${a.ratio}×`} accent={colorHex} highlight={a.ratio >= 20} />
+                <AlertStat label="Turns"  value={String(a.turns)} />
+              </SimpleGrid>
             </Box>
-            <Box style={{ maxWidth: "100%", overflow: "hidden" }}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Output tokens</Text>
-              <Text size="lg" fw={700} ff="monospace" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{nf.format(a.output_tokens)}</Text>
-            </Box>
-            <Box style={{ maxWidth: "100%", overflow: "hidden" }}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Rasio in/out</Text>
-              <Text size="lg" fw={700} ff="monospace" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{a.ratio}×</Text>
-            </Box>
-            <Box style={{ maxWidth: "100%", overflow: "hidden" }}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Turns session</Text>
-              <Text size="lg" fw={700} ff="monospace" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{a.turns}</Text>
-            </Box>
-          </Group>
 
-          <Divider />
-
-          {/* What & Why */}
-          <Box>
-            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4} style={{ letterSpacing: ".06em" }}>Apa yang terjadi</Text>
-            <Text size="sm">{msg.what}</Text>
-          </Box>
-          <Box>
-            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4} style={{ letterSpacing: ".06em" }}>Mengapa terjadi</Text>
-            <Text size="sm" c="dimmed">{msg.why}</Text>
-          </Box>
-
-          <Divider />
-
-          {/* Steps */}
-          <Box>
-            <Group gap="xs" mb="sm">
-              <IconBulb size={14} color="var(--mantine-color-yellow-5)" />
-              <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".06em" }}>Yang bisa dilakukan</Text>
-            </Group>
-            <Stack gap="sm">
-              {msg.steps.map((s, i) => (
-                <Group key={i} gap="sm" align="flex-start" wrap="nowrap">
-                  <Badge variant="outline" color="gray" size="sm" style={{ flexShrink: 0, marginTop: 2 }}>{i + 1}</Badge>
-                  <Box style={{ flex: 1 }}>
-                    <Group gap="xs" mb={2}>
-                      {s.cmd && <Code fz="sm" style={{ fontWeight: 700 }}>{s.cmd}</Code>}
-                      <Text size="sm" fw={600}>{s.label}</Text>
-                    </Group>
-                    <Text size="xs" c="dimmed">{s.desc}</Text>
-                  </Box>
+            {/* ── Diagnosis ────────────────────────────────────── */}
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+              <Box style={{
+                background: "var(--cp-surface-2)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                borderLeft: `2px solid ${colorHex}`,
+              }}>
+                <Group gap={6} mb={6}>
+                  <IconActivity size={13} color={colorHex} />
+                  <Text size="xs" fw={700} tt="uppercase" style={{ letterSpacing: ".06em", color: colorHex }}>
+                    Apa yang terjadi
+                  </Text>
                 </Group>
-              ))}
-            </Stack>
-          </Box>
-        </Stack>
+                <Text size="sm" lh={1.55}>{msg.what}</Text>
+              </Box>
+              <Box style={{
+                background: "var(--cp-surface-2)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                borderLeft: "2px solid var(--cp-border)",
+              }}>
+                <Group gap={6} mb={6}>
+                  <IconBrain size={13} color="var(--cp-text-3)" />
+                  <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".06em" }}>
+                    Mengapa terjadi
+                  </Text>
+                </Group>
+                <Text size="sm" c="dimmed" lh={1.55}>{msg.why}</Text>
+              </Box>
+            </SimpleGrid>
+
+            {/* ── Action steps ─────────────────────────────────── */}
+            <Box>
+              <Group gap={6} mb={8}>
+                <IconBulb size={14} color="var(--mantine-color-yellow-6)" />
+                <Text size="xs" fw={700} tt="uppercase" style={{ letterSpacing: ".07em", color: "var(--mantine-color-yellow-7)" }}>
+                  Yang bisa dilakukan
+                </Text>
+              </Group>
+              <Stack gap={6}>
+                {msg.steps.map((s, i) => (
+                  <Group key={i} gap="sm" align="flex-start" wrap="nowrap"
+                    style={{
+                      background: "var(--cp-surface-2)",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      border: "1px solid var(--cp-border)",
+                    }}>
+                    <Box style={{
+                      flexShrink: 0,
+                      width: 22, height: 22, borderRadius: "50%",
+                      background: colorHex + "1a",
+                      color: colorHex,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontWeight: 800, fontSize: 11,
+                      fontFamily: "Geist Mono, monospace",
+                      marginTop: 1,
+                    }}>
+                      {i + 1}
+                    </Box>
+                    <Box style={{ flex: 1, minWidth: 0 }}>
+                      <Group gap={6} mb={3} wrap="wrap">
+                        {s.cmd && (
+                          <Code fz={12} fw={700} style={{
+                            background: colorHex + "15",
+                            color: colorHex,
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                          }}>{s.cmd}</Code>
+                        )}
+                        <Text size="sm" fw={600} lh={1.3}>{s.label}</Text>
+                      </Group>
+                      <Text size="xs" c="dimmed" lh={1.5}>{s.desc}</Text>
+                    </Box>
+                  </Group>
+                ))}
+              </Stack>
+            </Box>
+          </Stack>
+        </Box>
       </Collapse>
     </Paper>
+  );
+}
+
+function AlertStat({ label, value, accent, highlight }: {
+  label: string; value: string; accent?: string; highlight?: boolean;
+}) {
+  return (
+    <Box style={{
+      background: "var(--cp-surface-2)",
+      borderRadius: 8,
+      padding: "8px 10px",
+      border: highlight && accent ? `1px solid ${accent}33` : "1px solid var(--cp-border)",
+      minWidth: 0,
+    }}>
+      <Text size="xs" c="dimmed" tt="uppercase" fw={600}
+        style={{ letterSpacing: ".06em", lineHeight: 1.2 }}>
+        {label}
+      </Text>
+      <Text fz={17} fw={800} ff="Geist Mono, monospace" truncate
+        style={{ color: highlight && accent ? accent : undefined, lineHeight: 1.25, marginTop: 2 }}>
+        {value}
+      </Text>
+    </Box>
   );
 }
 
@@ -1616,26 +1691,73 @@ function Dashboard({ isAdmin, profile, wsSignal }: { isAdmin: boolean; profile?:
                   </Group>
                 )}
 
-                {/* Quota bar */}
-                {totalLim > 0 && (
-                  <Box style={{ minWidth: 140, maxWidth: 240, flex: 1 }}>
-                    <Group justify="space-between" mb={4}>
-                      <Text fz={10} c="dimmed" fw={500} tt="uppercase" style={{ letterSpacing: ".06em" }}>Quota</Text>
-                      <Text fz={10} ff="Geist Mono, monospace" fw={700} style={{ color: pctColor }}>{pct}%</Text>
-                    </Group>
-                    <Box style={{ height: 3, background: "var(--cp-surface-3)", borderRadius: 4, overflow: "hidden" }}>
-                      <Box style={{
-                        height: "100%", borderRadius: 4,
-                        width: `${pct}%`,
-                        background: pct >= 95 ? "var(--cp-red)" : pct >= 75 ? "var(--cp-amber)" : "var(--cp-accent)",
-                        transition: "width 0.6s cubic-bezier(0.4,0,0.2,1)",
-                      }} />
+                {/* Quota breakdown — Window · Today · Sisa */}
+                {totalLim > 0 && (() => {
+                  const remaining = Math.max(0, totalLim - totalUsed);
+                  const lowRemaining = remaining < totalLim * 0.1;
+                  const remainColor = lowRemaining ? "#f97316" : "#10b981";
+                  const barColor = pct >= 95 ? "var(--cp-red)" : pct >= 75 ? "var(--cp-amber)" : "var(--cp-accent)";
+                  const tokenCount = myTokens.length;
+                  return (
+                    <Box style={{ minWidth: 240, maxWidth: 340, flex: 1 }}>
+                      {/* Header row */}
+                      <Group justify="space-between" align="center" mb={5} wrap="nowrap">
+                        <Group gap={5} wrap="nowrap" style={{ minWidth: 0 }}>
+                          <Text fz={10} c="dimmed" fw={600} tt="uppercase" style={{ letterSpacing: ".06em" }}>Quota</Text>
+                          {tokenCount > 1 && (
+                            <Text fz={9} c="dimmed" ff="Geist Mono, monospace" style={{ opacity: 0.7 }}>
+                              · {tokenCount} token
+                            </Text>
+                          )}
+                        </Group>
+                        <Group gap={4} wrap="nowrap" align="baseline">
+                          <Text fz={12} ff="Geist Mono, monospace" fw={700} style={{ color: pctColor, lineHeight: 1 }}>{pct}%</Text>
+                          <Text fz={9} c="dimmed" ff="Geist Mono, monospace">terpakai</Text>
+                        </Group>
+                      </Group>
+
+                      {/* Progress bar */}
+                      <Box style={{ height: 4, background: "var(--cp-surface-3)", borderRadius: 4, overflow: "hidden", marginBottom: 6 }}>
+                        <Box style={{
+                          height: "100%", borderRadius: 4,
+                          width: `${pct}%`,
+                          background: barColor,
+                          transition: "width 0.6s cubic-bezier(0.4,0,0.2,1)",
+                        }} />
+                      </Box>
+
+                      {/* 3-column breakdown */}
+                      <Group gap={0} wrap="nowrap" align="stretch">
+                        <Tooltip label={`Window ini: ${nf.format(totalUsed)} dari ${nf.format(totalLim)} token`} withArrow position="bottom">
+                          <Box style={{ flex: 1, minWidth: 0, cursor: "default" }}>
+                            <Text fz={8} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Window</Text>
+                            <Text fz={11} fw={700} ff="Geist Mono, monospace" truncate style={{ color: pctColor, lineHeight: 1.3 }}>
+                              {nf.format(totalUsed)}
+                            </Text>
+                          </Box>
+                        </Tooltip>
+                        <Box style={{ width: 1, background: "var(--cp-border)", margin: "1px 8px" }} />
+                        <Tooltip label={`Total token hari ini (semua window): ${nf.format(todayTok)}`} withArrow position="bottom">
+                          <Box style={{ flex: 1, minWidth: 0, cursor: "default" }}>
+                            <Text fz={8} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Hari ini</Text>
+                            <Text fz={11} fw={700} ff="Geist Mono, monospace" truncate style={{ color: "var(--cp-text-1)", lineHeight: 1.3 }}>
+                              {nf.format(todayTok)}
+                            </Text>
+                          </Box>
+                        </Tooltip>
+                        <Box style={{ width: 1, background: "var(--cp-border)", margin: "1px 8px" }} />
+                        <Tooltip label={lowRemaining ? "Sisa kuota window menipis — segera reset atau tambah limit" : `Sisa kuota di window ini: ${nf.format(remaining)} token`} withArrow position="bottom">
+                          <Box style={{ flex: 1, minWidth: 0, cursor: "default" }}>
+                            <Text fz={8} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Sisa</Text>
+                            <Text fz={11} fw={700} ff="Geist Mono, monospace" truncate style={{ color: remainColor, lineHeight: 1.3 }}>
+                              {nf.format(remaining)}
+                            </Text>
+                          </Box>
+                        </Tooltip>
+                      </Group>
                     </Box>
-                    <Text fz={10} c="dimmed" mt={3} ff="Geist Mono, monospace">
-                      {nf.format(totalUsed)} <Text span c="dimmed" fz={9}>/ {nf.format(totalLim)}</Text>
-                    </Text>
-                  </Box>
-                )}
+                  );
+                })()}
 
                 {/* Model status */}
                 <Group gap={6} wrap="nowrap" visibleFrom="md">

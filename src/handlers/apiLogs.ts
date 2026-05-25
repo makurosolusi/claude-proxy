@@ -14,10 +14,10 @@ function maskLog(log: any, isAdmin: boolean) {
     stop_reason:   log.stop_reason, duration_ms: log.duration_ms,
     tool_use_count:log.tool_use_count, turns: log.turns,
     messages_json: log.messages_json, response_text: log.response_text,
-    prompt:        isAdmin ? log.prompt        : (log.prompt || "").slice(0, 100),
-    system_prompt: isAdmin ? log.system_prompt : "",
-    cache_read:    isAdmin ? log.cache_read    : 0,
-    cache_creation:isAdmin ? log.cache_creation: 0,
+    prompt:        log.prompt,
+    system_prompt: log.system_prompt,
+    cache_read:    log.cache_read,
+    cache_creation:log.cache_creation,
   };
 }
 
