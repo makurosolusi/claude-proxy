@@ -332,6 +332,12 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     return redirect();
   }
 
+  if (pathname === "/admin/settings/context-block-enabled" && req.method === "POST") {
+    const val = String(form?.get("enabled") || "true").trim();
+    await dbSaveSetting("context_block_enabled", val === "false" ? "false" : "true");
+    return redirect();
+  }
+
   if (pathname === "/admin/settings/provider-model" && req.method === "POST") {
     const provider = String(form?.get("provider") || "").trim();
     const model    = String(form?.get("model")    || "").trim();

@@ -7,7 +7,7 @@ import {
 import { UserAvatar } from "./UserAvatar";
 import type { LogEntry } from "../contexts";
 import {
-  kfmt, fmtAge, fmtDuration, modelShort, modelColor,
+  kfmt, fmtAge, fmtTime, fmtFullDatetime, fmtDuration, modelShort, modelColor,
   ctxSeverity, totalSeverity, maxSev, SEV_COLOR, severityGradient,
   briefExplanation, anomalyScore,
   CacheBar, MetricRow,
@@ -71,7 +71,7 @@ export function FeedEntry({
           {/* Row 1: token name + age (+ duration if slow) */}
           {!compact && (
             <Group justify="space-between" wrap="nowrap" mb={2}>
-              <Text fz={13} fw={700} truncate style={{ letterSpacing: "-0.01em", maxWidth: "70%" }}>
+              <Text fz={13} fw={700} truncate style={{ letterSpacing: "-0.01em", maxWidth: "65%" }}>
                 {primary}
               </Text>
               <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
@@ -83,7 +83,11 @@ export function FeedEntry({
                     </Text>
                   </Tooltip>
                 )}
-                <Text fz={10} c="dimmed" ff="Geist Mono, monospace">{fmtAge(l.ts)}</Text>
+                <Tooltip label={fmtFullDatetime(l.ts)} withArrow position="left">
+                  <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ cursor: "default" }}>
+                    {fmtTime(l.ts)} · {fmtAge(l.ts)}
+                  </Text>
+                </Tooltip>
               </Group>
             </Group>
           )}
@@ -141,9 +145,11 @@ export function FeedEntry({
               </Tooltip>
             )}
             {compact && (
-              <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ marginLeft: "auto" }}>
-                {fmtAge(l.ts)}
-              </Text>
+              <Tooltip label={fmtFullDatetime(l.ts)} withArrow position="left">
+                <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ marginLeft: "auto", cursor: "default" }}>
+                  {fmtTime(l.ts)} · {fmtAge(l.ts)}
+                </Text>
+              </Tooltip>
             )}
           </Group>
 
@@ -269,7 +275,11 @@ export function GroupedEntry({
                     </Text>
                   </Tooltip>
                 )}
-                <Text fz={10} c="dimmed" ff="Geist Mono, monospace">{fmtAge(l.ts)}</Text>
+                <Tooltip label={fmtFullDatetime(l.ts)} withArrow position="left">
+                  <Text fz={10} c="dimmed" ff="Geist Mono, monospace" style={{ cursor: "default" }}>
+                    {fmtTime(l.ts)} · {fmtAge(l.ts)}
+                  </Text>
+                </Tooltip>
               </Group>
             </Group>
 

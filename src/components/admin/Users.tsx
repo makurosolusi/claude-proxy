@@ -71,8 +71,10 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [rowAction, setRowAction]           = useState<{ key: string; act: string } | null>(null);
   const [bulkAction, setBulkAction]         = useState<string | null>(null);
   const [statusBusy, setStatusBusy]         = useState<string | null>(null);
-  const [demoMode, setDemoMode]             = useState(false);
-  const [demoSaving, setDemoSaving]         = useState(false);
+  const [demoMode, setDemoMode]                       = useState(false);
+  const [demoSaving, setDemoSaving]                   = useState(false);
+  const [contextBlockEnabled, setContextBlockEnabled] = useState(true);
+  const [contextBlockSaving, setContextBlockSaving]   = useState(false);
   const [customProviders, setCustomProviders] = useState<ProviderInfo[]>([]);
   const [reloading, setReloading]             = useState(false);
 
@@ -207,7 +209,10 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   useEffect(() => {
     fetch("/api/admin/settings")
       .then(r => r.json())
-      .then((d: any) => setDemoMode(d.demo_mode === "true"))
+      .then((d: any) => {
+        setDemoMode(d.demo_mode === "true");
+        setContextBlockEnabled(d.context_block_enabled !== "false");
+      })
       .catch(() => {});
   }, []);
 
@@ -220,6 +225,21 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
       setDemoMode(val);
       notifications.show({ color: val ? "blue" : "gray", message: val ? "Demo mode enabled" : "Demo mode disabled", autoClose: 2000 });
     } finally { setDemoSaving(false); }
+  };
+
+  const toggleContextBlock = async (val: boolean) => {
+    setContextBlockSaving(true);
+    try {
+      const form = new URLSearchParams();
+      form.set("enabled", val ? "true" : "false");
+      await fetch("/admin/settings/context-block-enabled", { method: "POST", body: form });
+      setContextBlockEnabled(val);
+      notifications.show({
+        color: val ? "orange" : "teal",
+        message: val ? "Context block enforcement aktif" : "Context block enforcement dinonaktifkan",
+        autoClose: 2000,
+      });
+    } finally { setContextBlockSaving(false); }
   };
 
   const filteredUsers = useMemo(() => {
@@ -328,6 +348,26 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             disabled={demoSaving}
             onChange={e => toggleDemo(e.currentTarget.checked)}
             color="blue"
+            size="md"
+          />
+        </Group>
+      </Paper>
+
+      {/* Context Block Enforcement */}
+      <Paper withBorder p="md" radius="md" style={{ borderColor: !contextBlockEnabled ? "var(--mantine-color-teal-5)" : undefined }}>
+        <Group justify="space-between" wrap="nowrap">
+          <div>
+            <Text size="sm" fw={700}>Context Block Enforcement</Text>
+            <Text size="xs" c="dimmed" mt={2}>
+              Jika aktif, user dengan input ≥ 100k tokens akan otomatis diblokir sampai menjalankan <code>/compact</code>.
+              Nonaktifkan sementara jika ada kebutuhan khusus yang membutuhkan context besar.
+            </Text>
+          </div>
+          <Switch
+            checked={contextBlockEnabled}
+            disabled={contextBlockSaving}
+            onChange={e => toggleContextBlock(e.currentTarget.checked)}
+            color="orange"
             size="md"
           />
         </Group>

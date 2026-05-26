@@ -36,6 +36,7 @@ function isToolResultContinuation(bodyJson: any): boolean {
 }
 
 function maybeContextBlock(userId: string, inputTokens: number) {
+  if (settings["context_block_enabled"] === "false") return;
   if (inputTokens < 100_000 || !userId) return;
   const u = users[userId];
   if (!u) return;

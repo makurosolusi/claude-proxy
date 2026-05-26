@@ -17,6 +17,19 @@ export function fmtAge(ts: number): string {
   return `${Math.floor(s / 3600)}h`;
 }
 
+export function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map(n => String(n).padStart(2, "0"))
+    .join(":");
+}
+
+export function fmtFullDatetime(ts: number): string {
+  const d = new Date(ts);
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${date} ${fmtTime(ts)}`;
+}
+
 export function fmtDuration(ms: number): string {
   if (ms < 1000)    return `${ms}ms`;
   if (ms < 60_000)  return `${(ms / 1000).toFixed(1)}s`;
