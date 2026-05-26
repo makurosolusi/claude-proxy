@@ -819,8 +819,13 @@ describe("maybeContextBlock guard logic", () => {
     expect(shouldBlock(0,      "u1", true, false, false)).toBe(false);
   });
 
-  test("enforcement enabled + already blocked → no duplicate block", () => {
+  test("enforcement enabled + already blocked → no duplicate block (maybeContextBlock skips)", () => {
     expect(shouldBlock(200_000, "u1", true, true, false)).toBe(false);
+  });
+
+  test("enforcement disabled + already blocked → request must pass through (existing block bypassed)", () => {
+    // mirrors: settings["context_block_enabled"] === "false" → skip enforcement check
+    expect(shouldBlock(200_000, "u1", false, true, false)).toBe(false);
   });
 
   test("enforcement enabled + grace active (user compacting) → no block", () => {
@@ -835,6 +840,90 @@ describe("maybeContextBlock guard logic", () => {
     // simulates: disable → enable → check
     expect(shouldBlock(200_000, "u1", false, false, false)).toBe(false);
     expect(shouldBlock(200_000, "u1", true,  false, false)).toBe(true);
+  });
+});
+
+// ── apiStatus auto-block guard ────────────────────────────────────────────────
+describe("apiStatus auto-block guard (Bug 1)", () => {
+  // Inline mirror of the guard in apiStatus.ts
+  function shouldAutoBlock(
+    isCritical: boolean,
+    userId: string,
+    alreadyBlocked: boolean,
+    contextBlockEnabled: boolean,
+  ): boolean {
+    if (!isCritical || !userId) return false;
+    if (!contextBlockEnabled) return false;
+    if (alreadyBlocked) return false;
+    return true;
+  }
+
+  test("enforcement OFF → status polling never auto-blocks", () => {
+    expect(shouldAutoBlock(true, "u1", false, false)).toBe(false);
+  });
+
+  test("enforcement ON + critical + clean user → auto-blocks", () => {
+    expect(shouldAutoBlock(true, "u1", false, true)).toBe(true);
+  });
+
+  test("enforcement ON + non-critical → no block", () => {
+    expect(shouldAutoBlock(false, "u1", false, true)).toBe(false);
+  });
+
+  test("enforcement ON + already blocked → no duplicate block", () => {
+    expect(shouldAutoBlock(true, "u1", true, true)).toBe(false);
+  });
+
+  test("enforcement ON + empty userId → no block", () => {
+    expect(shouldAutoBlock(true, "", false, true)).toBe(false);
+  });
+});
+
+// ── App.tsx ContextPunishmentScreen gate (Bug 2) ──────────────────────────────
+describe("ContextPunishmentScreen gate (Bug 2)", () => {
+  // Inline mirror of the gate logic in App.tsx
+  function shouldShowPunishment(
+    contextBlocked: boolean,
+    graceActive: boolean,
+    enforcementOn: boolean,
+  ): boolean {
+    return contextBlocked && !graceActive && enforcementOn;
+  }
+
+  function shouldShowGraceBanner(
+    contextBlocked: boolean,
+    graceActive: boolean,
+    enforcementOn: boolean,
+  ): boolean {
+    return contextBlocked && graceActive && enforcementOn;
+  }
+
+  test("blocked + enforcement ON → show punishment screen", () => {
+    expect(shouldShowPunishment(true, false, true)).toBe(true);
+  });
+
+  test("blocked + enforcement OFF → do NOT show punishment screen", () => {
+    expect(shouldShowPunishment(true, false, false)).toBe(false);
+  });
+
+  test("blocked + grace active + enforcement ON → show grace banner, not punishment", () => {
+    expect(shouldShowPunishment(true, true, true)).toBe(false);
+    expect(shouldShowGraceBanner(true, true, true)).toBe(true);
+  });
+
+  test("blocked + grace active + enforcement OFF → show neither", () => {
+    expect(shouldShowPunishment(true, true, false)).toBe(false);
+    expect(shouldShowGraceBanner(true, true, false)).toBe(false);
+  });
+
+  test("not blocked → show neither regardless of enforcement state", () => {
+    expect(shouldShowPunishment(false, false, true)).toBe(false);
+    expect(shouldShowPunishment(false, false, false)).toBe(false);
+  });
+
+  test("enforcement_on field missing (undefined) → treated as enabled (safe default)", () => {
+    const enforcementOn = (undefined as unknown as boolean) !== false;
+    expect(shouldShowPunishment(true, false, enforcementOn)).toBe(true);
   });
 });
 

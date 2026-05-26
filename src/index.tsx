@@ -539,10 +539,11 @@ server = serve({
         status:   effectiveStatus,
         tokens:   userTokens,
         custom_providers: customProvidersList,
-        context_blocked:             userEntry?.context_blocked_at ? true : false,
-        context_block_reason:        userEntry?.context_block_reason ?? null,
-        context_blocked_at:          userEntry?.context_blocked_at ?? null,
-        context_block_grace_until:   userEntry?.context_block_grace_until ?? null,
+        context_blocked:               userEntry?.context_blocked_at ? true : false,
+        context_block_reason:          userEntry?.context_block_reason ?? null,
+        context_blocked_at:            userEntry?.context_blocked_at ?? null,
+        context_block_grace_until:     userEntry?.context_block_grace_until ?? null,
+        context_block_enforcement_on:  settings["context_block_enabled"] !== "false",
       });
     },
 

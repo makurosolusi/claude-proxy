@@ -309,6 +309,19 @@ describe("POST /admin/settings/context-block-enabled", () => {
     expect(j.ok).toBe(true);
   });
 
+  test("/api/profile endpoint reachable (auth tested separately)", async () => {
+    // Just verify the route exists and doesn't 404; auth tested via dev-login in e2e tests.
+    const r = await fetch(BASE + "/api/profile");
+    expect([200, 401]).toContain(r.status);
+  });
+
+  test("setting toggle round-trip: off → on → value correct each time", async () => {
+    await postSetting("false");
+    expect(await getSetting()).toBe("false");
+    await postSetting("true");
+    expect(await getSetting()).toBe("true");
+  });
+
   // Restore enabled state after all tests
   afterAll(async () => { await postSetting("true"); });
 });

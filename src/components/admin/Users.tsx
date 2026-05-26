@@ -4,7 +4,7 @@ import {
   Loader, Select, Switch, SegmentedControl, Button, ActionIcon, Tooltip,
 } from "@mantine/core";
 import {
-  IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
+  IconRefresh, IconPlayerPause, IconPencil, IconAlertTriangle,
   IconSearch, IconArrowsSort, IconLayoutGrid, IconList,
 } from "@tabler/icons-react";
 import { adminPost } from "../../utils";
@@ -334,51 +334,56 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
         </Group>
       </Paper>
 
-      {/* Demo Mode */}
-      <Paper withBorder p="md" radius="md" style={{ borderColor: demoMode ? "var(--mantine-color-blue-5)" : undefined }}>
-        <Group justify="space-between" wrap="nowrap">
-          <div>
-            <Text size="sm" fw={700}>Demo Mode</Text>
-            <Text size="xs" c="dimmed" mt={2}>
-              Jika aktif, semua user dengan status <b>pending</b> bisa langsung login ke <code>/</code> tanpa perlu persetujuan.
-            </Text>
-          </div>
-          <Switch
-            checked={demoMode}
-            disabled={demoSaving}
-            onChange={e => toggleDemo(e.currentTarget.checked)}
-            color="blue"
-            size="md"
-          />
-        </Group>
-      </Paper>
+      {/* Global Settings */}
+      <Stack gap="xs">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Global Settings</Text>
+        <Paper withBorder p="md" radius="md" style={{ borderColor: demoMode ? "var(--mantine-color-blue-5)" : undefined }}>
+          <Group justify="space-between" wrap="nowrap">
+            <div>
+              <Text size="sm" fw={700}>Demo Mode</Text>
+              <Text size="xs" c="dimmed" mt={2}>
+                Jika aktif, semua user dengan status <b>pending</b> bisa langsung login ke <code>/</code> tanpa perlu persetujuan.
+              </Text>
+            </div>
+            <Switch
+              checked={demoMode}
+              disabled={demoSaving}
+              onChange={e => toggleDemo(e.currentTarget.checked)}
+              color="blue"
+              size="md"
+            />
+          </Group>
+        </Paper>
+        <Paper withBorder p="md" radius="md" style={{ borderColor: !contextBlockEnabled ? "var(--mantine-color-teal-5)" : undefined }}>
+          <Group justify="space-between" wrap="nowrap">
+            <div>
+              <Text size="sm" fw={700}>Context Block Enforcement</Text>
+              <Text size="xs" c="dimmed" mt={2}>
+                Jika aktif, user dengan input ≥ 100k tokens akan otomatis diblokir sampai menjalankan <code>/compact</code>.
+                Nonaktifkan sementara jika ada kebutuhan khusus yang membutuhkan context besar.
+              </Text>
+            </div>
+            <Switch
+              checked={contextBlockEnabled}
+              disabled={contextBlockSaving}
+              onChange={e => toggleContextBlock(e.currentTarget.checked)}
+              color="orange"
+              size="md"
+            />
+          </Group>
+        </Paper>
+      </Stack>
 
-      {/* Context Block Enforcement */}
-      <Paper withBorder p="md" radius="md" style={{ borderColor: !contextBlockEnabled ? "var(--mantine-color-teal-5)" : undefined }}>
-        <Group justify="space-between" wrap="nowrap">
-          <div>
-            <Text size="sm" fw={700}>Context Block Enforcement</Text>
-            <Text size="xs" c="dimmed" mt={2}>
-              Jika aktif, user dengan input ≥ 100k tokens akan otomatis diblokir sampai menjalankan <code>/compact</code>.
-              Nonaktifkan sementara jika ada kebutuhan khusus yang membutuhkan context besar.
-            </Text>
-          </div>
-          <Switch
-            checked={contextBlockEnabled}
-            disabled={contextBlockSaving}
-            onChange={e => toggleContextBlock(e.currentTarget.checked)}
-            color="orange"
-            size="md"
-          />
-        </Group>
-      </Paper>
+      {/* Broadcast & Notifications */}
+      <Stack gap="xs">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Broadcast & Notifications</Text>
+        <NotificationBroadcast apiUsers={apiUsers} />
+      </Stack>
 
-
-      {/* Broadcast notification to users */}
-      <NotificationBroadcast apiUsers={apiUsers} />
-
-      {/* Token lifecycle actions — 2x2 grid */}
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+      {/* Bulk Actions */}
+      <Stack gap="xs">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Bulk Actions</Text>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
         <Paper withBorder p="sm" radius="md" style={{ cursor: "pointer" }}
           onClick={() => setShowEditAllGlobal(true)}>
           <Group gap="sm" wrap="nowrap">
@@ -404,49 +409,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
           </Paper>
         ))}
         {([
-          { act: "reset" as const, color: "gray",   icon: <IconRefresh size={18} />,     label: "Reset All Usage",    desc: "Zero out window counters for all tokens" },
-          { act: "pause" as const, color: "orange", icon: <IconPlayerPause size={18} />, label: "Pause All Tokens",   desc: "Suspend all tokens temporarily" },
-          { act: "purge" as const,        color: "red",    icon: <IconTrash size={18} />,       label: "Purge Orphan Users",  desc: "Delete users with no tokens" },
-        ]).map(({ act, color, icon, label, desc }) => {
-          const busy = bulkAction === act;
-          const doAction = () => runBulkAction(act, async () => {
-            if (act === "reset") await adminPost("/admin/reset", { all: "true" });
-            else if (act === "pause") await adminPost("/admin/token/pause", { all: "true" });
-            else { const r = await fetch("/admin/users/purge-orphans", { method: "POST" }); await r.json(); }
-          }, act === "reset" ? "All usage reset" : act === "pause" ? "All tokens paused/resumed" : "Orphan users removed");
-          return (
-            <Paper key={act} withBorder p="sm" radius="md"
-              style={{ cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1 }}
-              onClick={busy ? undefined : () => {
-                if (act === "reset") modals.openConfirmModal({
-                  title: "Reset All Usage",
-                  children: <Text size="sm">Zero out all token counters? This cannot be undone.</Text>,
-                  labels: { confirm: "Reset", cancel: "Cancel" },
-                  confirmProps: { color: "red" },
-                  onConfirm: doAction,
-                });
-                else if (act === "purge") modals.openConfirmModal({
-                  title: "Purge Orphan Users",
-                  children: <Text size="sm">Delete all users with no tokens? This cannot be undone.</Text>,
-                  labels: { confirm: "Purge", cancel: "Cancel" },
-                  confirmProps: { color: "red" },
-                  onConfirm: doAction,
-                });
-                else doAction();
-              }}>
-              <Group gap="sm" wrap="nowrap">
-                <ThemeIcon variant="light" color={color} size="lg" radius="md">
-                  {busy ? <Loader size={16} color="var(--mantine-color-dimmed)" /> : icon}
-                </ThemeIcon>
-                <div>
-                  <Text size="sm" fw={600}>{label}</Text>
-                  <Text size="xs" c="dimmed">{desc}</Text>
-                </div>
-              </Group>
-            </Paper>
-          );
-        })}
-        {([
           { key: "reset-provider", label: "Reset by Provider", desc: "Zero out counters for a provider's tokens", by: "provider" as const },
           { key: "reset-model",    label: "Reset by Model",    desc: "Zero out counters for a pinned model's tokens", by: "model" as const },
         ]).map(({ key, label, desc, by }) => (
@@ -460,7 +422,8 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             </Group>
           </Paper>
         ))}
-      </SimpleGrid>
+        </SimpleGrid>
+      </Stack>
 
       {/* Users list */}
       <Stack gap="sm">

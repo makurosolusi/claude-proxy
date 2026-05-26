@@ -114,10 +114,11 @@ export interface ProfileResponse {
   status?:   "pending" | "approved" | "blocked";
   tokens?:   Record<string, ProfileToken>;
   custom_providers?: { id: string; name: string; color: string; type: "anthropic" | "openai" }[];
-  context_blocked?:            boolean;
-  context_block_reason?:       string | null;
-  context_blocked_at?:         number | null;
-  context_block_grace_until?:  number | null;
+  context_blocked?:              boolean;
+  context_block_reason?:         string | null;
+  context_blocked_at?:           number | null;
+  context_block_grace_until?:    number | null;
+  context_block_enforcement_on?: boolean;
 }
 export interface AnalyticsData {
   modelDist:      { model: string; requests: number; tokens: number; pct: number }[];

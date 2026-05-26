@@ -174,13 +174,14 @@ export function App() {
               <RequireAuth profile={profile}>
                 {(() => {
                   if (profile === "loading" || !status) return <LoadingScreen />;
-                  const isAdmin     = profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN";
-                  const graceActive = profile?.context_block_grace_until && profile.context_block_grace_until > Date.now();
-                  if (profile?.context_blocked && !graceActive)
+                  const isAdmin        = profile?.role === "SUPER_ADMIN" || profile?.role === "ADMIN";
+                  const enforcementOn  = profile?.context_block_enforcement_on !== false;
+                  const graceActive    = profile?.context_block_grace_until && profile.context_block_grace_until > Date.now();
+                  if (profile?.context_blocked && !graceActive && enforcementOn)
                     return <ContextPunishmentScreen reason={profile.context_block_reason} blockedAt={profile.context_blocked_at} />;
                   return (
                     <>
-                      {profile?.context_blocked && graceActive && (
+                      {profile?.context_blocked && graceActive && enforcementOn && (
                         <GraceBanner graceUntil={profile.context_block_grace_until!} />
                       )}
                       <Dashboard isAdmin={isAdmin} profile={profile as import("./contexts").ProfileResponse} wsSignal={wsSignal} />

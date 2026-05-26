@@ -258,7 +258,7 @@ export async function handleProxy(
 
   // Context block check — user must run /compact or /clear first
   const tokenOwner = t.user_id ? users[t.user_id] : null;
-  if (tokenOwner?.context_blocked_at) {
+  if (tokenOwner?.context_blocked_at && settings["context_block_enabled"] !== "false") {
     const graceActive = tokenOwner.context_block_grace_until && tokenOwner.context_block_grace_until > Date.now();
     if (!graceActive) {
       const reason = tokenOwner.context_block_reason || "Context terlalu besar.";

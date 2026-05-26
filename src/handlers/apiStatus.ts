@@ -233,7 +233,7 @@ export function handleApiStatus(req: Request, url: URL, isAdmin: boolean, userIm
     });
 
     // Auto-block: critical context → lock user until admin releases
-    if (isCritical && td.user_id) {
+    if (isCritical && td.user_id && settings["context_block_enabled"] !== "false") {
       const u = users[td.user_id];
       if (u && !u.context_blocked_at) {
         const reason = `Context terlalu besar: ${(inp / 1000).toFixed(0)}k tokens input pada ${new Date(log.ts).toLocaleString("id-ID")}. Jalankan /compact atau /clear.`;
