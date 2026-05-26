@@ -787,6 +787,57 @@ describe("getOauthCredential", () => {
 });
 
 // ── 20. window rotation detection logic ──────────────────────────────────────
+// ── Context block enforcement guard ──────────────────────────────────────────
+describe("maybeContextBlock guard logic", () => {
+  // Inline mirror of the guard conditions in proxy.ts:maybeContextBlock
+  function shouldBlock(
+    inputTokens: number,
+    userId: string,
+    contextBlockEnabled: boolean,   // mirrors settings["context_block_enabled"] !== "false"
+    alreadyBlocked: boolean,
+    graceActive: boolean,
+  ): boolean {
+    if (!contextBlockEnabled) return false;
+    if (inputTokens < 100_000 || !userId) return false;
+    if (alreadyBlocked) return false;
+    if (graceActive) return false;
+    return true;
+  }
+
+  test("enforcement disabled → never blocks regardless of input size", () => {
+    expect(shouldBlock(200_000, "u1", false, false, false)).toBe(false);
+    expect(shouldBlock(100_000, "u1", false, false, false)).toBe(false);
+  });
+
+  test("enforcement enabled + input >= 100k + clean user → blocks", () => {
+    expect(shouldBlock(100_000, "u1", true, false, false)).toBe(true);
+    expect(shouldBlock(150_000, "u1", true, false, false)).toBe(true);
+  });
+
+  test("enforcement enabled + input < 100k → no block", () => {
+    expect(shouldBlock(99_999, "u1", true, false, false)).toBe(false);
+    expect(shouldBlock(0,      "u1", true, false, false)).toBe(false);
+  });
+
+  test("enforcement enabled + already blocked → no duplicate block", () => {
+    expect(shouldBlock(200_000, "u1", true, true, false)).toBe(false);
+  });
+
+  test("enforcement enabled + grace active (user compacting) → no block", () => {
+    expect(shouldBlock(200_000, "u1", true, false, true)).toBe(false);
+  });
+
+  test("enforcement enabled + empty userId → no block", () => {
+    expect(shouldBlock(200_000, "", true, false, false)).toBe(false);
+  });
+
+  test("enforcement re-enabled + large input → blocks again", () => {
+    // simulates: disable → enable → check
+    expect(shouldBlock(200_000, "u1", false, false, false)).toBe(false);
+    expect(shouldBlock(200_000, "u1", true,  false, false)).toBe(true);
+  });
+});
+
 describe("window rotation detection", () => {
   function isWindowRotated(newResetsAtMs: number, prevResetsAtMs: number | null): boolean {
     if (prevResetsAtMs === null) return false;

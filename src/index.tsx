@@ -935,6 +935,7 @@ server = serve({
     "/admin/settings/provider-override": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/simulate-anthropic-disabled": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/settings/reset-mode":                  async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/settings/context-block-enabled":       async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
 
     // Proxy endpoints
     "/v1/models": async req => {

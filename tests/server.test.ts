@@ -3,7 +3,7 @@
  * Run: bun test tests/server.test.ts
  * Or with custom URL: TEST_URL=http://127.0.0.1:8081 bun test
  */
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 
 const BASE    = process.env.TEST_URL || "http://127.0.0.1:8081";
 const TOKEN   = "sk-user-bagas";
@@ -251,6 +251,66 @@ describe("Unknown routes", () => {
     const r = await get("/v1/nonexistent", { "x-api-key": TOKEN });
     expect(r.status).toBe(404);
   });
+});
+
+// ── Context Block Enforcement toggle ─────────────────────────────────────────
+describe("POST /admin/settings/context-block-enabled", () => {
+  async function postSetting(enabled: string) {
+    const form = new URLSearchParams({ enabled });
+    return fetch(BASE + "/admin/settings/context-block-enabled", {
+      method:  "POST",
+      headers: { "x-admin-key": ADMIN_K, "Content-Type": "application/x-www-form-urlencoded" },
+      body:    form,
+    });
+  }
+
+  async function getSetting(): Promise<string | undefined> {
+    const r = await fetch(BASE + "/api/admin/settings", { headers: { "x-admin-key": ADMIN_K } });
+    const d = await r.json() as any;
+    return d.context_block_enabled;
+  }
+
+  test("without auth → 303 redirect", async () => {
+    const form = new URLSearchParams({ enabled: "false" });
+    const r = await fetch(BASE + "/admin/settings/context-block-enabled", {
+      method: "POST", redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+    });
+    expect([303, 401]).toContain(r.status);
+  });
+
+  test("disable → setting persists as 'false'", async () => {
+    const r = await postSetting("false");
+    expect(r.status).toBe(200);
+    const val = await getSetting();
+    expect(val).toBe("false");
+  });
+
+  test("re-enable → setting persists as 'true'", async () => {
+    await postSetting("false");
+    const r = await postSetting("true");
+    expect(r.status).toBe(200);
+    const val = await getSetting();
+    expect(val).toBe("true");
+  });
+
+  test("invalid value → treated as 'true' (safe default)", async () => {
+    await postSetting("false");
+    const r = await postSetting("garbage");
+    expect(r.status).toBe(200);
+    const val = await getSetting();
+    expect(val).toBe("true");
+  });
+
+  test("response includes ok:true", async () => {
+    const r = await postSetting("true");
+    const j = await r.json() as any;
+    expect(j.ok).toBe(true);
+  });
+
+  // Restore enabled state after all tests
+  afterAll(async () => { await postSetting("true"); });
 });
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
