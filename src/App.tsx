@@ -6,7 +6,6 @@ import { notifications } from "@mantine/notifications";
 import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, BlockedPage } from "./components/shared";
 import { AdminDashboard } from "./components/admin/Dashboard";
 import { MindPage } from "./components/MindPage";
-import { RacePage } from "./components/RacePage";
 import { SessionHistory } from "./components/SessionHistory";
 import { NotificationsPage } from "./components/NotificationsPage";
 import { ContextPunishmentScreen } from "./components/ContextPunishmentScreen";
@@ -197,7 +196,6 @@ export function App() {
             <Route path="/diblokir" element={<BlockedPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/mind" element={<MindPage />} />
-            <Route path="/race" element={<RacePage />} />
             <Route path="/sessions/:user" element={<SessionHistory />} />
             <Route path="/notifications" element={
               <RequireAuth profile={profile}>

@@ -6,7 +6,7 @@ import {
 } from "@mantine/core";
 import {
   IconLayoutDashboard, IconUsers, IconList, IconChartBar,
-  IconSitemap, IconExternalLink, IconSun, IconMoon,
+  IconSitemap, IconSun, IconMoon,
   IconChevronsLeft, IconChevronsRight,
   IconPlugConnected, IconKey, IconLogout,
   IconCloud, IconChartLine, IconDatabase,
@@ -124,7 +124,6 @@ export function AdminDashboard() {
   const footerLinks = [
     { icon: <IconSitemap      size={SZ} />, label: "Mind Map",    desc: "Request graph",           href: "/mind",  target: "_blank" },
     { icon: <IconHistory      size={SZ} />, label: "Public View", desc: "User-facing dashboard",   href: "/",      target: undefined },
-    { icon: <IconExternalLink size={SZ} />, label: "Race Chart",  desc: "Token burn visualizer",   href: "/race",  target: "_blank" },
   ];
 
   const utilPct    = upstream.fiveHour?.utilization ?? null;

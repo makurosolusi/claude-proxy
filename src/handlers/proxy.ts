@@ -1,5 +1,5 @@
 import { config }          from "../config";
-import { upstream, users, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName, dbSetContextBlock } from "../state";
+import { upstream, users, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName, dbSetContextBlock, dbSaveSetting } from "../state";
 import { getPendingTerminalForUser, markTerminalDelivered, formatTerminalAnnouncement } from "./apiNotifications";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
 import { getOauthCredential, refreshOauthToken, hasAnthropicCredential } from "../upstream";
@@ -18,6 +18,32 @@ import type { ProxyContext } from "../extensions";
 import type { TokenEntry } from "../types";
 
 function pushAlert(msg: string) { broadcastSystemMsg(`⚡ ${msg}`); }
+
+// Billing header learned from Claude Code requests — injected into plain HTTP requests.
+// Anthropic OAuth requires x-anthropic-billing-header in system prompt to grant model access.
+let cachedOauthBillingHeader: string | null = null;
+
+function parseBillingHeader(system: any): string | null {
+  const text = typeof system === "string" ? system
+    : Array.isArray(system) ? system.filter((b: any) => b.type === "text").map((b: any) => b.text || "").join("\n")
+    : null;
+  if (!text) return null;
+  const m = text.match(/^x-anthropic-billing-header: ([^\n]+)/);
+  return m ? m[1].trim() : null;
+}
+
+function injectBillingHeader(bodyJson: any, headerValue: string): void {
+  const line = `x-anthropic-billing-header: ${headerValue}`;
+  if (!bodyJson.system) {
+    bodyJson.system = line;
+  } else if (typeof bodyJson.system === "string") {
+    bodyJson.system = `${line}\n${bodyJson.system}`;
+  } else if (Array.isArray(bodyJson.system)) {
+    const firstText = bodyJson.system.find((b: any) => b.type === "text");
+    if (firstText) firstText.text = `${line}\n${firstText.text || ""}`;
+    else bodyJson.system.unshift({ type: "text", text: `${line}\n` });
+  }
+}
 
 // Detect whether this /v1/messages request is a continuation of a tool flow
 // (last user message contains tool_result blocks). We skip terminal injection
@@ -449,6 +475,13 @@ export async function handleProxy(
     maxOutputTokens = parseInt(bodyJson.max_tokens) || 4096;
   } catch {}
 
+  // Cache billing header from Claude Code; persist to settings for cold-start survival
+  const bh = bodyJson ? parseBillingHeader(bodyJson.system) : null;
+  if (bh && bh !== cachedOauthBillingHeader) {
+    cachedOauthBillingHeader = bh;
+    dbSaveSetting("oauth_billing_header", bh).catch(() => {});
+  }
+
   // Strip client-specific fields Anthropic API doesn't accept.
   // Capability-aware sanitization happens later, AFTER provider/model finalized.
   if (bodyJson) {
@@ -531,6 +564,14 @@ export async function handleProxy(
 
   // ── Coherence sanitization — strip state incompatible with destination ──
   bodyText = sanitizeBodyForDestination(bodyJson, provider, model, key);
+
+  // Inject billing header for plain HTTP clients that don't send it.
+  // Falls back to settings["oauth_billing_header"] on cold start (before any Claude Code request).
+  const billingToInject = cachedOauthBillingHeader ?? settings["oauth_billing_header"] ?? null;
+  if (provider === "anthropic" && bodyJson && billingToInject && !parseBillingHeader(bodyJson.system)) {
+    injectBillingHeader(bodyJson, billingToInject);
+    bodyText = JSON.stringify(bodyJson);
+  }
 
   // ── Build & forward ───────────────────────────────────────────────────────────
   let built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
