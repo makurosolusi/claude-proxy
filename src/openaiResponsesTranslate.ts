@@ -13,6 +13,16 @@ export function responsesInputToAnthropic(body: any): any {
 
   const preliminary: any[] = [];
   for (const item of input) {
+    // Top-level function_call item from previous response output (parallel tool calls produce multiple)
+    if (item.type === "function_call") {
+      let inp: any = {};
+      try { inp = JSON.parse(item.arguments || "{}"); } catch {}
+      preliminary.push({
+        role: "assistant",
+        content: [{ type: "tool_use", id: item.call_id || item.id || genId("toolu_"), name: item.name, input: inp }],
+      });
+      continue;
+    }
     if (item.type === "function_call_output") {
       preliminary.push({
         role: "user",
@@ -20,18 +30,32 @@ export function responsesInputToAnthropic(body: any): any {
       });
       continue;
     }
+    // Top-level message item (assistant output in message format)
+    if (item.type === "message" && item.role === "assistant") {
+      const parts: any[] = Array.isArray(item.content) ? item.content : [];
+      const blocks: any[] = [];
+      for (const p of parts) {
+        if ((p.type === "output_text" || p.type === "text") && p.text) {
+          blocks.push({ type: "text", text: p.text });
+        } else if (p.type === "function_call") {
+          let inp: any = {};
+          try { inp = JSON.parse(p.arguments || "{}"); } catch {}
+          blocks.push({ type: "tool_use", id: p.call_id || p.id || genId("toolu_"), name: p.name, input: inp });
+        }
+      }
+      if (blocks.length > 0) preliminary.push({ role: "assistant", content: blocks });
+      continue;
+    }
     const role = item.role as string;
     if (role === "system") continue;
     if (role === "user") {
       const c = item.content;
-      preliminary.push({
-        role: "user",
-        content: typeof c === "string" ? c
-          : Array.isArray(c)
-            ? c.filter((b: any) => b.type === "input_text" || b.type === "text").map((b: any) => b.text || "").join("")
-              || c.map((b: any) => b.text || "").join("")
-          : "",
-      });
+      const text = typeof c === "string" ? c
+        : Array.isArray(c)
+          ? c.filter((b: any) => b.type === "input_text" || b.type === "text").map((b: any) => b.text || "").join("")
+            || c.map((b: any) => b.text || "").join("")
+        : "";
+      if (text) preliminary.push({ role: "user", content: text });
       continue;
     }
     if (role === "assistant") {
@@ -54,11 +78,15 @@ export function responsesInputToAnthropic(body: any): any {
     }
   }
 
-  // Merge consecutive user messages that are all tool_results (parallel tool calls)
+  // Merge consecutive messages that must be combined (Anthropic forbids same-role adjacency)
   const messages: any[] = [];
   for (const m of preliminary) {
     const prev = messages[messages.length - 1];
     if (prev?.role === "user" && isAllToolResults(prev) && isAllToolResults(m)) {
+      // Parallel tool_result blocks → single user message
+      prev.content = [...prev.content, ...(m.content as any[])];
+    } else if (prev?.role === "assistant" && Array.isArray(prev.content) && Array.isArray(m.content)) {
+      // Consecutive assistant turns (e.g. text message item + function_call item from same turn)
       prev.content = [...prev.content, ...(m.content as any[])];
     } else {
       messages.push(m);
