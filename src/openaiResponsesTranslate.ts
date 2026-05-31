@@ -11,6 +11,20 @@ export function responsesInputToAnthropic(body: any): any {
     ? [{ role: "user", content: body.input }]
     : Array.isArray(body.input) ? body.input : [];
 
+  // Collect system prompt: `instructions` field takes priority; fall back to first
+  // developer/system message item (Codex CLI uses role:"developer" for system prompts)
+  let systemText: string = body.instructions || "";
+  if (!systemText) {
+    for (const item of input) {
+      if (item.role === "developer" || item.role === "system") {
+        const c = item.content;
+        systemText = typeof c === "string" ? c
+          : Array.isArray(c) ? c.filter((b: any) => b.type === "input_text" || b.type === "text").map((b: any) => b.text || "").join("\n") : "";
+        if (systemText) break;
+      }
+    }
+  }
+
   const preliminary: any[] = [];
   for (const item of input) {
     // Top-level function_call item from previous response output (parallel tool calls produce multiple)
@@ -47,7 +61,7 @@ export function responsesInputToAnthropic(body: any): any {
       continue;
     }
     const role = item.role as string;
-    if (role === "system") continue;
+    if (role === "system" || role === "developer") continue;
     if (role === "user") {
       const c = item.content;
       const text = typeof c === "string" ? c
@@ -85,7 +99,7 @@ export function responsesInputToAnthropic(body: any): any {
     if (prev?.role === "user" && isAllToolResults(prev) && isAllToolResults(m)) {
       // Parallel tool_result blocks → single user message
       prev.content = [...prev.content, ...(m.content as any[])];
-    } else if (prev?.role === "assistant" && Array.isArray(prev.content) && Array.isArray(m.content)) {
+    } else if (prev?.role === "assistant" && m.role === "assistant" && Array.isArray(prev.content) && Array.isArray(m.content)) {
       // Consecutive assistant turns (e.g. text message item + function_call item from same turn)
       prev.content = [...prev.content, ...(m.content as any[])];
     } else {
@@ -99,7 +113,7 @@ export function responsesInputToAnthropic(body: any): any {
     max_tokens: body.max_output_tokens || 4096,
     stream: body.stream ?? false,
   };
-  if (body.instructions)              out.system = body.instructions;
+  if (systemText)                      out.system = systemText;
   if (typeof body.temperature === "number") out.temperature = body.temperature;
   if (typeof body.top_p      === "number") out.top_p       = body.top_p;
   if (Array.isArray(body.tools) && body.tools.length > 0) {
