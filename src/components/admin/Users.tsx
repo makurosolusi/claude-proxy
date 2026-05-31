@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, ThemeIcon,
   Loader, Select, Switch, SegmentedControl, Button, ActionIcon, Tooltip,
@@ -14,12 +15,11 @@ import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import {
   EditUserModal, DeleteUserModal, EditAllLimitsModal,
-  RotateModal, AddTokenModal, EditAllLimitsGlobalModal,
+  AddTokenModal, EditAllLimitsGlobalModal,
 } from "./UserModals";
 import type { ApiUser, ApiToken } from "./UserModals";
 import { UserCard, userAggregates } from "./UserCard";
 import type { UserCardActions, ProviderInfo } from "./UserCard";
-import { TokenDetailModal } from "./TokenDetailModal";
 import { NotificationBroadcast } from "./NotificationBroadcast";
 
 type UserStatus = "pending" | "approved" | "blocked";
@@ -47,12 +47,11 @@ function FilterModal({ options, action, onConfirm }: {
 
 export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, TokenStatus> }) {
   const status = useStatus();
+  const navigate = useNavigate();
   const userImages = status?.userImages ?? {};
   const [apiUsers, setApiUsers]       = useState<ApiUser[] | null>(null);
   const [editUser, setEditUser]           = useState<ApiUser | null>(null);
   const [deleteUser, setDeleteUser]       = useState<ApiUser | null>(null);
-  const [rotateToken, setRotateToken]     = useState<ApiToken | null>(null);
-  const [detailToken, setDetailToken]     = useState<ApiToken | null>(null);
   const [editAllLimits, setEditAllLimits]         = useState<ApiUser | null>(null);
   const [showEditAllGlobal, setShowEditAllGlobal] = useState(false);
   const [addTokenTo, setAddTokenTo]               = useState<ApiUser | null>(null);
@@ -94,22 +93,6 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     try { const d = await (await fetch("/api/admin/users")).json(); setApiUsers(d.users ?? d); }
     finally { setReloading(false); }
   }, []);
-
-  // Auto-refresh detailToken when apiUsers reloads — keeps modal in sync
-  useEffect(() => {
-    if (!detailToken || !apiUsers) return;
-    const key = detailToken.key;
-    for (const u of apiUsers) {
-      const fresh: ApiToken | undefined = u.tokens.find(t => t.key === key);
-      if (fresh && fresh !== detailToken) {
-        setDetailToken(fresh);
-        return;
-      }
-      if (fresh) return;
-    }
-    // Token no longer exists (deleted) — close modal
-    setDetailToken(null);
-  }, [apiUsers]);
 
   const setUserStatus = async (userId: string, status: UserStatus) => {
     setStatusBusy(userId + status);
@@ -284,7 +267,8 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     onSetStatus: setUserStatus,
     onEditAllLimits: setEditAllLimits,
     onAddToken: setAddTokenTo,
-    onOpenDetail: setDetailToken,
+    onOpenDetail: (tk: ApiToken) => navigate("/admin/token/" + encodeURIComponent(tk.key)),
+    onOpenUser: (u: ApiUser) => navigate("/admin/user/" + encodeURIComponent(u.id)),
     onRowAction: runRowAction,
     onResetUserPins: resetUserPins,
     onBlockContext: blockContext,
@@ -296,12 +280,9 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     <Stack gap="xl">
       {editUser          && <EditUserModal       user={editUser}       onClose={() => setEditUser(null)}             onSaved={reload} />}
       {deleteUser        && <DeleteUserModal     user={deleteUser}     onClose={() => setDeleteUser(null)}           onDone={reload} />}
-      {rotateToken       && <RotateModal         token={rotateToken}   onClose={() => setRotateToken(null)}          onDone={reload} />}
       {editAllLimits     && <EditAllLimitsModal  user={editAllLimits}  onClose={() => setEditAllLimits(null)}        onSaved={reload} />}
       {showEditAllGlobal && <EditAllLimitsGlobalModal onClose={() => setShowEditAllGlobal(false)} onSaved={reload} />}
       {addTokenTo        && <AddTokenModal       user={addTokenTo}     onClose={() => setAddTokenTo(null)}           onDone={reload} />}
-      {detailToken       && <TokenDetailModal    token={detailToken}   onClose={() => setDetailToken(null)}          onSaved={reload}
-                                                  onRotate={setRotateToken} />}
 
       {/* Header */}
       <Paper withBorder p="lg" radius="md">

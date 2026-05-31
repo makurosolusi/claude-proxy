@@ -114,6 +114,7 @@ export interface UserCardActions {
   onBlockContext: (u: ApiUser) => void;
   onUnblockContext: (u: ApiUser) => void;
   onForceGrace: (u: ApiUser) => void;
+  onOpenUser?: (u: ApiUser) => void;
 }
 
 interface TokenRowProps {
@@ -227,7 +228,7 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
   const statusLabel = u.status === "approved" ? "Approved" : u.status === "blocked" ? "Blocked" : "Pending";
   const StatusIcon  = u.status === "approved" ? IconCheck : u.status === "blocked" ? IconBan : IconClock;
 
-  const { statusBusy, onEditUser, onDeleteUser, onSetStatus, onEditAllLimits, onAddToken, onResetUserPins, onBlockContext, onUnblockContext, onForceGrace } = actions;
+  const { statusBusy, onEditUser, onDeleteUser, onSetStatus, onEditAllLimits, onAddToken, onResetUserPins, onBlockContext, onUnblockContext, onForceGrace, onOpenUser } = actions;
   const hasPinnedTokens = u.tokens.some(t => t.pinned_model);
 
   const tokensList = u.tokens.length === 0 ? (
@@ -261,7 +262,9 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
 
   if (viewMode === "list") {
     const header = (
-      <Group gap="md" wrap="nowrap" align="center">
+      <Group gap="md" wrap="nowrap" align="center"
+        style={{ cursor: onOpenUser ? "pointer" : undefined }}
+        onClick={() => onOpenUser?.(u)}>
         <UserAvatar name={u.name} imageUrl={userImage} size={38} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <Group gap="xs" wrap="nowrap">
@@ -380,12 +383,14 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
   }
 
   const gridHeader = (
-    <Group gap="sm" wrap="nowrap" align="flex-start">
+    <Group gap="sm" wrap="nowrap" align="flex-start"
+      style={{ cursor: onOpenUser ? "pointer" : undefined }}
+      onClick={() => onOpenUser?.(u)}>
       <UserAvatar name={u.name} imageUrl={userImage} size={38} />
       <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
         <Group justify="space-between" wrap="nowrap" gap="xs">
           <Text size="sm" fw={700} truncate>{u.name}</Text>
-          <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
+          <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <Tooltip label="Edit user" withArrow>
               <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => onEditUser(u)}>
                 <IconPencil size={ACT} />

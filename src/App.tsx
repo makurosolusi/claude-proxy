@@ -189,7 +189,7 @@ export function App() {
                 })()}
               </RequireAuth>
             } />
-            <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+            <Route path="/admin/*" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/login/redirect" element={<LoginRedirect />} />
             <Route path="/menunggu" element={<WaitingPage />} />

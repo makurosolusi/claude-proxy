@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useDisclosure } from "@mantine/hooks";
 import {
   AppShell, NavLink, ScrollArea, Group, Text, Badge, ActionIcon, Tooltip,
@@ -27,6 +28,8 @@ import { AdminDatabase } from "./Database";
 import { AdminExtensions } from "./Extensions";
 import { AdminBrain } from "./Brain";
 import { AdminLogs } from "./Logs";
+import { TokenDetailPage } from "../../pages/TokenDetailPage";
+import { UserDetailPage } from "../../pages/UserDetailPage";
 
 type AdminSection = "overview" | "users" | "logs" | "stats" | "activity" | "providers" | "test" | "accounts" | "database" | "extensions" | "brain" | "applogs";
 
@@ -56,13 +59,22 @@ function AdminStats({ userImages }: { userImages: Record<string, string> }) {
 
 export function AdminDashboard() {
   const status = useStatus()!;
+  const location = useLocation();
+  const navigate = useNavigate();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const isDark = colorScheme === "dark";
+
+  const tokenKeyMatch = location.pathname.match(/^\/admin\/token\/(.+)$/);
+  const tokenKey      = tokenKeyMatch ? decodeURIComponent(tokenKeyMatch[1]) : null;
+  const userIdMatch   = location.pathname.match(/^\/admin\/user\/(.+)$/);
+  const userId        = userIdMatch ? decodeURIComponent(userIdMatch[1]) : null;
 
   const [section, setSection] = useState<AdminSection>(() => {
     try { return (localStorage.getItem("admin-section") as AdminSection) || "overview"; }
     catch { return "overview"; }
   });
+  // While viewing token/user detail, nav shows "users" as active
+  const effectiveSection: AdminSection = (tokenKey || userId) ? "users" : section;
   const [mobileOpen, { toggle: toggleMobile, close }] = useDisclosure(false);
   const [collapsed,  { toggle: toggleCollapse }]      = useDisclosure(false);
   const [enabledExtensions, setEnabledExtensions] = useState<Set<string>>(new Set());
@@ -81,7 +93,9 @@ export function AdminDashboard() {
 
   const { tokens, upstream, userImages = {} } = status;
   const nav = (s: AdminSection) => {
-    setSection(s); try { localStorage.setItem("admin-section", s); } catch {}; close();
+    setSection(s); try { localStorage.setItem("admin-section", s); } catch {};
+    if (tokenKey || userId) navigate("/admin");
+    close();
   };
 
   const SZ = 16;
@@ -130,7 +144,7 @@ export function AdminDashboard() {
   const statusColor = upstream.ok ? "teal" : upstream.stale ? "orange" : "red";
   const SIDEBAR_W   = collapsed ? 60 : 224;
 
-  const activeItem = allNavItems.find(i => i.id === section);
+  const activeItem = allNavItems.find(i => i.id === effectiveSection);
 
   return (
     <AppShell
@@ -229,8 +243,8 @@ export function AdminDashboard() {
                     <Tooltip key={item.id} label={item.label} position="right" withArrow openDelay={80}>
                       <ActionIcon
                         size={40}
-                        variant={section === item.id ? "filled" : "subtle"}
-                        color={section === item.id ? "blue" : "gray"}
+                        variant={effectiveSection === item.id ? "filled" : "subtle"}
+                        color={effectiveSection === item.id ? "blue" : "gray"}
                         onClick={() => nav(item.id)}
                         style={{ borderRadius: 8, width: "100%" }}
                       >
@@ -240,13 +254,13 @@ export function AdminDashboard() {
                   ) : (
                     <NavLink
                       key={item.id}
-                      active={section === item.id}
-                      label={<Text fz={13} fw={section === item.id ? 600 : 500}>{item.label}</Text>}
+                      active={effectiveSection === item.id}
+                      label={<Text fz={13} fw={effectiveSection === item.id ? 600 : 500}>{item.label}</Text>}
                       description={<Text fz={10} c="dimmed">{item.desc}</Text>}
                       leftSection={
                         <ThemeIcon
-                          variant={section === item.id ? "filled" : "light"}
-                          color={section === item.id ? "blue" : "gray"}
+                          variant={effectiveSection === item.id ? "filled" : "light"}
+                          color={effectiveSection === item.id ? "blue" : "gray"}
                           size="sm" radius="sm">
                           {item.icon}
                         </ThemeIcon>
@@ -346,18 +360,26 @@ export function AdminDashboard() {
       {/* ── Main ──────────────────────────────────────────────────────── */}
       <AppShell.Main style={{ background: isDark ? "#0f1012" : "#f8f9fa" }}>
         <Box p={{ base: "sm", sm: "md", md: "xl" }} style={{ maxWidth: 1600, margin: "0 auto" }}>
-          {section === "overview"   && <AdminOverview tokens={tokens} upstream={upstream} contextAlerts={status.contextAlerts} userImages={userImages} />}
-          {section === "users"      && <AdminUsers tokens={tokens} />}
-          {section === "logs"       && <RequestLog isAdmin={true} allowDestructive={true} />}
-          {section === "stats"      && <AdminStats userImages={userImages} />}
-          {section === "activity"   && <AdminUserActivity />}
-          {section === "providers"  && <AdminProviders />}
-          {section === "test"       && <AdminTest />}
-          {section === "accounts"   && <AdminAccounts />}
-          {section === "database"   && <AdminDatabase />}
-          {section === "extensions" && <AdminExtensions />}
-          {section === "brain"      && brainEnabled && <AdminBrain />}
-          {section === "applogs"    && logsEnabled  && <AdminLogs />}
+          {tokenKey ? (
+            <TokenDetailPage tokenKey={tokenKey} />
+          ) : userId ? (
+            <UserDetailPage userId={userId} />
+          ) : (
+            <>
+              {section === "overview"   && <AdminOverview tokens={tokens} upstream={upstream} contextAlerts={status.contextAlerts} userImages={userImages} />}
+              {section === "users"      && <AdminUsers tokens={tokens} />}
+              {section === "logs"       && <RequestLog isAdmin={true} allowDestructive={true} />}
+              {section === "stats"      && <AdminStats userImages={userImages} />}
+              {section === "activity"   && <AdminUserActivity />}
+              {section === "providers"  && <AdminProviders />}
+              {section === "test"       && <AdminTest />}
+              {section === "accounts"   && <AdminAccounts />}
+              {section === "database"   && <AdminDatabase />}
+              {section === "extensions" && <AdminExtensions />}
+              {section === "brain"      && brainEnabled && <AdminBrain />}
+              {section === "applogs"    && logsEnabled  && <AdminLogs />}
+            </>
+          )}
         </Box>
       </AppShell.Main>
     </AppShell>
