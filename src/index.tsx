@@ -957,6 +957,12 @@ server = serve({
       if (!t) return Response.json({ error: { type: "authentication_error", message: "Invalid API key" } }, { status: 401 });
       return handleProxy(req, new URL(req.url), key, t);
     },
+    "/v1/chat/completions": async req => {
+      const key = extractKey(req);
+      const t = tokens[key];
+      if (!t) return Response.json({ error: { message: "Invalid API key", type: "authentication_error" }, code: 401 }, { status: 401 });
+      return handleProxy(req, new URL(req.url), key, t);
+    },
     "/v1/messages/count_tokens": async req => {
       const key = extractKey(req);
       const t = tokens[key];

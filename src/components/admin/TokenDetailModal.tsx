@@ -38,15 +38,18 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
   const [unlimited, setUnlimited] = useState(tk.limit === null);
   const [limit, setLimit]         = useState(tk.limit === null ? "40000" : String(tk.limit));
   // Optimistic local state for dropdowns — synced to props after reload
-  const [providerValue, setProviderValue] = useState(tk.provider || "inherit");
-  const [pinValue, setPinValue]           = useState(tk.pinned_model || "");
+  const [providerValue, setProviderValue]   = useState(tk.provider || "inherit");
+  const [pinValue, setPinValue]             = useState(tk.pinned_model || "");
+  const [outputTypeValue, setOutputTypeValue] = useState(tk.output_type || "anthropic");
   useEffect(() => { setProviderValue(tk.provider || "inherit"); }, [tk.provider]);
   useEffect(() => { setPinValue(tk.pinned_model || ""); }, [tk.pinned_model]);
+  useEffect(() => { setOutputTypeValue(tk.output_type || "anthropic"); }, [tk.output_type]);
 
-  const [savingMeta, setSavingMeta]     = useState(false);
-  const [savingLimit, setSavingLimit]   = useState(false);
-  const [savingProvider, setSavingProvider] = useState(false);
-  const [savingPinModel, setSavingPinModel] = useState(false);
+  const [savingMeta, setSavingMeta]           = useState(false);
+  const [savingLimit, setSavingLimit]         = useState(false);
+  const [savingProvider, setSavingProvider]   = useState(false);
+  const [savingPinModel, setSavingPinModel]   = useState(false);
+  const [savingOutputType, setSavingOutputType] = useState(false);
   const [busyAction, setBusyAction]     = useState<"pause" | "delete" | null>(null);
 
   // Provider-aware model list
@@ -171,6 +174,19 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
       setPinValue(tk.pinned_model || "");
       notifications.show({ color: "red", message: e.message || "Failed", autoClose: 3000 });
     } finally { setSavingPinModel(false); }
+  };
+
+  const changeOutputType = async (output_type: string) => {
+    setOutputTypeValue(output_type);
+    setSavingOutputType(true);
+    try {
+      await adminPost("/admin/token/output-type", { token: tk.key, output_type });
+      await onSaved();
+      notifications.show({ color: "teal", message: `Output: ${output_type}`, autoClose: 2000 });
+    } catch (e: any) {
+      setOutputTypeValue(tk.output_type || "anthropic");
+      notifications.show({ color: "red", message: e.message || "Failed", autoClose: 3000 });
+    } finally { setSavingOutputType(false); }
   };
 
   const togglePause = async () => {
@@ -329,6 +345,26 @@ export function TokenDetailModal({ token: tk, onClose, onSaved, onRotate }: Prop
               </Group>
               <Text size="xs" c="dimmed" mt={6}>
                 Pin will override whichever model the client requests. {modelList.length} {effectiveProvider} model{modelList.length !== 1 ? "s" : ""} available.
+              </Text>
+            </Box>
+            <Box>
+              <Group gap="xs" mb={4}>
+                <Text size="xs" c="dimmed">Response Format</Text>
+                {savingOutputType && <Loader size={10} />}
+              </Group>
+              <Select size="xs"
+                value={outputTypeValue}
+                disabled={savingOutputType}
+                allowDeselect={false}
+                onChange={v => changeOutputType(v || "anthropic")}
+                comboboxProps={{ withinPortal: true }}
+                data={[
+                  { value: "anthropic", label: "Anthropic (default)" },
+                  { value: "openai",    label: "OpenAI compatible — /v1/chat/completions" },
+                ]}
+              />
+              <Text size="xs" c="dimmed" mt={4}>
+                OpenAI mode: token accepts <Code>/v1/chat/completions</Code> and returns ChatCompletion format.
               </Text>
             </Box>
           </Stack>

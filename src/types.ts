@@ -38,6 +38,7 @@ export interface TokenEntry {
   description:  string;   // admin-set description
   pinned_model: string;   // if non-empty, force this model for all requests on this token
   last_reset:   number;   // epoch ms; 0 if never. UI display only.
+  output_type:  string;   // "anthropic" (default) | "openai" — response format for this token
 }
 
 

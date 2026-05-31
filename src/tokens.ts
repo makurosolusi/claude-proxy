@@ -30,7 +30,7 @@ export function initFromEnv() {
       user_id:      "",
       label:        "",
       description:  "",
-      pinned_model: "",
+      pinned_model: "", output_type: "anthropic",
       last_reset:   0,
     };
     tokens[key] = entry;

@@ -158,6 +158,11 @@ export async function dbUpdateProvider(key: string, provider: string) {
   await prisma.tokens.update({ where: { key }, data: { provider } });
 }
 
+export async function dbUpdateOutputType(key: string, output_type: string) {
+  await prisma.tokens.update({ where: { key }, data: { output_type } });
+  if (tokens[key]) tokens[key].output_type = output_type;
+}
+
 export async function dbUpsertUser(entry: UserEntry) {
   await prisma.users.upsert({
     where: { id: entry.id },
@@ -450,6 +455,7 @@ export async function loadFromDb() {
       description:  (row as any).description || "",
       pinned_model: (row as any).pinned_model || "",
       last_reset:   (row as any).last_reset != null ? Number((row as any).last_reset) : 0,
+      output_type:  (row as any).output_type || "anthropic",
     };
     if (expired) {
       await prisma.tokens.update({ where: { key: row.key }, data: { used: BigInt(0), window_start: BigInt(now), last_reset: BigInt(now) } });

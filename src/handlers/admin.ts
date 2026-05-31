@@ -1,4 +1,4 @@
-import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, dbSetContextBlock, dbClearContextBlock, dbSetContextGrace, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, dbUpdateOutputType, dbSetContextBlock, dbClearContextBlock, dbSetContextGrace, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
 import { prisma } from "../prisma";
 import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
@@ -80,7 +80,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       limit: parsed, window: config.windowMs,
       used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit", provider: "inherit",
       user_id: uid,
-      label, description, pinned_model: "",
+      label, description, pinned_model: "", output_type: "anthropic",
       last_reset: 0,
     };
     tokens[newKey] = entry;
@@ -161,6 +161,16 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     clearInFlight(target);
     delete tokens[target];
     return Response.json({ ok: true, newKey });
+  }
+
+  if (pathname === "/admin/token/output-type" && req.method === "POST") {
+    const target      = String(form?.get("token") || "").trim();
+    const output_type = String(form?.get("output_type") || "anthropic").trim();
+    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
+    if (output_type !== "anthropic" && output_type !== "openai")
+      return new Response("Invalid output_type\n", { status: 400 });
+    await dbUpdateOutputType(target, output_type);
+    return redirect();
   }
 
   if (pathname === "/admin/token/pin-model" && req.method === "POST") {

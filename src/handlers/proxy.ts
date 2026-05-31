@@ -6,7 +6,7 @@ import { getOauthCredential, refreshOauthToken, hasAnthropicCredential } from ".
 import { broadcastSystemMsg } from "../broadcast";
 import { getCustomProvider } from "../customProviders";
 import { pickDefaultProvider } from "../providerSelection";
-import { anthropicToOpenAi, openAiToAnthropic, translateOpenAiStreamToAnthropic } from "../openaiTranslate";
+import { anthropicToOpenAi, openAiToAnthropic, translateOpenAiStreamToAnthropic, openAiChatToAnthropic, anthropicToOpenAiResponse, translateAnthropicStreamToOpenAi } from "../openaiTranslate";
 import {
   getCapabilities,
   sanitizeRequestBody,
@@ -276,6 +276,11 @@ export async function handleProxy(
   t:    TokenEntry,
 ): Promise<Response> {
   const pathname = url.pathname;
+  // isOpenAiRequest: client sent OpenAI-format body via /v1/chat/completions → translate request + response
+  // isOpenAiResponse: client expects OpenAI-format response (either by path, or by token setting when already on /v1/chat/completions)
+  const isOpenAiRequest  = pathname === "/v1/chat/completions";
+  const isOpenAiResponse = isOpenAiRequest || t.output_type === "openai";
+  const upstreamPathname = isOpenAiRequest ? "/v1/messages" : pathname;
 
   if (t.paused) return Response.json(
     { error: { type: "permission_error", message: "Token is paused by administrator." } },
@@ -366,7 +371,7 @@ export async function handleProxy(
     return Response.json({ input_tokens: 0 });
   }
 
-  if (!(req.method === "POST" && pathname === "/v1/messages")) {
+  if (!(req.method === "POST" && (pathname === "/v1/messages" || pathname === "/v1/chat/completions"))) {
     return Response.json({ error: { type: "not_found_error", message: "Not found" } }, { status: 404 });
   }
 
@@ -467,6 +472,10 @@ export async function handleProxy(
   try {
     bodyText = await req.text();
     bodyJson = JSON.parse(bodyText);
+    if (isOpenAiRequest) {
+      bodyJson = openAiChatToAnthropic(bodyJson, bodyJson.model || "claude-sonnet-4-6");
+      bodyText = JSON.stringify(bodyJson);
+    }
     model          = bodyJson.model || "";
     prompt         = extractPrompt(bodyJson.messages);
     systemPrompt   = extractSystem(bodyJson);
@@ -574,7 +583,7 @@ export async function handleProxy(
   }
 
   // ── Build & forward ───────────────────────────────────────────────────────────
-  let built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
+  let built = buildUpstreamRequest(provider, new Headers(req.headers), upstreamPathname, bodyText, model);
 
   // If initial provider has no credential, try fallbacks (unless override forces a specific provider)
   if (!built) {
@@ -583,7 +592,7 @@ export async function handleProxy(
       model = toProviderModel(originalModel || model, provider);
       if (bodyJson) { bodyJson.model = model; }
       bodyText = sanitizeBodyForDestination(bodyJson, provider, model, key);
-      built = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
+      built = buildUpstreamRequest(provider, new Headers(req.headers), upstreamPathname, bodyText, model);
       console.log(`[proxy] No Anthropic credential → ${provider} [${key.slice(-6)}]`);
     }
     if (!built) {
@@ -634,7 +643,7 @@ export async function handleProxy(
       model = toProviderModel(originalModel || model, provider);
       if (bodyJson) { bodyJson.model = model; }
       bodyText = sanitizeBodyForDestination(bodyJson, provider, model, key);
-      const fbBuilt = buildUpstreamRequest(provider, new Headers(req.headers), pathname, bodyText, model);
+      const fbBuilt = buildUpstreamRequest(provider, new Headers(req.headers), upstreamPathname, bodyText, model);
       if (fbBuilt) {
         upstreamUrl  = fbBuilt.url;
         headers      = fbBuilt.headers;
@@ -699,7 +708,7 @@ export async function handleProxy(
       // Terminal notification injection — fetch once, decide after message_start
       const userIdForInject = t.user_id || "";
       const continuationSkip = isToolResultContinuation(bodyJson);
-      const pendingAnnouncePromise = userIdForInject && !continuationSkip
+      const pendingAnnouncePromise = userIdForInject && !continuationSkip && !isOpenAiResponse
         ? getPendingTerminalForUser(userIdForInject).catch(() => [])
         : Promise.resolve([]);
       (async () => {
@@ -808,7 +817,10 @@ export async function handleProxy(
       outHeaders.set("x-accel-buffering", "no");
       outHeaders.set("cache-control", "no-cache");
       for (const [k, v] of Object.entries(rateHeaders)) outHeaders.set(k, v);
-      return new Response(readable, { status: resp.status, headers: outHeaders });
+      const responseStream = isOpenAiResponse
+        ? translateAnthropicStreamToOpenAi(readable, originalModel || model)
+        : readable;
+      return new Response(responseStream, { status: resp.status, headers: outHeaders });
     }
 
     // Non-streaming
@@ -849,7 +861,7 @@ export async function handleProxy(
     try {
       const userId = t.user_id || "";
       const hasToolUse = Array.isArray(body?.content) && body.content.some((b: any) => b?.type === "tool_use");
-      if (userId && Array.isArray(body?.content) && !hasToolUse && !isToolResultContinuation(bodyJson)) {
+      if (userId && Array.isArray(body?.content) && !hasToolUse && !isToolResultContinuation(bodyJson) && !isOpenAiResponse) {
         const pending = await getPendingTerminalForUser(userId);
         if (pending.length > 0) {
           const announceText = pending.map(formatTerminalAnnouncement).join("");
@@ -859,6 +871,17 @@ export async function handleProxy(
       }
     } catch (e) { console.warn("[proxy] terminal inject (non-stream) failed:", e); }
 
+    if (isOpenAiResponse) {
+      if (resp.status >= 400) {
+        const errMsg = body?.error?.message || body?.message || "Upstream error";
+        return Response.json(
+          { error: { message: errMsg, type: body?.error?.type || "api_error", code: resp.status } },
+          { status: resp.status, headers: rateHeaders }
+        );
+      }
+      const oaiBody = anthropicToOpenAiResponse(body, originalModel || model);
+      return Response.json(oaiBody, { status: resp.status, headers: rateHeaders });
+    }
     return Response.json(body, { status: resp.status, headers: rateHeaders });
 
   } catch (err: any) {

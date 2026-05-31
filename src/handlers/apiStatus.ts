@@ -144,6 +144,7 @@ export function buildTokenData(): Record<string, any> {
       alltime:         allTimePerUser[k] || 0,
       provider:        tp,
       pinned_model:    tk.pinned_model || "",
+      output_type:     tk.output_type || "anthropic",
       activeProvider:  effectiveProvider,
       activeModel,
       last_reset:      tk.last_reset || 0,

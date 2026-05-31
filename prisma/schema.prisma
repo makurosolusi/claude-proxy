@@ -30,6 +30,7 @@ model tokens {
   // Existing tokens are migrated to "auto" so behavior is preserved on upgrade.
   reset_mode   String   @default("manual")
   last_reset   BigInt?
+  output_type  String   @default("anthropic")
 }
 
 model request_logs {

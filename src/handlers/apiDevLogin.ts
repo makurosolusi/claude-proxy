@@ -78,7 +78,7 @@ export async function handleDevLogin(req: Request): Promise<Response> {
       paused: false, dynamic: true,
       mode: "inherit", provider: "inherit",
       user_id: id,
-      label: "", description: "", pinned_model: "",
+      label: "", description: "", pinned_model: "", output_type: "anthropic",
       last_reset: 0,
     };
     tokens[tokenKey] = tokenEntry;

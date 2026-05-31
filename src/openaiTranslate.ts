@@ -1,13 +1,7 @@
 // Translation layer: Anthropic /v1/messages format <-> OpenAI /v1/chat/completions format.
-// Used when a custom provider declares type="openai" — the proxy receives Anthropic-format
-// requests (Claude Code clients), forwards as OpenAI format, and translates the response back.
-//
-// Scope (MVP):
-//   - Text content (no tool_use / tool_result yet — those would need more complex mapping)
-//   - System prompt as top-level → first system message
-//   - Streaming: OpenAI SSE chunks → Anthropic SSE events
-//   - Non-streaming: full JSON body translation
-//   - Stop reasons mapped: stop→end_turn, length→max_tokens
+// Direction A (existing): Client(Anthropic) → anthropicToOpenAi → OpenAI provider → openAiToAnthropic → Client
+// Direction B (compat):   Client(OpenAI)    → openAiChatToAnthropic → Anthropic upstream → anthropicToOpenAiResponse → Client
+// Tool calls: fully supported in Direction B. Direction A: text-only.
 
 import { randomUUID } from "crypto";
 
@@ -173,6 +167,245 @@ function emitMessageDelta(state: StreamState): string {
 function emitMessageStop(): string {
   return sseEvent("message_stop", { type: "message_stop" });
 }
+
+// ── Direction B helpers: tool call translation ────────────────────────────────
+
+function translateOpenAiTools(tools: any[]): any[] {
+  return tools.map(t => ({
+    name:         t.function?.name || "",
+    description:  t.function?.description || "",
+    input_schema: t.function?.parameters || { type: "object", properties: {} },
+  }));
+}
+
+function translateOpenAiToolChoice(tc: any): any | undefined {
+  if (!tc) return undefined;
+  if (tc === "none")           return { type: "none" };
+  if (tc === "auto")           return { type: "auto" };
+  if (tc === "required")       return { type: "any" };
+  if (tc?.type === "function") return { type: "tool", name: tc.function?.name };
+  return undefined;
+}
+
+function isAllToolResults(m: any): boolean {
+  return Array.isArray(m?.content) && m.content.length > 0
+    && m.content.every((b: any) => b?.type === "tool_result");
+}
+
+// ── Direction B: OpenAI → Anthropic (request) ────────────────────────────────
+
+export function openAiChatToAnthropic(body: any, model: string): any {
+  const srcMsgs: any[] = Array.isArray(body.messages) ? body.messages : [];
+  const systemParts: string[] = [];
+  const preliminary: any[] = [];
+
+  for (const m of srcMsgs) {
+    if (m.role === "system") {
+      const text = typeof m.content === "string" ? m.content
+        : Array.isArray(m.content) ? m.content.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("") : "";
+      if (text) systemParts.push(text);
+      continue;
+    }
+
+    if (m.role === "tool") {
+      // Single tool_result — will be merged with consecutive ones in pass 2
+      const resultContent = typeof m.content === "string" ? m.content
+        : Array.isArray(m.content) ? m.content.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("") : "";
+      preliminary.push({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: m.tool_call_id || "", content: resultContent }],
+      });
+      continue;
+    }
+
+    if (m.role === "assistant") {
+      const content: any[] = [];
+      // Text content (may be null for tool-only turns)
+      const text = typeof m.content === "string" ? m.content
+        : Array.isArray(m.content) ? m.content.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("") : "";
+      if (text) content.push({ type: "text", text });
+      // Tool calls
+      if (Array.isArray(m.tool_calls)) {
+        for (const tc of m.tool_calls) {
+          let input: any = {};
+          try { input = JSON.parse(tc.function?.arguments || "{}"); } catch {}
+          content.push({ type: "tool_use", id: tc.id || "", name: tc.function?.name || "", input });
+        }
+      }
+      if (content.length > 0) preliminary.push({ role: "assistant", content });
+      continue;
+    }
+
+    // user role
+    const text = typeof m.content === "string" ? m.content
+      : Array.isArray(m.content) ? m.content.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("") : "";
+    if (text) preliminary.push({ role: "user", content: text });
+  }
+
+  // Pass 2: merge consecutive user messages that are all tool_results (parallel tool call responses)
+  const messages: any[] = [];
+  for (const m of preliminary) {
+    const prev = messages[messages.length - 1];
+    if (prev?.role === "user" && isAllToolResults(prev) && isAllToolResults(m)) {
+      prev.content = [...prev.content, ...m.content];
+    } else {
+      messages.push(m);
+    }
+  }
+
+  const tools: any[] = Array.isArray(body.tools) ? body.tools : [];
+  const out: any = { model, messages, max_tokens: body.max_tokens || 4096, stream: !!body.stream };
+  if (systemParts.length) out.system = systemParts.join("\n\n");
+  if (tools.length) out.tools = translateOpenAiTools(tools);
+  const tc = translateOpenAiToolChoice(body.tool_choice);
+  if (tc && tools.length) out.tool_choice = tc;
+  if (typeof body.temperature === "number") out.temperature = body.temperature;
+  if (typeof body.top_p       === "number") out.top_p       = body.top_p;
+  return out;
+}
+
+// ── Direction B: Anthropic → OpenAI (non-streaming response) ─────────────────
+
+const ANTHR_TO_OAI_STOP: Record<string, string> = {
+  end_turn:   "stop",
+  max_tokens: "length",
+  tool_use:   "tool_calls",
+};
+
+export function anthropicToOpenAiResponse(body: any, originalModel: string): any {
+  const content: any[] = Array.isArray(body?.content) ? body.content : [];
+  const textBlocks = content.filter((b: any) => b?.type === "text");
+  const toolBlocks = content.filter((b: any) => b?.type === "tool_use");
+
+  const messageContent = textBlocks.length > 0
+    ? textBlocks.map((b: any) => b.text || "").join("")
+    : null;
+
+  const toolCalls = toolBlocks.length > 0
+    ? toolBlocks.map((b: any, i: number) => ({
+        index: i,
+        id:    b.id || ("call_" + randomUUID().replace(/-/g, "").slice(0, 16)),
+        type:  "function",
+        function: { name: b.name || "", arguments: JSON.stringify(b.input ?? {}) },
+      }))
+    : undefined;
+
+  const finishReason = ANTHR_TO_OAI_STOP[body?.stop_reason] || "stop";
+  return {
+    id:      "chatcmpl-" + randomUUID().replace(/-/g, "").slice(0, 24),
+    object:  "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model:   originalModel,
+    choices: [{
+      index: 0,
+      message: {
+        role:    "assistant",
+        content: messageContent,
+        ...(toolCalls ? { tool_calls: toolCalls } : {}),
+      },
+      finish_reason: finishReason,
+    }],
+    usage: {
+      prompt_tokens:     body?.usage?.input_tokens     || 0,
+      completion_tokens: body?.usage?.output_tokens    || 0,
+      total_tokens:      (body?.usage?.input_tokens || 0) + (body?.usage?.output_tokens || 0),
+    },
+  };
+}
+
+// ── Direction B: Anthropic SSE → OpenAI SSE ──────────────────────────────────
+
+export function translateAnthropicStreamToOpenAi(
+  upstream: ReadableStream<Uint8Array>,
+  originalModel: string,
+): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const chatId  = "chatcmpl-" + randomUUID().replace(/-/g, "").slice(0, 24);
+  const created = Math.floor(Date.now() / 1000);
+
+  function oaiChunk(delta: any, finishReason: string | null): string {
+    return `data: ${JSON.stringify({
+      id: chatId, object: "chat.completion.chunk", created, model: originalModel,
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
+    })}\n\n`;
+  }
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = upstream.getReader();
+      let buffer = "";
+      let emittedRole = false;
+      // Tool call index tracking: Anthropic content block index → OpenAI tool_calls index
+      const toolCallIndexMap = new Map<number, number>();
+      let nextToolCallIdx = 0;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+
+          for (const chunk of parts) {
+            const eventLine = chunk.split("\n").find(l => l.startsWith("event:"));
+            const dataLine  = chunk.split("\n").find(l => l.startsWith("data:"));
+            if (!dataLine) continue;
+
+            const payload = dataLine.slice(5).trim();
+            let parsed: any;
+            try { parsed = JSON.parse(payload); } catch { continue; }
+
+            const event = eventLine ? eventLine.slice(6).trim() : parsed?.type;
+
+            if (event === "message_start" && !emittedRole) {
+              emittedRole = true;
+              controller.enqueue(encoder.encode(oaiChunk({ role: "assistant", content: "" }, null)));
+            } else if (event === "content_block_start" && parsed?.content_block?.type === "tool_use") {
+              // Emit tool_calls header: id + name + empty arguments string
+              const tcIdx = nextToolCallIdx++;
+              toolCallIndexMap.set(parsed.index, tcIdx);
+              controller.enqueue(encoder.encode(oaiChunk({
+                tool_calls: [{
+                  index: tcIdx,
+                  id:    parsed.content_block.id || ("call_" + randomUUID().replace(/-/g, "").slice(0, 16)),
+                  type:  "function",
+                  function: { name: parsed.content_block.name || "", arguments: "" },
+                }],
+              }, null)));
+            } else if (event === "content_block_delta" && parsed?.delta?.type === "text_delta") {
+              controller.enqueue(encoder.encode(oaiChunk({ content: parsed.delta.text }, null)));
+            } else if (event === "content_block_delta" && parsed?.delta?.type === "input_json_delta") {
+              // Emit incremental tool call arguments
+              const tcIdx = toolCallIndexMap.get(parsed.index);
+              if (tcIdx !== undefined) {
+                controller.enqueue(encoder.encode(oaiChunk({
+                  tool_calls: [{ index: tcIdx, function: { arguments: parsed.delta.partial_json || "" } }],
+                }, null)));
+              }
+            } else if (event === "message_delta" && parsed?.delta?.stop_reason) {
+              const fr = ANTHR_TO_OAI_STOP[parsed.delta.stop_reason] || "stop";
+              controller.enqueue(encoder.encode(oaiChunk({}, fr)));
+            } else if (event === "message_stop") {
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            }
+          }
+        }
+      } finally {
+        if (!emittedRole) {
+          controller.enqueue(encoder.encode(oaiChunk({ role: "assistant", content: "" }, null)));
+          controller.enqueue(encoder.encode(oaiChunk({}, "stop")));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        }
+        controller.close();
+      }
+    },
+  });
+}
+
+// ── Direction A: OpenAI SSE → Anthropic SSE (existing) ───────────────────────
 
 // Transform an OpenAI SSE byte stream into an Anthropic SSE byte stream.
 export function translateOpenAiStreamToAnthropic(
