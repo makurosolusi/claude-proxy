@@ -75,11 +75,13 @@ export function responsesInputToAnthropic(body: any): any {
   if (typeof body.temperature === "number") out.temperature = body.temperature;
   if (typeof body.top_p      === "number") out.top_p       = body.top_p;
   if (Array.isArray(body.tools) && body.tools.length > 0) {
-    out.tools = body.tools.map((t: any) => ({
-      name:         t.name         || "",
-      description:  t.description  || "",
-      input_schema: t.parameters   || { type: "object", properties: {} },
-    }));
+    out.tools = body.tools
+      .map((t: any) => ({
+        name:         t.name || t.function?.name || "",
+        description:  t.description || t.function?.description || "",
+        input_schema: t.parameters || t.function?.parameters || { type: "object", properties: {} },
+      }))
+      .filter((t: any) => t.name); // drop built-in/unnamed tool types (web_search, code_interpreter, etc.)
     const tc = body.tool_choice;
     if (tc) {
       if      (tc === "auto")          out.tool_choice = { type: "auto" };
