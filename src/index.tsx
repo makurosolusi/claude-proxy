@@ -971,6 +971,12 @@ server = serve({
       if (!t) return Response.json({ error: { type: "authentication_error", message: "Invalid API key" } }, { status: 401 });
       return handleProxy(req, new URL(req.url), key, t);
     },
+    "/v1/responses": async req => {
+      const key = extractKey(req);
+      const t = tokens[key];
+      if (!t) return Response.json({ error: { message: "Invalid API key", type: "authentication_error" } }, { status: 401 });
+      return handleProxy(req, new URL(req.url), key, t);
+    },
 
     // 404 for unknown API/admin paths
     "/api/*": req => {

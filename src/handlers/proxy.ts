@@ -7,6 +7,7 @@ import { broadcastSystemMsg } from "../broadcast";
 import { getCustomProvider } from "../customProviders";
 import { pickDefaultProvider } from "../providerSelection";
 import { anthropicToOpenAi, openAiToAnthropic, translateOpenAiStreamToAnthropic, openAiChatToAnthropic, anthropicToOpenAiResponse, translateAnthropicStreamToOpenAi } from "../openaiTranslate";
+import { responsesInputToAnthropic, anthropicToResponsesOutput, translateAnthropicStreamToResponses } from "../openaiResponsesTranslate";
 import {
   getCapabilities,
   sanitizeRequestBody,
@@ -278,9 +279,10 @@ export async function handleProxy(
   const pathname = url.pathname;
   // isOpenAiRequest: client sent OpenAI-format body via /v1/chat/completions → translate request + response
   // isOpenAiResponse: client expects OpenAI-format response (either by path, or by token setting when already on /v1/chat/completions)
-  const isOpenAiRequest  = pathname === "/v1/chat/completions";
-  const isOpenAiResponse = isOpenAiRequest || t.output_type === "openai";
-  const upstreamPathname = isOpenAiRequest ? "/v1/messages" : pathname;
+  const isResponsesRequest = pathname === "/v1/responses";
+  const isOpenAiRequest    = pathname === "/v1/chat/completions";
+  const isOpenAiResponse   = isOpenAiRequest || t.output_type === "openai";
+  const upstreamPathname   = (isOpenAiRequest || isResponsesRequest) ? "/v1/messages" : pathname;
 
   if (t.paused) return Response.json(
     { error: { type: "permission_error", message: "Token is paused by administrator." } },
@@ -371,7 +373,7 @@ export async function handleProxy(
     return Response.json({ input_tokens: 0 });
   }
 
-  if (!(req.method === "POST" && (pathname === "/v1/messages" || pathname === "/v1/chat/completions"))) {
+  if (!(req.method === "POST" && (pathname === "/v1/messages" || pathname === "/v1/chat/completions" || pathname === "/v1/responses"))) {
     return Response.json({ error: { type: "not_found_error", message: "Not found" } }, { status: 404 });
   }
 
@@ -474,6 +476,9 @@ export async function handleProxy(
     bodyJson = JSON.parse(bodyText);
     if (isOpenAiRequest) {
       bodyJson = openAiChatToAnthropic(bodyJson, bodyJson.model || "claude-sonnet-4-6");
+      bodyText = JSON.stringify(bodyJson);
+    } else if (isResponsesRequest) {
+      bodyJson = responsesInputToAnthropic(bodyJson);
       bodyText = JSON.stringify(bodyJson);
     }
     model          = bodyJson.model || "";
@@ -708,7 +713,7 @@ export async function handleProxy(
       // Terminal notification injection — fetch once, decide after message_start
       const userIdForInject = t.user_id || "";
       const continuationSkip = isToolResultContinuation(bodyJson);
-      const pendingAnnouncePromise = userIdForInject && !continuationSkip && !isOpenAiResponse
+      const pendingAnnouncePromise = userIdForInject && !continuationSkip && !isOpenAiResponse && !isResponsesRequest
         ? getPendingTerminalForUser(userIdForInject).catch(() => [])
         : Promise.resolve([]);
       (async () => {
@@ -817,9 +822,11 @@ export async function handleProxy(
       outHeaders.set("x-accel-buffering", "no");
       outHeaders.set("cache-control", "no-cache");
       for (const [k, v] of Object.entries(rateHeaders)) outHeaders.set(k, v);
-      const responseStream = isOpenAiResponse
-        ? translateAnthropicStreamToOpenAi(readable, originalModel || model)
-        : readable;
+      const responseStream = isResponsesRequest
+        ? translateAnthropicStreamToResponses(readable, originalModel || model)
+        : isOpenAiResponse
+          ? translateAnthropicStreamToOpenAi(readable, originalModel || model)
+          : readable;
       return new Response(responseStream, { status: resp.status, headers: outHeaders });
     }
 
@@ -871,6 +878,16 @@ export async function handleProxy(
       }
     } catch (e) { console.warn("[proxy] terminal inject (non-stream) failed:", e); }
 
+    if (isResponsesRequest) {
+      if (resp.status >= 400) {
+        const errMsg = body?.error?.message || body?.message || "Upstream error";
+        return Response.json(
+          { error: { message: errMsg, type: body?.error?.type || "api_error" } },
+          { status: resp.status, headers: rateHeaders }
+        );
+      }
+      return Response.json(anthropicToResponsesOutput(body, originalModel || model), { status: resp.status, headers: rateHeaders });
+    }
     if (isOpenAiResponse) {
       if (resp.status >= 400) {
         const errMsg = body?.error?.message || body?.message || "Upstream error";
