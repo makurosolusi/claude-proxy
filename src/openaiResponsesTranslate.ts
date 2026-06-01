@@ -107,13 +107,38 @@ export function responsesInputToAnthropic(body: any): any {
     }
   }
 
+  // Inject cache_control for Responses API clients (Codex CLI, etc.) to reduce billing.
+  // cache_control is a billing/perf hint only — model receives identical tokens.
+  // Guard: system ≥4096 chars (Anthropic min ~1024 tokens); history ≥6 messages.
+  const CACHE_MIN = 4096;
+  let systemOut: any = systemText || undefined;
+  if (systemText && systemText.length >= CACHE_MIN) {
+    systemOut = [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }];
+  }
+  if (messages.length >= 6) {
+    const anchorIdx = messages.length - 3;
+    const anchor = messages[anchorIdx];
+    if (anchor?.role === "user") {
+      const c = anchor.content;
+      if (typeof c === "string" && c.length >= CACHE_MIN) {
+        messages[anchorIdx] = { ...anchor, content: [{ type: "text", text: c, cache_control: { type: "ephemeral" } }] };
+      } else if (Array.isArray(c) && c.length > 0) {
+        const last = c[c.length - 1];
+        if (last?.type === "text" && !last.cache_control) {
+          const nc = [...c]; nc[nc.length - 1] = { ...last, cache_control: { type: "ephemeral" } };
+          messages[anchorIdx] = { ...anchor, content: nc };
+        }
+      }
+    }
+  }
+
   const out: any = {
     model: body.model || "claude-sonnet-4-6",
     messages,
     max_tokens: body.max_output_tokens || 4096,
     stream: body.stream ?? false,
   };
-  if (systemText)                      out.system = systemText;
+  if (systemOut)                       out.system = systemOut;
   if (typeof body.temperature === "number") out.temperature = body.temperature;
   if (typeof body.top_p      === "number") out.top_p       = body.top_p;
   if (Array.isArray(body.tools) && body.tools.length > 0) {
