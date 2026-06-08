@@ -33,14 +33,14 @@ export function AnalyticsPanel({ analytics, userImages, anomalyPage, setAnomalyP
               </Group>
               <Box p="md">
                 <ReactECharts
-                  style={{ height: 200 }}
+                  style={{ height: 220 }}
                   opts={{ renderer: "canvas" }}
                   option={{
                     backgroundColor: "transparent",
                     tooltip: { trigger: "item", formatter: "{b}: {c} tokens ({d}%)" },
-                    legend: { orient: "vertical", right: "5%", top: "center", textStyle: { color: isDark ? "#c1c2c5" : "#343a40", fontSize: 12 } },
+                    legend: { orient: "horizontal", bottom: 4, left: "center", textStyle: { color: isDark ? "#c1c2c5" : "#343a40", fontSize: 11 }, itemGap: 8 },
                     series: [{
-                      type: "pie", radius: ["45%", "72%"], center: ["38%", "50%"],
+                      type: "pie", radius: ["45%", "72%"], center: ["50%", "44%"],
                       avoidLabelOverlap: true,
                       label: { show: false },
                       emphasis: { label: { show: true, fontSize: 14, fontWeight: "bold" } },
@@ -89,7 +89,7 @@ export function AnalyticsPanel({ analytics, userImages, anomalyPage, setAnomalyP
               <Group gap="xs">
                 <ThemeIcon variant="light" color="orange" size="sm" radius="sm"><IconClock size={13} /></ThemeIcon>
                 <Text size="sm" fw={700}>Peak Hours</Text>
-                <Text size="xs" c="dimmed">— 7-day request pattern</Text>
+                <Text size="xs" c="dimmed" visibleFrom="sm">— 7-day request pattern</Text>
               </Group>
               <Badge size="sm" variant="light" color="blue">Peak: {fmtHour(analytics.peakHour)}</Badge>
             </Group>
@@ -100,7 +100,7 @@ export function AnalyticsPanel({ analytics, userImages, anomalyPage, setAnomalyP
                 option={{
                   backgroundColor: "transparent",
                   tooltip: { trigger: "axis", formatter: (p: any[]) => `${fmtHour(p[0].dataIndex)} · ${p[0].value} requests` },
-                  grid: { top: 10, bottom: 30, left: 40, right: 10 },
+                  grid: { top: 10, bottom: 30, left: 10, right: 10 },
                   xAxis: { type: "category", data: analytics.peakHours.map(h => h.h % 6 === 0 ? fmtHour(h.h) : ""),
                     axisLabel: { color: isDark ? "#6c757d" : "#868e96", fontSize: 11 }, axisLine: { show: false }, axisTick: { show: false } },
                   yAxis: { type: "value", axisLabel: { show: false }, splitLine: { lineStyle: { color: isDark ? "#373a40" : "#dee2e6", type: "dashed" } } },
@@ -122,7 +122,7 @@ export function AnalyticsPanel({ analytics, userImages, anomalyPage, setAnomalyP
             <Group gap="xs" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
               <ThemeIcon variant="light" color="violet" size="sm" radius="sm"><IconDatabase size={13} /></ThemeIcon>
               <Text size="sm" fw={700}>Cache Hit Rate per User</Text>
-              <Text size="xs" c="dimmed">— higher = longer sessions, more efficient</Text>
+              <Text size="xs" c="dimmed" visibleFrom="sm">— higher = longer sessions, more efficient</Text>
             </Group>
             <Stack gap="sm" p="md">
               {analytics.cacheHitRate.map(u => {
@@ -157,10 +157,10 @@ export function AnalyticsPanel({ analytics, userImages, anomalyPage, setAnomalyP
               <Group gap="xs" px="md" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
                 <ThemeIcon variant="light" color="red" size="sm" radius="sm"><IconFlame size={13} /></ThemeIcon>
                 <Text size="sm" fw={700}>Anomaly Score</Text>
-                <Text size="xs" c="dimmed">— heaviest requests, scored 0–100 from input tokens, ratio, tool use, duration</Text>
+                <Text size="xs" c="dimmed" visibleFrom="sm">— heaviest requests, scored 0–100 from input tokens, ratio, tool use, duration</Text>
                 <Badge size="xs" variant="light" color="red" ml="auto">{analytics.anomalyScores.length} entries</Badge>
               </Group>
-              <Table.ScrollContainer minWidth={340}>
+              <Table.ScrollContainer minWidth={280}>
                 <Table highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
@@ -168,13 +168,15 @@ export function AnalyticsPanel({ analytics, userImages, anomalyPage, setAnomalyP
                       <Table.Th>User</Table.Th>
                       <Table.Th>Time</Table.Th>
                       <Table.Th ta="right">Input</Table.Th>
-                      <Table.Th ta="right">Output</Table.Th>
+                      <Table.Th ta="right" className="anomaly-col-hide-xs">Output</Table.Th>
                       <Table.Th ta="right">Turns</Table.Th>
                       <Table.Th ta="right">Tools</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
                     {anomalySlice.map(r => {
+                      const d   = new Date(r.ts);
+                      const ts  = `${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
                       const display = maskToken(r.label);
                       return (
                         <Table.Tr key={r.id} style={{ cursor: "pointer" }} onClick={() => onOpenAnomalyDetail(r.id)}>
@@ -186,9 +188,9 @@ export function AnalyticsPanel({ analytics, userImages, anomalyPage, setAnomalyP
                               <Text size="xs" ff="monospace">{display}</Text>
                             </Tooltip>
                           </Table.Td>
-                          <Table.Td><Text size="xs" c="dimmed">{new Date(r.ts).toLocaleString()}</Text></Table.Td>
+                          <Table.Td><Text size="xs" c="dimmed" ff="monospace">{ts}</Text></Table.Td>
                           <Table.Td ta="right"><Text size="xs" ff="monospace" c={r.input_tokens > 100_000 ? "red" : r.input_tokens > 50_000 ? "orange" : "dimmed"}>{nf.format(r.input_tokens)}</Text></Table.Td>
-                          <Table.Td ta="right"><Text size="xs" ff="monospace" c="dimmed">{nf.format(r.output_tokens)}</Text></Table.Td>
+                          <Table.Td ta="right" className="anomaly-col-hide-xs"><Text size="xs" ff="monospace" c="dimmed">{nf.format(r.output_tokens)}</Text></Table.Td>
                           <Table.Td ta="right"><Text size="xs" ff="monospace" c="dimmed">{r.turns}</Text></Table.Td>
                           <Table.Td ta="right"><Text size="xs" ff="monospace" c={r.tool_use > 10 ? "violet" : "dimmed"}>{r.tool_use}</Text></Table.Td>
                         </Table.Tr>
@@ -199,7 +201,7 @@ export function AnalyticsPanel({ analytics, userImages, anomalyPage, setAnomalyP
               </Table.ScrollContainer>
 
               {anomalyPages > 1 && (
-                <Group justify="space-between" p="sm" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
+                <Group justify="space-between" p="sm" gap="xs" wrap="wrap" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
                   <Text size="xs" c="dimmed">{analytics.anomalyScores.length} entries · page {anomalyPage}/{anomalyPages}</Text>
                   <Pagination total={anomalyPages} value={anomalyPage} onChange={setAnomalyPage} size="sm" />
                 </Group>

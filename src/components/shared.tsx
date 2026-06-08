@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, useState, useEffect, type ReactNode } from "react";
 import { Stack, Text, Button, Center, Paper, Box, Group, Badge, SimpleGrid, Tooltip, useMantineColorScheme, ThemeIcon } from "@mantine/core";
 import { Loader } from "@mantine/core";
 import { IconClock, IconBan } from "@tabler/icons-react";
@@ -115,6 +115,31 @@ export function RequireAuth({
   return <>{children}</>;
 }
 
+export function TruncText({ children, tooltip, ...rest }: {
+  children: string;
+  tooltip?: string;
+  [key: string]: unknown;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  const [over, setOver] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setOver(el.scrollWidth > el.clientWidth);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [children]);
+
+  return (
+    <Tooltip label={tooltip ?? children} withArrow disabled={!over} openDelay={200}>
+      <Text ref={ref} truncate {...(rest as any)}>{children}</Text>
+    </Tooltip>
+  );
+}
+
 function needleColor(pct: number): string {
   if (pct < 40) return "#12b886";
   if (pct < 65) return "#fab005";
@@ -173,7 +198,7 @@ function SingleGauge({
         lineStyle: { color: tickCol, width: 1 },
       },
       axisLabel: {
-        distance: -42, color: textCol, fontSize: 14, fontFamily: "monospace",
+        distance: -42, color: textCol, fontSize: 11, fontFamily: "monospace",
         // hide 0 & 100 — they sit at bottom corners and overlap reset text
         formatter: (v: number) => (v === 0 || v === 100) ? "" : String(v),
       },
@@ -232,7 +257,7 @@ function UpstreamGauge({ upstream }: { upstream: UpstreamData }) {
   ];
 
   return (
-    <SimpleGrid cols={{ base: 1, xs: entries.length === 1 ? 1 : 2, md: entries.length === 1 ? 1 : entries.length === 2 ? 2 : 3 }} spacing="xs">
+    <SimpleGrid cols={{ base: 1, sm: entries.length > 1 ? 2 : 1, md: entries.length }} spacing="xs">
       {entries.map(e => (
         <SingleGauge key={e.label} label={e.label} data={e.data} dark={dark} arcColors={arcColors} />
       ))}
@@ -305,16 +330,18 @@ export function UpstreamSection({ upstream, isAdmin }: { upstream: UpstreamData;
       )}
       {!upstream.ok && upstream.fiveHour && (
         <Paper withBorder p="xs" style={{ borderColor: "var(--mantine-color-yellow-5)" }}>
-          <Text size="sm" c="yellow">⚠ Poll failed{isAdmin && upstream.error ? ` · ${upstream.error}` : ""}</Text>
+          <Text size="sm" c="yellow" style={{ wordBreak: "break-word" }}>⚠ Poll failed{isAdmin && upstream.error ? ` · ${upstream.error}` : ""}</Text>
         </Paper>
       )}
-      <Group justify="space-between">
-        <Group gap="sm">
+      <Group justify="space-between" wrap="nowrap" gap="xs">
+        <Group gap="sm" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
           <Box w={8} h={8} style={{ borderRadius: "50%", background: `var(--mantine-color-${isFallback ? fbColor : dotColor}-5)`, flexShrink: 0 }} />
-          <Text size="sm" fw={600}>{isFallback ? fbName : "Claude Max"}</Text>
-          {isAdmin && upstream.email && <Text size="xs" c="dimmed" ff="monospace">{upstream.email}</Text>}
+          <Text size="sm" fw={600} style={{ flexShrink: 0 }}>{isFallback ? fbName : "Claude Max"}</Text>
+          {isAdmin && upstream.email && (
+            <Text size="xs" c="dimmed" ff="monospace" truncate style={{ minWidth: 0, flex: 1 }}>{upstream.email}</Text>
+          )}
         </Group>
-        <Group gap="xs">
+        <Group gap="xs" style={{ flexShrink: 0 }}>
           {isFallback && <Badge color={fbColor} variant="light" size="xs">fallback</Badge>}
           {upstream.stale && <Badge color="yellow" variant="light" size="xs">stale</Badge>}
         </Group>

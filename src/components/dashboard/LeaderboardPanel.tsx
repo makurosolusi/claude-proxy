@@ -1,5 +1,6 @@
 import { useMantineColorScheme } from "@mantine/core";
 import { Paper, Group, ThemeIcon, Text, Table, Stack, Box, Badge, Tooltip, Progress } from "@mantine/core";
+import { TruncText } from "../shared";
 import { IconTrophy, IconChartBar, IconChartHistogram } from "@tabler/icons-react";
 import ReactECharts from "echarts-for-react";
 import type { AnalyticsData } from "../../contexts";
@@ -167,12 +168,12 @@ export function LeaderboardPanel({ analytics, userImages }: LeaderboardPanelProp
                     },
                   },
                   legend: {
-                    bottom: 0,
+                    bottom: 4,
                     textStyle: { color: isDark ? "#c1c2c5" : "#343a40", fontSize: 11 },
                     icon: "circle", itemWidth: 8, itemHeight: 8,
                     formatter: (name: string) => maskToken(name),
                   },
-                  grid: { top: 12, bottom: 48, left: 60, right: 16 },
+                  grid: { top: 12, bottom: 64, left: "2%", right: "2%", containLabel: true },
                   xAxis: {
                     type: "category", data: dates,
                     axisLabel: { color: isDark ? "#6c757d" : "#868e96", fontSize: 10, formatter: (v: string) => v.slice(5), interval: Math.floor(dates.length / 6) },
@@ -226,7 +227,7 @@ export function LeaderboardPanel({ analytics, userImages }: LeaderboardPanelProp
                       <Group gap="md" wrap="nowrap">
                         <Box ta="right" style={{ minWidth: 72 }}>
                           <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>All-Time</Text>
-                          <Text size="sm" ff="monospace" fw={700}>{nf.format(u.total)}</Text>
+                          <TruncText size="sm" ff="monospace" fw={700}>{nf.format(u.total)}</TruncText>
                         </Box>
                         <Box ta="right" style={{ minWidth: 36 }}>
                           <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".06em" }}>Share</Text>

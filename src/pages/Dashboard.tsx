@@ -13,7 +13,7 @@ import {
 import type { AnalyticsData, LogEntry, ProfileResponse } from "../contexts";
 import { useStatus } from "../contexts";
 import type { ProviderInfo } from "../providerDisplay";
-import { LoadingScreen, UpstreamSection } from "../components/shared";
+import { LoadingScreen, UpstreamSection, TruncText } from "../components/shared";
 import { SonnetCriticalAlert } from "../components/SonnetCriticalAlert";
 import { BackToTop } from "../components/BackToTop";
 import { ContextAlertCard, ContextAlertOverlay } from "../components/ContextAlerts";
@@ -187,14 +187,14 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
         <Box className="dashboard-grid cp-stagger">
 
           {/* ── Left: Tabs ── */}
-          <Box className="cp-fade-in">
-            <Tabs value={activeTab} onChange={v => { if (!v) return; setActiveTab(v); try { localStorage.setItem("dashboard-tab", v); } catch {} }} variant="pills" radius="lg">
-              <Tabs.List mb="lg">
-                <Tabs.Tab value="dashboard" leftSection={<IconLayoutDashboard size={13} />} style={{ fontWeight: 600, fontSize: 13 }}>Dashboard</Tabs.Tab>
-                <Tabs.Tab value="activity"  leftSection={<IconChartLine size={13} />}       style={{ fontWeight: 600, fontSize: 13 }}>Activity</Tabs.Tab>
-                <Tabs.Tab value="sessions"  leftSection={<IconMessages size={13} />}        style={{ fontWeight: 600, fontSize: 13 }}>Sessions</Tabs.Tab>
-                <Tabs.Tab value="history"   leftSection={<IconHistory size={13} />}         style={{ fontWeight: 600, fontSize: 13 }}>History</Tabs.Tab>
-                <Tabs.Tab value="feed" leftSection={<IconActivity size={13} />} hiddenFrom="sm" style={{ fontWeight: 600, fontSize: 13 }}>Feed</Tabs.Tab>
+          <Box >
+            <Tabs value={activeTab} onChange={v => { if (!v) return; setActiveTab(v); try { localStorage.setItem("dashboard-tab", v); } catch {} }} variant="outline" >
+              <Tabs.List mb="lg" style={{ flexWrap: "nowrap", overflowX: "auto", scrollbarWidth: "none" }}>
+                <Tabs.Tab value="dashboard" leftSection={<IconLayoutDashboard size={13} />} >Dashboard</Tabs.Tab>
+                <Tabs.Tab value="activity"  leftSection={<IconChartLine size={13} />}       >Activity</Tabs.Tab>
+                <Tabs.Tab value="sessions"  leftSection={<IconMessages size={13} />}        >Sessions</Tabs.Tab>
+                <Tabs.Tab value="history"   leftSection={<IconHistory size={13} />}         >History</Tabs.Tab>
+                <Tabs.Tab value="feed" leftSection={<IconActivity size={13} />} hiddenFrom="md" >Feed</Tabs.Tab>
               </Tabs.List>
 
               <Tabs.Panel value="dashboard">
@@ -212,9 +212,9 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
                         </Box>
                         <Text fz={10} fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today</Text>
                       </Group>
-                      <Text fz={{ base: 20, sm: 26 }} fw={800} ff="Geist Mono, monospace" c={todayTotal === 0 ? "dimmed" : "var(--cp-text)"} style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
+                      <TruncText fz={{ base: 16, sm: 24 }} fw={800} ff="Geist Mono, monospace" c={todayTotal === 0 ? "dimmed" : "var(--cp-text)"} style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
                         {nf.format(todayTotal)}
-                      </Text>
+                      </TruncText>
                       <Text fz={11} c="dimmed" mt={4}>{todayTotal === 0 ? "Quiet — no requests yet" : "tokens used today"}</Text>
                     </Box>
 
@@ -225,9 +225,9 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
                         </Box>
                         <Text fz={10} fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>All-Time</Text>
                       </Group>
-                      <Text fz={{ base: 20, sm: 26 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
+                      <TruncText fz={{ base: 16, sm: 24 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
                         {nf.format(status.totalAllTime ?? 0)}
-                      </Text>
+                      </TruncText>
                       <Text fz={11} c="dimmed" mt={4}>total tokens processed</Text>
                     </Box>
 
@@ -238,7 +238,7 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
                         </Box>
                         <Text fz={10} fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Active</Text>
                       </Group>
-                      <Text fz={{ base: 20, sm: 26 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
+                      <Text fz={{ base: 16, sm: 24 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>
                         {activeTokens}<Text span fz={14} fw={500} c="dimmed"> /{totalTokens}</Text>
                       </Text>
                       <Text fz={11} c="dimmed" mt={4}>
@@ -255,7 +255,7 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
                       </Group>
                       {countdownMs !== null ? (
                         <>
-                          <Text fz={{ base: 20, sm: 26 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>{fmtCountdown(countdownMs)}</Text>
+                          <Text fz={{ base: 16, sm: 24 }} fw={800} ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em", lineHeight: 1 }}>{fmtCountdown(countdownMs)}</Text>
                           <Text fz={11} c="dimmed" mt={4}>at {new Date(resetsAtMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
                         </>
                       ) : (
@@ -292,7 +292,7 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
 
                   <Stack gap="xs" mb="lg" id="health" style={{ scrollMarginTop: 16 }}>
                     <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Upstream Health</Text>
-                    <Paper withBorder p="md" radius="md">
+                    <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
                       <UpstreamSection upstream={upstream} isAdmin={isAdmin} />
                     </Paper>
                   </Stack>
@@ -326,7 +326,7 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
                           <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Today's Activity</Text>
                           <Text size="xs" c="dimmed" ff="monospace">{nf.format(dayTotal)} tokens</Text>
                         </Group>
-                        <Paper withBorder p="md" radius="md">
+                        <Paper withBorder p="md" radius="md" style={{ overflow: "hidden" }}>
                           {dayTotal === 0 ? (
                             <Stack gap={4} align="center" py="md">
                               <ThemeIcon variant="light" color="gray" size="lg" radius="xl"><IconChartHistogram size={18} /></ThemeIcon>
@@ -335,7 +335,7 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
                             </Stack>
                           ) : (
                             <>
-                              <Box style={{ display: "flex", alignItems: "flex-end", height: 80, gap: 2 }}>
+                              <Box style={{ display: "flex", alignItems: "flex-end", height: "clamp(56px, 13vw, 80px)", gap: 2 }}>
                                 {hourly.map(({ h, tokens: tok, requests: req }) => {
                                   const barH = Math.round((tok / maxTok) * 56);
                                   const bg   = h === curH ? (isDark ? "#228be6" : "#1c7ed6") : h > curH ? (isDark ? "#2c2e33" : "#e9ecef") : (isDark ? "#0ca678" : "#12b886");
@@ -423,7 +423,7 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
               </Tabs.Panel>
 
               <Tabs.Panel value="feed">
-                <Box style={{ height: "calc(100dvh - 220px)", minHeight: 400, display: "flex", flexDirection: "column" }}>
+                <Box className="feed-tab-panel">
                   <LiveFeed wsSignal={wsSignal} />
                 </Box>
               </Tabs.Panel>

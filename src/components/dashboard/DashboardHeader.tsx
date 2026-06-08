@@ -53,11 +53,11 @@ export function DashboardHeader({ isAdmin, isAdminStatus, profile, upstream, cus
               borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 2px 8px rgba(37,99,235,0.35)",
             }}>
-              <Text span fz={11} fw={800} c="white" ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em" }}>CP</Text>
+              <Text span fz={{ base: 12, sm: 11 }} fw={800} c="white" ff="Geist Mono, monospace" style={{ letterSpacing: "-0.03em" }}>CP</Text>
             </Box>
             <div>
               <Text fw={700} fz={15} lh={1.2} style={{ letterSpacing: "-0.02em" }}>claude-proxy</Text>
-              <Text fz={11} c="dimmed" visibleFrom="sm" lh={1}>Multi-user Claude Max proxy</Text>
+              <Text fz={{ base: 12, sm: 11 }} c="dimmed" visibleFrom="sm" lh={1}>Multi-user Claude Max proxy</Text>
             </div>
           </Group>
           <Group gap={6} wrap="nowrap">
@@ -100,7 +100,7 @@ export function DashboardHeader({ isAdmin, isAdminStatus, profile, upstream, cus
                     </Text>
                     <Badge size="xs" color={roleColor} variant="light" style={{ fontSize: 10, fontWeight: 700 }}>{roleLabel}</Badge>
                   </Group>
-                  <Text fz={10} c="dimmed" visibleFrom="sm">{profile.email}</Text>
+                  <Text fz={{ base: 11, sm: 10 }} c="dimmed" visibleFrom="sm">{profile.email}</Text>
                 </Box>
               </Group>
             )}
@@ -112,17 +112,17 @@ export function DashboardHeader({ isAdmin, isAdminStatus, profile, upstream, cus
               const barColor      = pct >= 95 ? "var(--cp-red)" : pct >= 75 ? "var(--cp-amber)" : "var(--cp-accent)";
               const tokenCount    = myTokens.length;
               return (
-                <Box style={{ minWidth: 180, maxWidth: 340, flex: 1 }}>
+                <Box style={{ minWidth: 0, maxWidth: 340, flex: 1 }}>
                   <Group justify="space-between" align="center" mb={5} wrap="nowrap">
                     <Group gap={5} wrap="nowrap" style={{ minWidth: 0 }}>
-                      <Text fz={10} c="dimmed" fw={600} tt="uppercase" style={{ letterSpacing: ".06em" }}>Quota</Text>
+                      <Text fz={{ base: 11, sm: 10 }} c="dimmed" fw={600} tt="uppercase" style={{ letterSpacing: ".06em" }}>Quota</Text>
                       {tokenCount > 1 && (
-                        <Text fz={9} c="dimmed" ff="Geist Mono, monospace" style={{ opacity: 0.7 }}>· {tokenCount} token</Text>
+                        <Text fz={{ base: 10, sm: 9 }} c="dimmed" ff="Geist Mono, monospace" style={{ opacity: 0.7 }}>· {tokenCount} token</Text>
                       )}
                     </Group>
                     <Group gap={4} wrap="nowrap" align="baseline">
-                      <Text fz={12} ff="Geist Mono, monospace" fw={700} style={{ color: pctColor, lineHeight: 1 }}>{pct}%</Text>
-                      <Text fz={9} c="dimmed" ff="Geist Mono, monospace">terpakai</Text>
+                      <Text fz={{ base: 13, sm: 12 }} ff="Geist Mono, monospace" fw={700} style={{ color: pctColor, lineHeight: 1 }}>{pct}%</Text>
+                      <Text fz={{ base: 10, sm: 9 }} c="dimmed" ff="Geist Mono, monospace">terpakai</Text>
                     </Group>
                   </Group>
                   <Box style={{ height: 4, background: "var(--cp-surface-3)", borderRadius: 4, overflow: "hidden", marginBottom: 6 }}>
@@ -131,22 +131,22 @@ export function DashboardHeader({ isAdmin, isAdminStatus, profile, upstream, cus
                   <Group gap={0} wrap="nowrap" align="stretch">
                     <Tooltip label={`Window ini: ${nf.format(totalUsed)} dari ${nf.format(totalLim)} token`} withArrow position="bottom">
                       <Box style={{ flex: 1, minWidth: 0, cursor: "default" }}>
-                        <Text fz={9} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Window</Text>
-                        <Text fz={11} fw={700} ff="Geist Mono, monospace" truncate style={{ color: pctColor, lineHeight: 1.3 }}>{nf.format(totalUsed)}</Text>
+                        <Text fz={{ base: 10, sm: 9 }} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Window</Text>
+                        <Text fz={{ base: 12, sm: 11 }} fw={700} ff="Geist Mono, monospace" truncate style={{ color: pctColor, lineHeight: 1.3 }}>{nf.format(totalUsed)}</Text>
                       </Box>
                     </Tooltip>
                     <Box style={{ width: 1, background: "var(--cp-border)", margin: "1px 8px" }} />
                     <Tooltip label={`Total token hari ini (semua window): ${nf.format(todayTok)}`} withArrow position="bottom">
                       <Box style={{ flex: 1, minWidth: 0, cursor: "default" }}>
-                        <Text fz={9} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Hari ini</Text>
-                        <Text fz={11} fw={700} ff="Geist Mono, monospace" truncate style={{ lineHeight: 1.3 }}>{nf.format(todayTok)}</Text>
+                        <Text fz={{ base: 10, sm: 9 }} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Hari ini</Text>
+                        <Text fz={{ base: 12, sm: 11 }} fw={700} ff="Geist Mono, monospace" truncate style={{ lineHeight: 1.3 }}>{nf.format(todayTok)}</Text>
                       </Box>
                     </Tooltip>
                     <Box style={{ width: 1, background: "var(--cp-border)", margin: "1px 8px" }} />
                     <Tooltip label={lowRemaining ? "Sisa kuota window menipis" : `Sisa kuota: ${nf.format(remaining)} token`} withArrow position="bottom">
                       <Box style={{ flex: 1, minWidth: 0, cursor: "default" }}>
-                        <Text fz={9} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Sisa</Text>
-                        <Text fz={11} fw={700} ff="Geist Mono, monospace" truncate style={{ color: remainColor, lineHeight: 1.3 }}>{nf.format(remaining)}</Text>
+                        <Text fz={{ base: 10, sm: 9 }} c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: ".05em", lineHeight: 1.2 }}>Sisa</Text>
+                        <Text fz={{ base: 12, sm: 11 }} fw={700} ff="Geist Mono, monospace" truncate style={{ color: remainColor, lineHeight: 1.3 }}>{nf.format(remaining)}</Text>
                       </Box>
                     </Tooltip>
                   </Group>
@@ -156,8 +156,8 @@ export function DashboardHeader({ isAdmin, isAdminStatus, profile, upstream, cus
 
             <Group gap={6} wrap="nowrap" visibleFrom="md">
               <Box w={6} h={6} style={{ borderRadius: "50%", background: provDot, flexShrink: 0 }} />
-              <Text fz={12} fw={600}>{provName}</Text>
-              <Text fz={11} c="dimmed" ff="Geist Mono, monospace">{modelLabel}</Text>
+              <Text fz={{ base: 13, sm: 12 }} fw={600}>{provName}</Text>
+              <Text fz={{ base: 12, sm: 11 }} c="dimmed" ff="Geist Mono, monospace">{modelLabel}</Text>
               <Badge size="xs" variant="dot" color={isFallback ? "orange" : "teal"} style={{ fontSize: 10 }}>
                 {isFallback ? "fallback" : "primary"}
               </Badge>
@@ -165,10 +165,10 @@ export function DashboardHeader({ isAdmin, isAdminStatus, profile, upstream, cus
           </Group>
 
           {/* Right: clock + today + profile */}
-          <Group gap={12} wrap="nowrap" style={{ flexShrink: 0 }}>
+          <Group gap={8} wrap="nowrap" style={{ flexShrink: 0 }}>
             <ClockInline />
-            <Box ta="center" style={{ flexShrink: 0 }}>
-              <Text fz={9} c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Today</Text>
+            <Box ta="center" visibleFrom="sm" style={{ flexShrink: 0 }}>
+              <Text fz={{ base: 10, sm: 9 }} c="dimmed" tt="uppercase" style={{ letterSpacing: ".06em" }}>Today</Text>
               <Text fz={14} fw={700} ff="Geist Mono, monospace" lh={1.2}>{nf.format(todayTok)}</Text>
             </Box>
             <Button component="a" href="/profile" size="xs" variant="light" radius="lg"
