@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.72] - 2026-06-11
+
+### Fixed
+- Fable 5 HTTP 400 error: proxy sekarang strip `thinking: { type: "disabled" }` sebelum request dikirim ke model Fable — model ini pakai adaptive thinking secara default dan menolak flag tersebut
+- Retry mechanism (`isThinkingIncompatibleError`) sekarang mendeteksi error `"thinking.type.disabled" is not supported` sebagai safety net untuk model Fable yang belum dikenal
+- `thinking: { type: "enabled" }` dan thinking blocks di history tetap dipreserve untuk Fable (tidak ikut di-strip)
+
+### Added
+- Test suite `tests/messageSanitizer.test.ts` — 21 test yang cover: getCapabilities per model family, sanitizeRequestBody Fable/Haiku, stripAllThinking, isThinkingIncompatibleError semua pola error
+
 ## [2.1.70] - 2026-06-08
 
 ### Changed

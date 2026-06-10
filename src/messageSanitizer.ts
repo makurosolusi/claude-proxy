@@ -11,8 +11,9 @@
 // handles unknown cases self-healingly.
 
 export interface DestinationCapabilities {
-  acceptsThinkingBlocks: boolean;
-  acceptsThinkingParam:  boolean;
+  acceptsThinkingBlocks:    boolean;
+  acceptsThinkingParam:     boolean;
+  rejectsThinkingDisabled?: boolean; // model uses adaptive thinking by default, rejects thinking.type.disabled
 }
 
 export interface SanitizationStats {
@@ -35,6 +36,13 @@ function modelSupportsThinking(model: string): boolean {
   return true;
 }
 
+// Models that use adaptive thinking by default and reject thinking.type.disabled.
+// They DO support thinking.type.enabled; only the explicit "disabled" flag is rejected.
+function modelRejectsThinkingDisabled(model: string): boolean {
+  if (!model) return false;
+  return /fable/i.test(model);
+}
+
 export function getCapabilities(
   provider:    string,
   model:       string,
@@ -48,6 +56,11 @@ export function getCapabilities(
   // Anthropic + non-thinking model (haiku family): model rejects thinking
   if (provider === "anthropic" && !modelSupportsThinking(model)) {
     return { acceptsThinkingBlocks: false, acceptsThinkingParam: false };
+  }
+  // Anthropic + adaptive-thinking model (fable family): accepts thinking.type.enabled
+  // but rejects thinking.type.disabled — strip that specific value pre-flight
+  if (provider === "anthropic" && modelRejectsThinkingDisabled(model)) {
+    return { acceptsThinkingBlocks: true, acceptsThinkingParam: true, rejectsThinkingDisabled: true };
   }
   // Default KEEP. Covers:
   //   - Anthropic + thinking-capable: preserve for extended-thinking caching;
@@ -71,6 +84,13 @@ export function sanitizeRequestBody(
   if (!body) return stats;
 
   if (!caps.acceptsThinkingParam && body.thinking) {
+    delete body.thinking;
+    stats.thinkingParamDropped = true;
+  }
+
+  // Fable-family: thinking.type.disabled is not supported (adaptive mode is the default).
+  // Drop only the disabled flag; preserve thinking.type.enabled if present.
+  if (caps.rejectsThinkingDisabled && body.thinking?.type === "disabled") {
     delete body.thinking;
     stats.thinkingParamDropped = true;
   }
@@ -101,6 +121,7 @@ export function isThinkingIncompatibleError(status: number, body: any): boolean 
   return (
     msg.includes("invalid `signature`") ||
     msg.includes("adaptive thinking") ||
+    msg.includes("thinking.type.disabled") ||
     /thinking[^a-z]*(is\s+)?not\s+supported/.test(msg)
   );
 }
