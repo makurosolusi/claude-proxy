@@ -109,7 +109,22 @@ export function RequireAuth({
     return null;
   }
   if (profile.status === "pending") {
-    window.location.replace("/menunggu");
+    window.location.replace("/profile");
+    return null;
+  }
+  return <>{children}</>;
+}
+
+export function RequireLogin({
+  profile,
+  children,
+}: {
+  profile: import("../contexts").ProfileResponse | null | "loading";
+  children: ReactNode;
+}) {
+  if (profile === "loading") return <LoadingScreen />;
+  if (!profile?.authenticated) {
+    window.location.replace("/login");
     return null;
   }
   return <>{children}</>;

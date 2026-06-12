@@ -14,7 +14,7 @@ export interface UserEntry {
   context_block_grace_until?: number;   // epoch ms; proxy allows through during this window
 }
 
-export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter";
+export type TokenProvider = "inherit" | "anthropic" | "deepseek" | "openrouter" | (string & {});
 
 // Quota reset policy — applies globally to ALL tokens via settings.reset_mode.
 // - "manual": never auto-reset. Admin must reset or raise limit when quota hit.

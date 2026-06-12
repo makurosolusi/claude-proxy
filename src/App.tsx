@@ -3,7 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import { StatusCtx, ChatCtx, NotificationsCtx } from "./contexts";
 import type { StatusResponse, ChatMsg, AppNotification, NotificationsCtxType } from "./contexts";
 import { notifications } from "@mantine/notifications";
-import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, WaitingPage, BlockedPage } from "./components/shared";
+import { LoadingScreen, NotFoundPage, RequireAdmin, RequireAuth, RequireLogin, WaitingPage, BlockedPage } from "./components/shared";
 import { AdminDashboard } from "./components/admin/Dashboard";
 import { MindPage } from "./components/MindPage";
 import { SessionHistory } from "./components/SessionHistory";
@@ -194,7 +194,7 @@ export function App() {
             <Route path="/login/redirect" element={<LoginRedirect />} />
             <Route path="/menunggu" element={<WaitingPage />} />
             <Route path="/diblokir" element={<BlockedPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/profile" element={<RequireLogin profile={profile}><ProfilePage /></RequireLogin>} />
             <Route path="/mind" element={<MindPage />} />
             <Route path="/sessions/:user" element={<SessionHistory />} />
             <Route path="/notifications" element={

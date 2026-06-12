@@ -4,7 +4,7 @@ import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
-import { getCustomProvider } from "../customProviders";
+import { getCustomProvider, isCustomProviderId } from "../customProviders";
 import { randomBytes } from "crypto";
 import type { TokenEntry } from "../types";
 
@@ -231,8 +231,10 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
     const target   = String(form?.get("token")    || "").trim();
     const provider = String(form?.get("provider") || "inherit").trim() as TokenProvider;
     if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
-    const valid: TokenProvider[] = ["inherit", "anthropic", "deepseek", "openrouter"];
-    if (!valid.includes(provider)) return new Response("Invalid provider\n", { status: 400 });
+    const builtIn = ["inherit", "anthropic", "deepseek", "openrouter"];
+    if (!builtIn.includes(provider) && !isCustomProviderId(provider)) {
+      return new Response("Invalid provider\n", { status: 400 });
+    }
     if (provider === "deepseek" && !settings["deepseek_api_key"]) {
       return Response.json({ ok: false, error: "DeepSeek API key not configured." }, { status: 400 });
     }

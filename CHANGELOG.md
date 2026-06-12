@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.73] - 2026-06-12
+
+### Fixed
+- Custom provider (OpenAI-like) tidak bisa di-set sebagai provider token — validasi di `/admin/token/provider` sekarang menerima custom provider slug selain built-in (anthropic/deepseek/openrouter)
+- `TokenProvider` type diperluas dengan `(string & {})` agar custom slug valid secara TypeScript
+
+### Changed
+- User PENDING (belum disetujui admin) sekarang diredirect ke `/profile` saat mencoba akses halaman manapun — sebelumnya ke `/menunggu` yang merupakan halaman buntu
+- `/profile` sekarang memerlukan login — pengguna yang belum login tidak bisa akses langsung
+
+### Added
+- `RequireLogin` component di `shared.tsx` — cek login saja tanpa cek status approval, dipakai untuk melindungi `/profile`
+- Test suite `tests/authGate.test.ts` — 18 test cover semua flow: pending/blocked/approved/unauthenticated untuk RequireAuth dan RequireLogin
+- Test suite `tests/customProvider.test.ts` — 14 test cover validasi custom provider slug
+
 ## [2.1.72] - 2026-06-11
 
 ### Fixed
