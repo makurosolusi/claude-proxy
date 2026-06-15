@@ -1,13 +1,34 @@
 import { useState } from "react";
 import {
   Stack, Text, Group, Paper, TextInput, Textarea,
-  ActionIcon, Modal, Button, Alert, Switch,
+  ActionIcon, Modal, Button, Alert, Switch, Select,
 } from "@mantine/core";
 import {
   IconAlertTriangle, IconPlus, IconCopy, IconCheck, IconTrash,
 } from "@tabler/icons-react";
 import { adminPost } from "../../utils";
 import { notifications } from "@mantine/notifications";
+import { modals } from "@mantine/modals";
+
+export function FilterModal({ options, action, onConfirm }: {
+  options: string[]; action: "reset" | "edit";
+  onConfirm: (val: string, limit: string) => void;
+}) {
+  const [val, setVal] = useState<string | null>(null);
+  const [limit, setLimit] = useState("40000");
+  return (
+    <Stack gap="sm" mt="xs">
+      <Select placeholder="Select…" searchable data={options} value={val} onChange={setVal} />
+      {action === "edit" && <TextInput label="New limit" placeholder="e.g. 40000 or unlimited" value={limit} onChange={e => setLimit(e.currentTarget.value)} />}
+      <Group justify="flex-end" gap="xs">
+        <Button variant="subtle" size="sm" onClick={() => modals.closeAll()}>Cancel</Button>
+        <Button size="sm" color={action === "reset" ? "red" : "blue"} disabled={!val || (action === "edit" && !limit)} onClick={() => val && onConfirm(val, limit)}>
+          {action === "reset" ? "Reset" : "Apply"}
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
 
 export interface ApiToken {
   key: string; name: string; limit: number | null; used: number;

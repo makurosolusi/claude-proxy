@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   Stack, Text, Group, Paper, Table, ThemeIcon, Box, Badge, ActionIcon, Tooltip,
-  Button, Progress, Alert, Divider,
+  Button, Progress, Alert, Divider, Pagination,
 } from "@mantine/core";
 
 function fmtMs(ms: number): string {
@@ -32,6 +32,7 @@ function GraceCountdown({ until, urgent }: { until: number; urgent: boolean }) {
 import {
   IconRefresh, IconPlayerPause, IconTrash, IconPencil, IconAlertTriangle,
   IconKey, IconPlus, IconCheck, IconBan, IconClock, IconPinnedOff, IconLockOpen, IconHourglass,
+  IconArrowsMaximize, IconArrowsMinimize,
 } from "@tabler/icons-react";
 import { adminPost, fmtRel } from "../../utils";
 import { UserAvatar } from "../UserAvatar";
@@ -220,8 +221,15 @@ interface UserCardProps {
   actions: UserCardActions;
 }
 
+const PER_PAGE         = 5;
+const PER_PAGE_EXPANDED = 10;
+const MAX_H            = 400;
+const MAX_H_EXPANDED   = 720;
+
 export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProps) {
   const agg = userAggregates(u);
+  const [page, setPage]         = useState(1);
+  const [expanded, setExpanded] = useState(false);
   const limitLabel = agg.totalLimit === null ? "∞" : nf(agg.totalLimit);
 
   const statusColor = u.status === "approved" ? "teal" : u.status === "blocked" ? "red" : "yellow";
@@ -230,6 +238,11 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
 
   const { statusBusy, onEditUser, onDeleteUser, onSetStatus, onEditAllLimits, onAddToken, onResetUserPins, onBlockContext, onUnblockContext, onForceGrace, onOpenUser } = actions;
   const hasPinnedTokens = u.tokens.some(t => t.pinned_model);
+
+  const perPage      = expanded ? PER_PAGE_EXPANDED : PER_PAGE;
+  const totalPages   = Math.ceil(u.tokens.length / perPage);
+  const pagedTokens  = u.tokens.slice((page - 1) * perPage, page * perPage);
+  const needsPaging  = u.tokens.length > PER_PAGE;
 
   const tokensList = u.tokens.length === 0 ? (
     <Paper withBorder p="md" radius="sm" ta="center">
@@ -256,7 +269,16 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
     </Box>
   ) : (
     <Stack gap={6}>
-      {u.tokens.map(tk => <TokenGridCard key={tk.key} token={tk} actions={actions} />)}
+      <Box style={{ maxHeight: expanded ? MAX_H_EXPANDED : MAX_H, overflowY: "auto" }}>
+        <Stack gap={6}>
+          {pagedTokens.map(tk => <TokenGridCard key={tk.key} token={tk} actions={actions} />)}
+        </Stack>
+      </Box>
+      {needsPaging && (
+        <Group justify="center" pt={4}>
+          <Pagination size="xs" value={page} onChange={p => { setPage(p); }} total={totalPages} siblings={1} />
+        </Group>
+      )}
     </Stack>
   );
 
@@ -460,7 +482,17 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
         {u.description && <Text size="xs" c="dimmed" mt={4} lineClamp={2}>{u.description}</Text>}
       </Paper>
       <Group justify="space-between" align="center">
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
+        <Group gap={6}>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: ".05em" }}>Tokens</Text>
+          {needsPaging && (
+            <Tooltip label={expanded ? "Collapse" : "Expand"} withArrow>
+              <ActionIcon size="xs" variant="subtle" color="gray"
+                onClick={() => { setExpanded(e => !e); setPage(1); }}>
+                {expanded ? <IconArrowsMinimize size={11} /> : <IconArrowsMaximize size={11} />}
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </Group>
         <Group gap={4}>
           {!u.context_blocked_at && (
             <Tooltip label="Paksa layar merah context-block" withArrow>

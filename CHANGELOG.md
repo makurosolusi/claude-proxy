@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.75] - 2026-06-15
+
+### Added
+- Pagination level-user di admin Users tab (10 user/halaman) — sebelumnya semua user dirender sekaligus tanpa batas
+- Per-token pagination di grid view `UserCard` (5 token/halaman, expandable 10) + tombol expand/collapse + max-height 400/720px
+- Pagination user-level reset ke halaman 1 saat search atau sort berubah
+
 ## [2.1.74] - 2026-06-15
 
 ### Fixed

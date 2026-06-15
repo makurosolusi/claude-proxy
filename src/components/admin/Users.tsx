@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, ThemeIcon,
-  Loader, Select, Switch, SegmentedControl, Button, ActionIcon, Tooltip,
+  Loader, Select, Switch, SegmentedControl, Button, ActionIcon, Tooltip, Pagination,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconPencil, IconAlertTriangle,
@@ -15,7 +15,7 @@ import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import {
   EditUserModal, DeleteUserModal, EditAllLimitsModal,
-  AddTokenModal, EditAllLimitsGlobalModal,
+  AddTokenModal, EditAllLimitsGlobalModal, FilterModal,
 } from "./UserModals";
 import type { ApiUser, ApiToken } from "./UserModals";
 import { UserCard, userAggregates } from "./UserCard";
@@ -24,26 +24,6 @@ import { NotificationBroadcast } from "./NotificationBroadcast";
 
 type UserStatus = "pending" | "approved" | "blocked";
 type SortKey = "name" | "usage" | "tokens" | "newest";
-
-function FilterModal({ options, action, onConfirm }: {
-  options: string[]; action: "reset" | "edit";
-  onConfirm: (val: string, limit: string) => void;
-}) {
-  const [val, setVal] = useState<string | null>(null);
-  const [limit, setLimit] = useState("40000");
-  return (
-    <Stack gap="sm" mt="xs">
-      <Select placeholder="Select…" searchable data={options} value={val} onChange={setVal} />
-      {action === "edit" && <TextInput label="New limit" placeholder="e.g. 40000 or unlimited" value={limit} onChange={e => setLimit(e.currentTarget.value)} />}
-      <Group justify="flex-end" gap="xs">
-        <Button variant="subtle" size="sm" onClick={() => modals.closeAll()}>Cancel</Button>
-        <Button size="sm" color={action === "reset" ? "red" : "blue"} disabled={!val || (action === "edit" && !limit)} onClick={() => val && onConfirm(val, limit)}>
-          {action === "reset" ? "Reset" : "Apply"}
-        </Button>
-      </Group>
-    </Stack>
-  );
-}
 
 export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, TokenStatus> }) {
   const status = useStatus();
@@ -76,6 +56,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const [contextBlockSaving, setContextBlockSaving]   = useState(false);
   const [customProviders, setCustomProviders] = useState<ProviderInfo[]>([]);
   const [reloading, setReloading]             = useState(false);
+  const [userPage, setUserPage]               = useState(1);
 
   useEffect(() => {
     fetch("/api/admin/custom-providers")
@@ -225,7 +206,10 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     } finally { setContextBlockSaving(false); }
   };
 
+  const USERS_PER_PAGE = 10;
+
   const filteredUsers = useMemo(() => {
+    setUserPage(1);
     if (!apiUsers) return null;
     const q = search.trim().toLowerCase();
     let list = apiUsers;
@@ -252,6 +236,9 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     });
     return sorted;
   }, [apiUsers, search, sort]);
+
+  const userTotalPages = filteredUsers ? Math.ceil(filteredUsers.length / USERS_PER_PAGE) : 0;
+  const pagedUsers     = filteredUsers ? filteredUsers.slice((userPage - 1) * USERS_PER_PAGE, userPage * USERS_PER_PAGE) : null;
 
   const entries    = Object.entries(tokenStatuses);
   const total      = entries.length;
@@ -459,25 +446,37 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
           />
         </Group>
 
-        {filteredUsers === null ? (
+        {pagedUsers === null ? (
           <Group justify="center" py="xl"><Loader size="sm" /></Group>
-        ) : filteredUsers.length === 0 ? (
+        ) : filteredUsers!.length === 0 ? (
           <Paper withBorder p="lg" radius="md" ta="center">
             <Text c="dimmed" size="sm">
               {search ? `No users match "${search}".` : "No users yet."}
             </Text>
           </Paper>
         ) : viewMode === "grid" ? (
-          <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing="md">
-            {filteredUsers.map(u => (
-              <UserCard key={u.id} user={u} userImage={userImages[u.name]} viewMode="grid" actions={cardActions} />
-            ))}
-          </SimpleGrid>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing="md">
+              {pagedUsers.map(u => (
+                <UserCard key={u.id} user={u} userImage={userImages[u.name]} viewMode="grid" actions={cardActions} />
+              ))}
+            </SimpleGrid>
+            {userTotalPages > 1 && (
+              <Group justify="center" pt={4}>
+                <Pagination size="sm" value={userPage} onChange={setUserPage} total={userTotalPages} siblings={1} />
+              </Group>
+            )}
+          </Stack>
         ) : (
           <Stack gap="sm">
-            {filteredUsers.map(u => (
+            {pagedUsers.map(u => (
               <UserCard key={u.id} user={u} userImage={userImages[u.name]} viewMode="list" actions={cardActions} />
             ))}
+            {userTotalPages > 1 && (
+              <Group justify="center" pt={4}>
+                <Pagination size="sm" value={userPage} onChange={setUserPage} total={userTotalPages} siblings={1} />
+              </Group>
+            )}
           </Stack>
         )}
       </Stack>
