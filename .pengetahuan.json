@@ -1,0 +1,5 @@
+{
+  "project": "claude-proxy",
+  "server": "http://localhost:3111",
+  "sourcePolicy": "none"
+}

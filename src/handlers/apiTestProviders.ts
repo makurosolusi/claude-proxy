@@ -72,9 +72,10 @@ export async function handleCustomProviderTest(id: string): Promise<Response> {
           "Authorization": "Bearer " + cp.api_key,
         },
         body: JSON.stringify({
-          model: testModel,
-          messages: [{ role: "user", content: "Reply with exactly the word: OK" }],
+          model:      testModel,
+          messages:   [{ role: "user", content: "Reply with exactly the word: OK" }],
           max_tokens: 12,
+          stream:     false,
         }),
         signal: AbortSignal.timeout(15000),
       });

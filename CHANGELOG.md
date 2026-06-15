@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.74] - 2026-06-15
+
+### Fixed
+- Custom provider (OpenAI-like) test endpoint gagal "failed to parse json" saat provider default ke SSE streaming — test request sekarang eksplisit kirim `stream: false`
+
+### Added
+- Test suite `tests/openaiTranslate.test.ts` — 16 test cover: stream passthrough, message/system translation, response mapping (stop_reason, usage), dan regression guard untuk bug stream
+
 ## [2.1.73] - 2026-06-12
 
 ### Fixed
