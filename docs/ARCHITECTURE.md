@@ -63,14 +63,20 @@ docs/
 | Method | Path | Auth | Keterangan |
 |---|---|---|---|
 | GET | `/*` | — | React SPA |
-| GET | `/ws` | cookie | WebSocket — real-time status push |
+| GET | `/ws` | approved | WebSocket — real-time status push (approved user / admin only) |
 | GET/POST | `/admin/login` | — | Login form (server-rendered HTML) |
 | GET | `/admin/logout` | cookie | Logout |
-| GET | `/api/status` | optional | JSON status (tokens + upstream + isAdmin) |
+| GET | `/api/status` | approved | JSON status (tokens + upstream + isAdmin) — approved user / admin only |
 | GET | `/api/logs` | — | Paginated request logs (`?page&limit&user`) |
 | GET | `/api/logs/:id` | — | Single log detail |
 | GET | `/api/stats` | admin | Analytics aggregation |
-| GET | `/api/mind` | — | Mind map graph (User→Date→Hour→Request) |
+| GET | `/api/mind` | approved | Mind map graph (User→Date→Hour→Request) — approved user / admin only |
+| GET | `/api/race` | approved | Race leaderboard data — approved user / admin only |
+| GET | `/api/competition` | approved | Competition leaderboard — approved user / admin only |
+| GET | `/api/sessions/summary` | approved | Session counts per user — approved user / admin only |
+| GET | `/api/sessions/*` | approved | Per-user session list — approved user / admin only |
+| GET | `/api/usage/hourly` | approved | Hourly usage aggregation — approved user / admin only |
+| GET | `/api/admin/user-activity` | approved | User activity feed — approved user / admin only |
 | GET | `/api/admin/test` | admin | Connection test (credential, usage API, messages API) |
 | GET | `/api/admin/credentials` | admin | List OAuth credential files (`claude-*.json`) |
 | POST | `/api/admin/credentials/remove` | admin | Disable credential file (`{ file }`) |

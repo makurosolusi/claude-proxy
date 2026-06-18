@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.76] - 2026-06-18
+
+### Security
+- Backend approved-user gating: user pending/anonymous tidak lagi bisa fetch data agregat milik user lain. Endpoint `/api/status`, `/ws`, `/api/mind`, `/api/race`, `/api/competition`, `/api/sessions/summary`, `/api/sessions/*`, `/api/usage/hourly`, `/api/admin/user-activity` kini balas 403 kecuali approved user atau admin
+- Gate honor `demo_mode` (pending diperlakukan approved saat demo ON) agar konsisten dengan `/api/profile`; endpoint `/profile` + notifikasi sengaja tetap terbuka untuk pending
+
 ## [2.1.75] - 2026-06-15
 
 ### Added
