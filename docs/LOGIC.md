@@ -170,6 +170,36 @@ Prompt = LAST user message dengan text content. System injections (`<system-remi
 ## Admin Auth
 Login → `admin_session` cookie (HttpOnly, SameSite=Lax, SQLite-backed). `x-admin-key` header untuk programmatic. `/admin/login` server-rendered HTML (bukan React route) — `RequireAdmin` pakai `window.location.replace()` bukan React Router Navigate.
 
+## Approved-User Gating (Backend Authorization)
+
+Hanya user dengan `status = "approved"` (atau admin) yang boleh melihat data
+agregat milik user lain (leaderboard, mind graph, session, usage, status). Ini
+**backend source of truth** — route guard React (`RequireAuth`) hanya UX; tanpa
+gate backend, user pending/anonymous masih bisa fetch endpoint langsung.
+
+**Dua helper di `src/index.tsx`:**
+- `requireApprovedUser(req)` → return `{ userId, email }` kalau approved, `null`
+  kalau tidak. Honor `demo_mode`: saat demo ON, `pending` diperlakukan approved
+  (mirror `effectiveStatus` di `/api/profile`). Anonymous selalu `null`.
+- `gateApproved(req)` → return `Response 403` kalau bukan approved user **dan**
+  bukan admin; `null` kalau boleh lanjut. Dipakai untuk gate endpoint data.
+
+**Endpoint yang di-gate** (403 untuk pending/anonymous, lolos untuk approved/admin):
+`/api/status`, `/ws`, `/api/mind`, `/api/race`, `/api/competition`,
+`/api/sessions/summary`, `/api/sessions/*`, `/api/usage/hourly`,
+`/api/admin/user-activity`.
+
+**Sengaja TIDAK di-gate** (pending wajib akses agar "parkir" di `/profile` jalan):
+`/api/profile`, `/api/notifications/pending`, `/api/notifications/:id/dismiss`.
+
+**`demo_mode` bukan kontrol keamanan** — itu UX toggle (auto-approve pending).
+Gate tetap berlaku saat demo OFF; saat demo ON, pending diizinkan secara
+konsisten dengan `/api/profile`.
+
+**Test**: `tests/approvedGate.test.ts` — pure-function mirror dari
+`requireApprovedUser`/`gateApproved` (approved/pending/blocked/anonymous ×
+demo on/off + admin bypass).
+
 ## OAuth PKCE Login (Self-Contained Credential Setup)
 
 Admin bisa connect Claude account langsung dari admin panel tanpa Claude Code CLI:

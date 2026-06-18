@@ -341,18 +341,38 @@ async function checkAdmin(req: Request): Promise<boolean> {
   }
 }
 
-async function checkUser(req: Request): Promise<{ userId: string; email: string } | null> {
+async function checkUser(req: Request): Promise<{ userId: string; email: string; status: import("./types").UserStatus; role: string } | null> {
   try {
     const session = await auth.api.getSession({ headers: req.headers });
     if (!session) return null;
     const email = session.user.email;
     for (const [id, u] of Object.entries(users)) {
-      if (u.email === email) return { userId: id, email };
+      if (u.email === email) return { userId: id, email, status: u.status || "pending", role: u.role || "USER" };
     }
     return null;
   } catch {
     return null;
   }
+}
+
+// Approved gate — backend source of truth for "user may see other users' data".
+// Honors demo_mode (mirrors /api/profile effectiveStatus) so UI access and API
+// access stay consistent: when demo is ON, pending is treated as approved.
+async function requireApprovedUser(req: Request): Promise<{ userId: string; email: string } | null> {
+  const u = await checkUser(req);
+  if (!u) return null;
+  const demoMode = settings["demo_mode"] === "true";
+  const approved = u.status === "approved" || (demoMode && u.status === "pending");
+  return approved ? { userId: u.userId, email: u.email } : null;
+}
+
+// Returns a 403 Response when the requester is neither an approved user nor an
+// admin; null when access is allowed. Used to gate endpoints that expose other
+// users' data (mind graph, leaderboard, sessions, usage).
+async function gateApproved(req: Request): Promise<Response | null> {
+  if (await requireApprovedUser(req)) return null;
+  if (await checkAdmin(req)) return null;
+  return Response.json({ error: "Forbidden" }, { status: 403 });
 }
 
 
@@ -421,6 +441,9 @@ server = serve({
     // WebSocket — real-time status push
     "/ws": async (req) => {
       const isAdmin = await checkAdmin(req);
+      if (!isAdmin && !await requireApprovedUser(req)) {
+        return new Response("Forbidden", { status: 403 });
+      }
       const upgraded = server.upgrade(req, { data: { isAdmin } });
       if (upgraded) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
@@ -557,6 +580,9 @@ server = serve({
     // API — public
     "/api/status": async req => {
       const isAdm = await checkAdmin(req);
+      if (!isAdm && !await requireApprovedUser(req)) {
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
       return handleApiStatus(req, new URL(req.url), isAdm, userImagesCache);
     },
 
@@ -574,7 +600,7 @@ server = serve({
     },
     "/api/analytics": async req => handleApiAnalytics(await checkAdmin(req)),
     "/api/admin/user-activity": async req => {
-      if (!await checkUser(req) && !await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const gate = await gateApproved(req); if (gate) return gate;
       return handleApiUserActivity();
     },
 
@@ -649,19 +675,26 @@ server = serve({
       return Response.json({ ok: true, ...result });
     },
     "/api/competition": async req => {
-      const u = await checkUser(req);
-      if (!u) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      const u = await requireApprovedUser(req);
+      if (!u) {
+        if (await checkAdmin(req)) return handleApiCompetition("");
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
       return handleApiCompetition(u.userId);
     },
-    "/api/sessions/summary": () => handleApiSessionsSummary(),
-    "/api/sessions/*": req => {
+    "/api/sessions/summary": async req => {
+      const gate = await gateApproved(req); if (gate) return gate;
+      return handleApiSessionsSummary();
+    },
+    "/api/sessions/*": async req => {
+      const gate = await gateApproved(req); if (gate) return gate;
       const user = new URL(req.url).pathname.slice("/api/sessions/".length);
       return handleApiSessions(decodeURIComponent(user));
     },
-    "/api/mind":          () => handleApiMind(),
-    "/api/race":          () => handleApiRace(),
+    "/api/mind":          async req => { const gate = await gateApproved(req); if (gate) return gate; return handleApiMind(); },
+    "/api/race":          async req => { const gate = await gateApproved(req); if (gate) return gate; return handleApiRace(); },
     "/api/version":       () => Response.json({ version: APP_VERSION }),
-    "/api/usage/hourly":  () => handleApiUsageHourly(),  // already async
+    "/api/usage/hourly":  async req => { const gate = await gateApproved(req); if (gate) return gate; return handleApiUsageHourly(); },
     "/api/admin/test": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleApiTest();
