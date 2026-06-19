@@ -1,4 +1,4 @@
-import { Box, Group, Text, Badge, Progress, Stack, Tooltip, ThemeIcon } from "@mantine/core";
+import { Box, Group, Text, Badge, Progress, Stack, Tooltip, ThemeIcon, Paper, SimpleGrid } from "@mantine/core";
 import { IconKey, IconAlertTriangle } from "@tabler/icons-react";
 import type { StatusResponse, TokenStatus, UserInsight, ProfileResponse } from "../../contexts";
 import { UserAvatar } from "../UserAvatar";
@@ -12,10 +12,11 @@ interface TokenUsagePanelProps {
   insights: Record<string, UserInsight>;
   userImages: Record<string, string> | undefined;
   isAdmin: boolean;
+  view: "grid" | "list";
   setSelectedToken: (t: { key: string; tk: TokenStatus } | null) => void;
 }
 
-export function TokenUsagePanel({ tokens, profile, insights, userImages, isAdmin, setSelectedToken }: TokenUsagePanelProps) {
+export function TokenUsagePanel({ tokens, profile, insights, userImages, isAdmin, view, setSelectedToken }: TokenUsagePanelProps) {
   const totalTokens = Object.keys(tokens).length;
 
   if (totalTokens === 0) {
@@ -49,15 +50,15 @@ export function TokenUsagePanel({ tokens, profile, insights, userImages, isAdmin
   }).sort((a, b) => b.totalUsed - a.totalUsed);
 
   const cap = isAdmin ? 20 : 6;
-  return (
-    <Stack gap="lg">
-      {groupArr.slice(0, cap).map(g => {
+  const visibleGroups = groupArr.slice(0, cap);
+
+  const renderGroup = (g: typeof groupArr[number]) => {
         const pctTotal   = g.hasInf ? 0 : g.totalLimit > 0 ? Math.min(100, Math.round((g.totalUsed / g.totalLimit) * 100)) : 0;
         const colorTotal = pctTotal >= 95 ? "red" : pctTotal >= 75 ? "orange" : pctTotal >= 50 ? "yellow" : "teal";
         const headerName  = g.isOrphan ? maskToken(g.rows[0]!.tk.token_label || g.rows[0]!.tk.label) : (g.ownerName || "Anonymous");
         const headerImage = g.isOrphan ? undefined : userImages?.[g.ownerName];
         return (
-          <Box key={g.groupKey} py={2}>
+          <Paper key={g.groupKey} withBorder p={{ base: "sm", sm: "md" }} radius="md" style={{ overflow: "hidden" }}>
             <Group gap={8} wrap="nowrap" mb={4} align="center">
               <UserAvatar name={headerName} imageUrl={headerImage} size={24} />
               <Text size="sm" fw={700} truncate style={{ flex: 1, minWidth: 0 }}>{headerName}</Text>
@@ -107,9 +108,16 @@ export function TokenUsagePanel({ tokens, profile, insights, userImages, isAdmin
                 );
               })}
             </Stack>
-          </Box>
+          </Paper>
         );
-      })}
-    </Stack>
-  );
+  };
+
+  if (view === "grid") {
+    return (
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        {visibleGroups.map(renderGroup)}
+      </SimpleGrid>
+    );
+  }
+  return <Stack gap="md">{visibleGroups.map(renderGroup)}</Stack>;
 }

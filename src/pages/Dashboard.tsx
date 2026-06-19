@@ -3,12 +3,12 @@ import { useDisclosure } from "@mantine/hooks";
 import { useMantineColorScheme } from "@mantine/core";
 import {
   Box, Group, Stack, Text, Paper, ThemeIcon, Badge, Alert, SimpleGrid,
-  Loader, Tabs, Modal, Tooltip,
+  Loader, Tabs, Modal, Tooltip, SegmentedControl,
 } from "@mantine/core";
 import {
   IconActivity, IconDatabase, IconUsers, IconClock, IconAlertTriangle,
   IconChartHistogram, IconLayoutDashboard, IconChartLine,
-  IconMessages, IconHistory,
+  IconMessages, IconHistory, IconLayoutGrid, IconLayoutList,
 } from "@tabler/icons-react";
 import type { AnalyticsData, LogEntry, ProfileResponse } from "../contexts";
 import { useStatus } from "../contexts";
@@ -59,6 +59,9 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
 
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem("dashboard-tab") || "dashboard"; } catch { return "dashboard"; }
+  });
+  const [tokenView, setTokenView] = useState<"grid" | "list">(() => {
+    try { return localStorage.getItem("token-view") === "list" ? "list" : "grid"; } catch { return "grid"; }
   });
   const [dismissedAlerts,  setDismissedAlerts]  = useState<string[]>([]);
   const [dismissedThresh,  setDismissedThresh]  = useState<string[]>([]);
@@ -299,21 +302,31 @@ export function Dashboard({ isAdmin, profile, wsSignal }: DashboardProps) {
 
                   <Stack gap="xs" mb="lg" id="tokens" style={{ scrollMarginTop: 16 }}>
                     <Group justify="space-between">
-                      <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Token Usage</Text>
-                      {totalTokens > 0 && activeTokens === 0 && (
-                        <Badge size="xs" variant="light" color="teal">all quotas fresh</Badge>
-                      )}
-                    </Group>
-                    <Paper withBorder p={{ base: "sm", sm: "md" }} radius="md" style={{ overflow: "hidden" }}>
-                      <TokenUsagePanel
-                        tokens={tokens}
-                        profile={profile}
-                        insights={insights}
-                        userImages={status.userImages}
-                        isAdmin={isAdmin}
-                        setSelectedToken={setSelectedToken}
+                      <Group gap="xs">
+                        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: ".08em" }}>Token Usage</Text>
+                        {totalTokens > 0 && activeTokens === 0 && (
+                          <Badge size="xs" variant="light" color="teal">all quotas fresh</Badge>
+                        )}
+                      </Group>
+                      <SegmentedControl
+                        size="xs"
+                        value={tokenView}
+                        onChange={v => { setTokenView(v as "grid" | "list"); try { localStorage.setItem("token-view", v); } catch {} }}
+                        data={[
+                          { value: "grid", label: <Tooltip label="Grid view" withArrow><IconLayoutGrid size={14} /></Tooltip> },
+                          { value: "list", label: <Tooltip label="List view" withArrow><IconLayoutList size={14} /></Tooltip> },
+                        ]}
                       />
-                    </Paper>
+                    </Group>
+                    <TokenUsagePanel
+                      tokens={tokens}
+                      profile={profile}
+                      insights={insights}
+                      userImages={status.userImages}
+                      isAdmin={isAdmin}
+                      view={tokenView}
+                      setSelectedToken={setSelectedToken}
+                    />
                   </Stack>
 
                   {hourly.length === 24 && (() => {

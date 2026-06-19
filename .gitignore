@@ -11,3 +11,6 @@ src/style.css
 .claude/
 FITURES/system-tiket.md
 local_cache/
+.playwright-mcp/
+token-grid-view.png
+token-list-view.png

@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.77] - 2026-06-19
+
+### Added
+- Token Usage panel: toggle grid view / list view (preferensi tersimpan di `localStorage`)
+
+### Changed
+- Token Usage: paper/card pembungkus tunggal dihapus — tiap user kini punya card sendiri
+
 ## [2.1.76] - 2026-06-18
 
 ### Security
