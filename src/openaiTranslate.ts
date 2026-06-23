@@ -1,7 +1,7 @@
 // Translation layer: Anthropic /v1/messages format <-> OpenAI /v1/chat/completions format.
 // Direction A (existing): Client(Anthropic) → anthropicToOpenAi → OpenAI provider → openAiToAnthropic → Client
 // Direction B (compat):   Client(OpenAI)    → openAiChatToAnthropic → Anthropic upstream → anthropicToOpenAiResponse → Client
-// Tool calls: fully supported in Direction B. Direction A: text-only.
+// Tool calls: fully supported in both directions (A and B).
 
 import { randomUUID } from "crypto";
 
@@ -13,8 +13,10 @@ interface AnthropicMessage {
 }
 
 interface OpenAIMessage {
-  role:    string;
-  content: string;
+  role:           string;
+  content:        any;
+  tool_calls?:    any[];
+  tool_call_id?:  string;
 }
 
 function anthropicContentToText(content: any): string {
@@ -24,6 +26,41 @@ function anthropicContentToText(content: any): string {
     .filter((b: any) => b?.type === "text")
     .map((b: any) => b.text || "")
     .join("");
+}
+
+// Anthropic tool_result.content may be a string or an array of content blocks.
+function anthropicToolResultToText(content: any): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((b: any) => (typeof b === "string" ? b : b?.type === "text" ? b.text || "" : ""))
+      .join("");
+  }
+  return "";
+}
+
+// Anthropic tools (input_schema) → OpenAI tools (function.parameters).
+function anthropicToolsToOpenAi(tools: any[]): any[] {
+  return tools
+    .filter((t: any) => t?.name)
+    .map((t: any) => ({
+      type: "function",
+      function: {
+        name:        t.name,
+        description: t.description || "",
+        parameters:  t.input_schema || { type: "object", properties: {} },
+      },
+    }));
+}
+
+// Anthropic tool_choice → OpenAI tool_choice.
+function anthropicToolChoiceToOpenAi(tc: any): any | undefined {
+  if (!tc) return undefined;
+  if (tc.type === "auto") return "auto";
+  if (tc.type === "any")  return "required";
+  if (tc.type === "none") return "none";
+  if (tc.type === "tool" && tc.name) return { type: "function", function: { name: tc.name } };
+  return undefined;
 }
 
 function anthropicSystemToText(system: any): string {
@@ -46,9 +83,44 @@ export function anthropicToOpenAi(body: any, providerModel: string): any {
 
   const srcMsgs: AnthropicMessage[] = Array.isArray(body.messages) ? body.messages : [];
   for (const m of srcMsgs) {
-    const role = m.role === "assistant" ? "assistant" : "user";
+    const blocks = Array.isArray(m.content) ? m.content : null;
+
+    if (m.role === "assistant") {
+      const text      = anthropicContentToText(m.content);
+      const toolUses  = blocks ? blocks.filter((b: any) => b?.type === "tool_use") : [];
+      if (toolUses.length > 0) {
+        messages.push({
+          role:    "assistant",
+          content: text || null,
+          tool_calls: toolUses.map((b: any) => ({
+            id:   b.id || "",
+            type: "function",
+            function: { name: b.name || "", arguments: JSON.stringify(b.input ?? {}) },
+          })),
+        });
+      } else if (text) {
+        messages.push({ role: "assistant", content: text });
+      }
+      continue;
+    }
+
+    // user role — may carry tool_result blocks (OpenAI expects role:"tool" per result)
+    const toolResults = blocks ? blocks.filter((b: any) => b?.type === "tool_result") : [];
+    if (toolResults.length > 0) {
+      for (const tr of toolResults) {
+        messages.push({
+          role:         "tool",
+          tool_call_id: tr.tool_use_id || "",
+          content:      anthropicToolResultToText(tr.content),
+        });
+      }
+      const text = anthropicContentToText(m.content);
+      if (text) messages.push({ role: "user", content: text });
+      continue;
+    }
+
     const text = anthropicContentToText(m.content);
-    if (text) messages.push({ role, content: text });
+    if (text) messages.push({ role: "user", content: text });
   }
 
   const out: any = {
@@ -59,6 +131,13 @@ export function anthropicToOpenAi(body: any, providerModel: string): any {
   };
   if (typeof body.temperature === "number") out.temperature = body.temperature;
   if (typeof body.top_p === "number")        out.top_p       = body.top_p;
+
+  const tools = Array.isArray(body.tools) ? anthropicToolsToOpenAi(body.tools) : [];
+  if (tools.length) {
+    out.tools = tools;
+    const tc = anthropicToolChoiceToOpenAi(body.tool_choice);
+    if (tc !== undefined) out.tool_choice = tc;
+  }
   return out;
 }
 
@@ -80,12 +159,21 @@ export function openAiToAnthropic(body: any, originalModel: string): any {
   const inputTokens  = body?.usage?.prompt_tokens     || 0;
   const outputTokens = body?.usage?.completion_tokens || 0;
 
+  const content: any[] = [];
+  if (text) content.push({ type: "text", text });
+  const toolCalls = Array.isArray(choice?.message?.tool_calls) ? choice.message.tool_calls : [];
+  for (const tc of toolCalls) {
+    let input: any = {};
+    try { input = JSON.parse(tc.function?.arguments || "{}"); } catch {}
+    content.push({ type: "tool_use", id: tc.id || "", name: tc.function?.name || "", input });
+  }
+
   return {
     id:           "msg_" + randomUUID().replace(/-/g, "").slice(0, 24),
     type:         "message",
     role:         "assistant",
     model:        originalModel,
-    content:      text ? [{ type: "text", text }] : [],
+    content,
     stop_reason:  stop,
     stop_sequence: null,
     usage: {
@@ -105,8 +193,12 @@ interface StreamState {
   inputTokens:    number;
   outputTokens:   number;
   emittedStart:   boolean;
-  emittedBlock:   boolean;
+  emittedBlock:   boolean;       // text block (index 0) opened
   finishReason:   string;
+  nextBlockIndex: number;        // next Anthropic content block index to assign
+  textBlockIndex: number | null; // assigned index of the text block, if any
+  toolBlocks:     Map<number, number>; // OpenAI tool_call index → Anthropic block index
+  openBlocks:     Set<number>;   // block indices opened but not yet stopped
 }
 
 function sseEvent(event: string, data: any): string {
@@ -135,24 +227,42 @@ function emitMessageStart(state: StreamState): string {
   });
 }
 
-function emitContentBlockStart(): string {
+function emitContentBlockStart(index = 0): string {
   return sseEvent("content_block_start", {
     type: "content_block_start",
-    index: 0,
+    index,
     content_block: { type: "text", text: "" },
   });
 }
 
-function emitContentBlockDelta(text: string): string {
+function emitContentBlockDelta(text: string, index = 0): string {
   return sseEvent("content_block_delta", {
     type: "content_block_delta",
-    index: 0,
+    index,
     delta: { type: "text_delta", text },
   });
 }
 
-function emitContentBlockStop(): string {
-  return sseEvent("content_block_stop", { type: "content_block_stop", index: 0 });
+function emitContentBlockStop(index = 0): string {
+  return sseEvent("content_block_stop", { type: "content_block_stop", index });
+}
+
+// Tool block (Anthropic tool_use) — opened from OpenAI delta.tool_calls header.
+function emitToolBlockStart(index: number, id: string, name: string): string {
+  return sseEvent("content_block_start", {
+    type: "content_block_start",
+    index,
+    content_block: { type: "tool_use", id, name, input: {} },
+  });
+}
+
+// Incremental tool arguments — Anthropic input_json_delta carries partial JSON.
+function emitToolBlockDelta(index: number, partialJson: string): string {
+  return sseEvent("content_block_delta", {
+    type: "content_block_delta",
+    index,
+    delta: { type: "input_json_delta", partial_json: partialJson },
+  });
 }
 
 function emitMessageDelta(state: StreamState): string {
@@ -425,6 +535,20 @@ export function translateOpenAiStreamToAnthropic(
         emittedStart: false,
         emittedBlock: false,
         finishReason: "stop",
+        nextBlockIndex: 0,
+        textBlockIndex: null,
+        toolBlocks:   new Map(),
+        openBlocks:   new Set(),
+      };
+
+      // Anthropic requires one content block open at a time, closed in order.
+      // OpenAI streams text then tool_calls (each by index) — close the prior
+      // block before opening the next so pairing stays valid.
+      const closeOpenBlocks = () => {
+        for (const idx of state.openBlocks) {
+          controller.enqueue(encoder.encode(emitContentBlockStop(idx)));
+        }
+        state.openBlocks.clear();
       };
 
       const reader = upstream.getReader();
@@ -460,16 +584,41 @@ export function translateOpenAiStreamToAnthropic(
               const choice = parsed?.choices?.[0];
               if (!choice) continue;
 
-              // First content delta — emit content_block_start
+              // Text content delta — open text block on first appearance
               const delta = choice.delta?.content;
-              if (delta && !state.emittedBlock) {
-                controller.enqueue(encoder.encode(emitContentBlockStart()));
-                state.emittedBlock = true;
+              if (delta) {
+                if (state.textBlockIndex === null) {
+                  closeOpenBlocks();
+                  state.textBlockIndex = state.nextBlockIndex++;
+                  state.emittedBlock = true;
+                  state.openBlocks.add(state.textBlockIndex);
+                  controller.enqueue(encoder.encode(emitContentBlockStart(state.textBlockIndex)));
+                }
+                state.outputTokens++; // rough estimate per delta
+                controller.enqueue(encoder.encode(emitContentBlockDelta(delta, state.textBlockIndex)));
               }
 
-              if (delta) {
-                state.outputTokens++; // rough estimate per delta
-                controller.enqueue(encoder.encode(emitContentBlockDelta(delta)));
+              // Tool call deltas — header (id+name) then incremental arguments
+              const toolCalls = choice.delta?.tool_calls;
+              if (Array.isArray(toolCalls)) {
+                for (const tc of toolCalls) {
+                  const oaiIdx = typeof tc.index === "number" ? tc.index : 0;
+                  let blockIdx = state.toolBlocks.get(oaiIdx);
+                  if (blockIdx === undefined) {
+                    // New tool call — close prior block, open a tool_use block
+                    closeOpenBlocks();
+                    blockIdx = state.nextBlockIndex++;
+                    state.toolBlocks.set(oaiIdx, blockIdx);
+                    state.openBlocks.add(blockIdx);
+                    const id   = tc.id || ("toolu_" + randomUUID().replace(/-/g, "").slice(0, 20));
+                    const name = tc.function?.name || "";
+                    controller.enqueue(encoder.encode(emitToolBlockStart(blockIdx, id, name)));
+                  }
+                  const args = tc.function?.arguments;
+                  if (args) {
+                    controller.enqueue(encoder.encode(emitToolBlockDelta(blockIdx, args)));
+                  }
+                }
               }
 
               if (choice.finish_reason) {
@@ -483,7 +632,7 @@ export function translateOpenAiStreamToAnthropic(
         }
       } finally {
         // Always emit closing events
-        if (state.emittedBlock) controller.enqueue(encoder.encode(emitContentBlockStop()));
+        closeOpenBlocks();
         if (state.emittedStart) {
           controller.enqueue(encoder.encode(emitMessageDelta(state)));
           controller.enqueue(encoder.encode(emitMessageStop()));

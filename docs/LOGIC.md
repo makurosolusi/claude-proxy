@@ -126,17 +126,20 @@ Custom provider type `"openai"` butuh translation karena client Claude Code meng
 
 **Request translation** (`anthropicToOpenAi`):
 - `system` (top-level atau content blocks) → first `system` message di OpenAI `messages` array
-- `messages[].content` (array atau string) — diekstrak text content saja (tool_use/result tidak supported di MVP)
+- `messages[].content` (array atau string) — text content diekstrak
+- **Tools**: `tools[].input_schema` → `tools[].function.parameters`; `tool_choice` (auto→`auto`, any→`required`, none→`none`, tool→`{type:function,function:{name}}`)
+- **Tool history**: assistant `tool_use` block → `tool_calls[]`; user `tool_result` block → `role:"tool"` message dengan `tool_call_id`
 - `max_tokens`, `temperature`, `top_p` di-pass through
 
 **Response translation** (non-streaming, `openAiToAnthropic`):
 - `choices[0].message.content` → `content: [{ type: "text", text }]`
-- `finish_reason` map: `stop` → `end_turn`, `length` → `max_tokens`, dll
+- `choices[0].message.tool_calls[]` → `tool_use` content block (`JSON.parse(arguments)` → `input`; malformed → `{}`)
+- `finish_reason` map: `stop` → `end_turn`, `length` → `max_tokens`, `tool_calls` → `tool_use`, dll
 - `usage.prompt_tokens` → `usage.input_tokens`, `completion_tokens` → `output_tokens`
 
 **Response translation** (streaming, `translateOpenAiStreamToAnthropic`):
 - OpenAI SSE `data:` chunks → Anthropic SSE events: `message_start` → `content_block_start` → `content_block_delta` (text_delta) → `content_block_stop` → `message_delta` (stop_reason) → `message_stop`
-- Text-content only di MVP — tool_use/thinking blocks tidak ditranslate
+- **Tool calls**: `delta.tool_calls` → `content_block_start` (tool_use w/ id+name) + `content_block_delta` (input_json_delta untuk arguments). Anthropic mengharuskan satu block terbuka per waktu — block sebelumnya (text/tool) ditutup sebelum block baru dibuka, sehingga text-then-tool dan parallel tool calls tetap valid.
 
 ## Settings Storage
 
