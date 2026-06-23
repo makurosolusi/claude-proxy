@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.78] - 2026-06-23
+
+### Fixed
+- Custom provider OpenAI-like (mis. 9router/OpenRouter): tool calling tidak jalan — model balas teks/XML mentah atau "tool not supported". Direction A (Anthropic→OpenAI) sebelumnya tidak meneruskan `tools`/`tool_choice` dan tidak menerjemahkan riwayat `tool_use`/`tool_result`, jadi provider tak pernah tahu ada tools
+- Translasi tool kini lengkap di kedua jalur respons: non-streaming (`tool_calls` → `tool_use` block, `JSON.parse` argumen dengan guard malformed → `{}`) dan streaming (`content_block_start`/`input_json_delta`, menutup block sebelumnya agar memenuhi constraint Anthropic satu block terbuka per waktu — text-then-tool & parallel tool calls tetap valid)
+
 ## [2.1.77] - 2026-06-19
 
 ### Added
