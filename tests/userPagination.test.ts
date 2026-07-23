@@ -109,3 +109,83 @@ describe("per-token pagination in UserCard", () => {
     expect(page1[4].key).toBe("tok-4");
   });
 });
+
+describe("token usage panel group pagination", () => {
+  // Mirror of grouping + pagination logic in TokenUsagePanel.tsx.
+  const PAGE_SIZE = 12;
+
+  type Tok = { user_id: string | null; used: number; limit: number | null };
+
+  function groupOwners(tokens: Record<string, Tok>) {
+    const groups = new Map<string, { rows: { key: string; tk: Tok }[] }>();
+    for (const [key, tk] of Object.entries(tokens)) {
+      const gk = tk.user_id || `__orphan__:${key}`;
+      if (!groups.has(gk)) groups.set(gk, { rows: [] });
+      groups.get(gk)!.rows.push({ key, tk });
+    }
+    return Array.from(groups.entries())
+      .map(([gk, g]) => ({ groupKey: gk, totalUsed: g.rows.reduce((s, r) => s + r.tk.used, 0) }))
+      .sort((a, b) => b.totalUsed - a.totalUsed);
+  }
+
+  function totalPages(n: number, perPage = PAGE_SIZE) {
+    return Math.ceil(n / perPage);
+  }
+
+  function pageSlice<T>(list: T[], page: number, perPage = PAGE_SIZE) {
+    return list.slice((page - 1) * perPage, page * perPage);
+  }
+
+  function makeTokensForUsers(userCount: number, tokensPerUser = 1): Record<string, Tok> {
+    const out: Record<string, Tok> = {};
+    for (let u = 0; u < userCount; u++) {
+      for (let t = 0; t < tokensPerUser; t++) {
+        out[`u${u}-t${t}`] = { user_id: `user-${u}`, used: (u + 1) * 10, limit: 1000 };
+      }
+    }
+    return out;
+  }
+
+  test("golden path: groups by user_id, not by token count", () => {
+    // 3 users × 4 tokens each = 12 tokens but only 3 groups → 1 page
+    const groups = groupOwners(makeTokensForUsers(3, 4));
+    expect(groups).toHaveLength(3);
+    expect(totalPages(groups.length)).toBe(1);
+    expect(pageSlice(groups, 1)).toHaveLength(3);
+  });
+
+  test("12 owners → 1 page (no pager)", () => {
+    const groups = groupOwners(makeTokensForUsers(12));
+    expect(groups.length).toBe(12);
+    expect(totalPages(groups.length)).toBe(1);
+  });
+
+  test("edge case: 13 owners → 2 pages (12 + 1)", () => {
+    const groups = groupOwners(makeTokensForUsers(13));
+    expect(totalPages(groups.length)).toBe(2);
+    expect(pageSlice(groups, 1)).toHaveLength(12);
+    expect(pageSlice(groups, 2)).toHaveLength(1);
+  });
+
+  test("groups sorted by totalUsed desc across pages", () => {
+    const groups = groupOwners(makeTokensForUsers(20));
+    // user-19 has highest used (200) → first on page 1
+    expect(pageSlice(groups, 1)[0].groupKey).toBe("user-19");
+    expect(pageSlice(groups, 2)).toHaveLength(8);
+  });
+
+  test("failure mode: orphan tokens (null user_id) get own group", () => {
+    const tokens: Record<string, Tok> = {
+      "orphan-a": { user_id: null, used: 5, limit: 100 },
+      "orphan-b": { user_id: null, used: 3, limit: 100 },
+      "u0-t0": { user_id: "user-0", used: 50, limit: 1000 },
+    };
+    const groups = groupOwners(tokens);
+    expect(groups).toHaveLength(3);
+    expect(groups.filter(g => g.groupKey.startsWith("__orphan__:"))).toHaveLength(2);
+  });
+
+  test("empty tokens → 0 pages", () => {
+    expect(totalPages(groupOwners({}).length)).toBe(0);
+  });
+});
