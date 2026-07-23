@@ -1,10 +1,12 @@
-import { Box, Group, Text, Badge, Progress, Stack, Tooltip, ThemeIcon, Paper, SimpleGrid } from "@mantine/core";
+import { useEffect, useState } from "react";
+import { Box, Group, Text, Badge, Progress, Stack, Tooltip, ThemeIcon, Paper, SimpleGrid, Pagination, Center } from "@mantine/core";
 import { IconKey, IconAlertTriangle } from "@tabler/icons-react";
 import type { StatusResponse, TokenStatus, UserInsight, ProfileResponse } from "../../contexts";
 import { UserAvatar } from "../UserAvatar";
 import { maskToken } from "../../utils";
 
 const nf = new Intl.NumberFormat();
+const PAGE_SIZE = 12;
 
 interface TokenUsagePanelProps {
   tokens: StatusResponse["tokens"];
@@ -49,8 +51,11 @@ export function TokenUsagePanel({ tokens, profile, insights, userImages, isAdmin
     };
   }).sort((a, b) => b.totalUsed - a.totalUsed);
 
-  const cap = isAdmin ? 20 : 6;
-  const visibleGroups = groupArr.slice(0, cap);
+  const totalPages = Math.ceil(groupArr.length / PAGE_SIZE);
+  const [page, setPage] = useState(1);
+  useEffect(() => { if (page > totalPages) setPage(1); }, [page, totalPages]);
+  const safePage = Math.min(page, Math.max(1, totalPages));
+  const visibleGroups = groupArr.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const renderGroup = (g: typeof groupArr[number]) => {
         const pctTotal   = g.hasInf ? 0 : g.totalLimit > 0 ? Math.min(100, Math.round((g.totalUsed / g.totalLimit) * 100)) : 0;
@@ -112,12 +117,22 @@ export function TokenUsagePanel({ tokens, profile, insights, userImages, isAdmin
         );
   };
 
-  if (view === "grid") {
-    return (
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-        {visibleGroups.map(renderGroup)}
-      </SimpleGrid>
-    );
-  }
-  return <Stack gap="md">{visibleGroups.map(renderGroup)}</Stack>;
+  const pager = totalPages > 1 && (
+    <Center mt="md">
+      <Pagination total={totalPages} value={safePage} onChange={setPage} size="sm" radius="md" withEdges />
+    </Center>
+  );
+
+  return (
+    <Stack gap={0}>
+      {view === "grid" ? (
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          {visibleGroups.map(renderGroup)}
+        </SimpleGrid>
+      ) : (
+        <Stack gap="md">{visibleGroups.map(renderGroup)}</Stack>
+      )}
+      {pager}
+    </Stack>
+  );
 }

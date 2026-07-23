@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.1.79] - 2026-07-23
+
+### Changed
+- Token Usage panel: semua user (bukan cuma admin) kini melihat seluruh grup user, tidak lagi dibatasi 6 kartu. Batas keras `isAdmin ? 20 : 6` diganti pagination 12 grup per halaman (pager tersembunyi bila hanya 1 halaman)
+
 ## [2.1.78] - 2026-06-23
 
 ### Fixed
