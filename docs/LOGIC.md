@@ -247,6 +247,57 @@ Per-token override: `tokens.mode` (`inherit`/`direct`/`cliproxy`). Admin endpoin
 
 **Shadow Mode:** `SHADOW_DIRECT=true` — paralel fire-and-forget ke direct, log diff. Tidak mempengaruhi response ke user.
 
+## Batasan: field `system` diabaikan upstream OAuth (klien non-Claude-Code)
+
+Request ke Anthropic via OAuth Claude Max (`anthropic-beta: oauth-2025-04-20`)
+**mengabaikan field `system`** kalau request datang dari klien HTTP biasa
+(curl, SDK, aplikasi sendiri). Proxy meneruskan field itu apa adanya — tidak ada
+kode yang menghapusnya — tapi upstream tidak menerapkannya.
+
+**Gejala:**
+- Instruksi di `system` tidak dipatuhi model (jawaban seolah tanpa system prompt)
+- `input_tokens` kecil tidak wajar — system 41.080 char (~10k token) → `input_tokens: 9`
+- `cache_creation_input_tokens` = 0 walau `cache_control: ephemeral` dikirim dan
+  prefix jauh di atas minimum cacheable (4096 token)
+
+**Reproduksi** (2026-07-30, staging, `claude-opus-5`):
+
+| Tes | Isi | Hasil |
+|---|---|---|
+| `system` sebagai string | instruksi canary | FAIL — diabaikan, `input=14` |
+| `system` sebagai array of blocks | instruksi canary sama | FAIL — diabaikan, `input=14` |
+| **Kontrol:** instruksi sama di **user turn** | instruksi canary sama | **PASS** — dipatuhi |
+| Caching, 3× request identik | system 41.080 char + `cache_control` | FAIL — `cache_creation`/`cache_read` = 0 |
+
+Kontrol PASS membuktikan model **mampu** mematuhi instruksinya dan metode tesnya
+valid — jadi ini bukan penolakan model, melainkan `system` yang tidak berlaku.
+Konsisten di `claude-opus-5`, `claude-sonnet-4-6`, dan `claude-opus-4-8`.
+
+Sebaliknya, request Claude Code asli lewat proxy yang sama, di menit yang sama,
+**tetap** mendapat `cache_creation` > 0 dan mematuhi system prompt-nya.
+
+**Yang sudah dikesampingkan sebagai penyebab** (jangan diulang investigasinya):
+- Proxy menghapus/menimpa `system` — tidak ada `delete bodyJson.system` di
+  codebase; `sanitizeRequestBody()` tidak pernah menyentuh `system`
+- Ekstensi — `log-management` tidak punya hook request sama sekali;
+  `second-brain` `preRequest()` return null untuk `provider === "anthropic"`,
+  dan injeksinya hanya prepend (system asli selalu dipertahankan)
+- Gating per token/tier — tidak ada; proxy tidak pernah menyentuh `cache_control`
+- Baris `x-anthropic-billing-header` di `system` — **sudah diuji**: menambahkannya
+  ke request non-Claude-Code TIDAK membuat `system` berlaku
+- Param `thinking` — FAIL juga terjadi tanpa param tersebut
+
+Syarat persis yang divalidasi Anthropic **belum diketahui** (kemungkinan
+fingerprint klien di luar satu baris header). Jangan klaim akar penyebab lebih
+spesifik dari ini tanpa bukti baru.
+
+**Workaround untuk pengguna:** taruh instruksi di **user turn pertama**, bukan di
+field `system` — terbukti dipatuhi. Alternatif: pakai API key Anthropic berbayar
+(bukan OAuth Max) lewat custom provider, di mana `system` bekerja normal.
+
+**Implikasi untuk `count_tokens`:** `input_tokens` kecil pada request bersystem
+besar bukan bug pencatatan proxy — memang itu yang dihitung upstream.
+
 ## /mind Graph (User → Date → Hour → Request)
 `GET /api/mind` group `request_logs` (max 2000) menjadi 4 tier:
 - **Cat 0** User — ukuran √(requests/maxUser)
