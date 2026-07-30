@@ -14,6 +14,7 @@ import {
   stripAllThinking,
   isThinkingIncompatibleError,
 } from "../messageSanitizer";
+import { handleCountTokens } from "./countTokens";
 import { runPreRequest, runPostRequest } from "../extensions";
 import type { ProxyContext } from "../extensions";
 import type { TokenEntry } from "../types";
@@ -370,7 +371,7 @@ export async function handleProxy(
   }
 
   if (req.method === "POST" && pathname === "/v1/messages/count_tokens") {
-    return Response.json({ input_tokens: 0 });
+    return handleCountTokens(req);
   }
 
   if (!(req.method === "POST" && (pathname === "/v1/messages" || pathname === "/v1/chat/completions" || pathname === "/v1/responses"))) {
