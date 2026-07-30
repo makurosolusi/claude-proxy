@@ -1,7 +1,13 @@
 /**
- * Integration tests — hits the live server at TEST_URL (default http://127.0.0.1:8081)
- * Run: bun test tests/server.test.ts
- * Or with custom URL: TEST_URL=http://127.0.0.1:8081 bun test
+ * Integration tests — hits the live server at TEST_URL (default http://127.0.0.1:8081).
+ * These FAIL with 404/403 unless a server is actually running and seeded; that is a
+ * missing harness, not a product bug.
+ *
+ * Run (starts + seeds + tears down for you):  bun run test:server
+ * Against an already-running server:          TEST_URL=http://127.0.0.1:8099 bun test tests/server.test.ts
+ *
+ * Requires the seed tokens sk-user-{bagas,nico,amel} at limit 60000 — scripts/test-server.sh
+ * creates them via POST /admin/token/add (form-encoded; a JSON body is silently ignored).
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 
@@ -31,25 +37,31 @@ async function resetTokenUsage() {
 
 // ── Health / Status ───────────────────────────────────────────────────────────
 describe("GET /api/status", () => {
-  test("returns 200 with correct shape", async () => {
+  // /api/status is gated to approved users + admin (see docs/LOGIC.md,
+  // "Approved-User Gating"). Anonymous callers get 403 by design.
+  test("anonymous caller is refused (403)", async () => {
     const r = await get("/api/status");
+    expect(r.status).toBe(403);
+  });
+
+  test("returns 200 with correct shape for admin", async () => {
+    const r = await get("/api/status", { "x-admin-key": ADMIN_K });
     expect(r.status).toBe(200);
     const j = await r.json() as any;
     expect(j).toHaveProperty("ts");
     expect(j).toHaveProperty("tokens");
     expect(j).toHaveProperty("isAdmin");
-    expect(j.isAdmin).toBe(false);
   });
 
   test("tokens object contains expected keys", async () => {
-    const j = await (await get("/api/status")).json() as any;
+    const j = await (await get("/api/status", { "x-admin-key": ADMIN_K })).json() as any;
     expect(Object.keys(j.tokens)).toContain("sk-user-bagas");
     expect(Object.keys(j.tokens)).toContain("sk-user-nico");
     expect(Object.keys(j.tokens)).toContain("sk-user-amel");
   });
 
   test("upstream info present in response", async () => {
-    const j = await (await get("/api/status")).json() as any;
+    const j = await (await get("/api/status", { "x-admin-key": ADMIN_K })).json() as any;
     expect(j).toHaveProperty("upstream");
   });
 
@@ -189,35 +201,10 @@ describe("Admin auth", () => {
     expect([303, 401]).toContain(r.status);
   });
 
-  test("POST /admin/token/mode invalid mode → 400", async () => {
-    const form = new URLSearchParams({ token: TOKEN, mode: "badmode" });
-    const r = await fetch(BASE + "/admin/token/mode", {
-      method:  "POST",
-      headers: { "x-admin-key": ADMIN_K, "Content-Type": "application/x-www-form-urlencoded" },
-      body:    form,
-    });
-    expect(r.status).toBe(400);
-  });
-
-  test("POST /admin/token/mode valid → 200/302 and persisted", async () => {
-    const form = new URLSearchParams({ token: TOKEN, mode: "direct" });
-    const r = await fetch(BASE + "/admin/token/mode", {
-      method:   "POST",
-      redirect: "manual",
-      headers:  { "x-admin-key": ADMIN_K, "Content-Type": "application/x-www-form-urlencoded" },
-      body:     form,
-    });
-    expect([200, 302, 303]).toContain(r.status);
-
-    // Reset back to inherit
-    const form2 = new URLSearchParams({ token: TOKEN, mode: "inherit" });
-    await fetch(BASE + "/admin/token/mode", {
-      method:   "POST",
-      redirect: "manual",
-      headers:  { "x-admin-key": ADMIN_K, "Content-Type": "application/x-www-form-urlencoded" },
-      body:     form2,
-    });
-  });
+  // Per-token upstream mode (/admin/token/mode) was removed: the handler is gone
+  // from admin.ts and the tokens.mode column no longer exists. The route is still
+  // registered in index.tsx but falls through to 404 — see the dead-route note in
+  // the commit that removed these tests.
 });
 
 // ── Request logs ──────────────────────────────────────────────────────────────

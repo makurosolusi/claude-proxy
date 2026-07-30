@@ -100,33 +100,37 @@ describe("handleDbExport", () => {
     const res = await handleDbExport(req);
     expect(res.status).toBe(200);
 
-    const body = await res.json() as any;
-    expect(body.version).toBe(1);
-    expect(body.exported_at).toBeTruthy();
-    expect(body.tables).toBeDefined();
+    // Export is NDJSON (v2): one JSON object per line — meta, then row/table_end.
+    const lines = (await res.text()).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+    const meta = lines[0];
+    expect(meta.type).toBe("meta");
+    expect(meta.version).toBe(2);
+    expect(meta.exported_at).toBeTruthy();
 
-    // Semua tabel harus ada dalam payload
-    const expectedTables = ["users", "tokens", "request_logs", "daily_usage", "upstream_state", "settings"];
-    for (const tbl of expectedTables) {
-      expect(body.tables).toHaveProperty(tbl);
+    // Every table must be accounted for by a table_end marker.
+    const ended = new Set(lines.filter(l => l.type === "table_end").map(l => l.table));
+    for (const tbl of ["users", "tokens", "request_logs", "daily_usage", "upstream_state", "settings"]) {
+      expect(ended).toContain(tbl);
     }
 
     revokeSyncToken(token);
   });
 
-  test("export payload has correct array types for table rows", async () => {
+  test("export rows carry table name and data payload", async () => {
     const { token } = generateSyncToken();
     const req = new Request(`http://localhost/api/admin/db/export?token=${token}`);
     const res = await handleDbExport(req);
-    const body = await res.json() as any;
+    const lines = (await res.text()).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
 
-    expect(Array.isArray(body.tables.users)).toBe(true);
-    expect(Array.isArray(body.tables.tokens)).toBe(true);
-    expect(Array.isArray(body.tables.request_logs)).toBe(true);
-    expect(Array.isArray(body.tables.daily_usage)).toBe(true);
-    expect(Array.isArray(body.tables.settings)).toBe(true);
-    // upstream_state: single object or null
-    expect(body.tables.upstream_state === null || typeof body.tables.upstream_state === "object").toBe(true);
+    const rows = lines.filter(l => l.type === "row");
+    for (const r of rows) {
+      expect(typeof r.table).toBe("string");
+      expect(r.data).toBeDefined();
+    }
+    // table_end counts must match the rows actually emitted for that table.
+    for (const end of lines.filter(l => l.type === "table_end")) {
+      expect(rows.filter(r => r.table === end.table).length).toBe(end.count);
+    }
 
     revokeSyncToken(token);
   });
@@ -149,9 +153,11 @@ describe("handleDbExport", () => {
     const req = new Request(`http://localhost/api/admin/db/export?token=${token}`);
     const res = await handleDbExport(req);
     expect(res.status).toBe(200);
-    // JSON parse tidak throw = tidak ada BigInt yang tidak di-serialize
+    // Every NDJSON line must parse = no unserialized BigInt slipped through.
     const text = await res.text();
-    expect(() => JSON.parse(text)).not.toThrow();
+    for (const line of text.trim().split("\n").filter(Boolean)) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
     revokeSyncToken(token);
   });
 });

@@ -8,7 +8,7 @@
     "test": "bun test tests/unit.test.ts",
     "test:unit": "bun test tests/unit.test.ts",
     "test:db": "bun test tests/db.test.ts",
-    "test:server": "bun test tests/server.test.ts",
+    "test:server": "bash scripts/test-server.sh",
     "test:sync": "bun test tests/db-sync.test.ts",
     "test:all": "bun test tests/",
     "test:watch": "bun test --watch tests/unit.test.ts"
