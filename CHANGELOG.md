@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.80] - 2026-07-30
+
+### Fixed
+- `POST /v1/messages/count_tokens` kini meneruskan request ke Anthropic dan mengembalikan hitungan token sebenarnya. Sebelumnya selalu balas `{input_tokens: 0}` tanpa pernah menghubungi upstream, sehingga client yang mengandalkannya tidak dapat angka yang berguna. Kalau tidak ada credential Anthropic atau upstream gagal, tetap balas `0` seperti perilaku lama — jadi tidak ada request yang jadi gagal
+
+### Documentation
+- Catat batasan: field `system` **diabaikan** upstream OAuth Claude Max untuk client HTTP biasa (curl/SDK/aplikasi sendiri) — instruksi tidak dipatuhi, `input_tokens` kecil tak wajar, dan prompt caching tidak aktif. Ini batasan upstream, bukan bug proxy: proxy meneruskan field tersebut apa adanya. Workaround: taruh instruksi di user turn pertama (terbukti dipatuhi), atau pakai API key Anthropic berbayar lewat custom provider. Detail reproduksi + daftar penyebab yang sudah dikesampingkan ada di `docs/LOGIC.md`
+
 ## [2.1.79] - 2026-07-23
 
 ### Changed
