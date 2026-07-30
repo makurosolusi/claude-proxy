@@ -50,6 +50,7 @@ Set `REACT_EDITOR=cursor` (atau `code`, `zed`) di `.env` untuk click-to-source (
 - Aplikasi tetap berjalan tanpa credential Claude — lihat `docs/LOGIC.md` section "Operation Mode".
 - Default provider chain: anthropic (jika ada) → openrouter → deepseek → first custom. Lihat `src/providerSelection.ts`.
 - Kalau menambah handler baru yang menyentuh Anthropic, **wajib** guard dengan `hasAnthropicCredential()` dari `src/upstream.ts` — jangan asumsikan cred ada.
+- **Field `system` diabaikan upstream OAuth untuk klien non-Claude-Code** (bukan bug proxy). Sebelum menginvestigasi laporan "system prompt tidak dipatuhi" atau "caching mati", baca `docs/LOGIC.md` section "Batasan: field `system` diabaikan upstream OAuth" — penyebab yang sudah dikesampingkan tercatat di sana.
 
 ## Aturan Penambahan Fitur
 
