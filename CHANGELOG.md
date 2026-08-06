@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.1.81] - 2026-08-06
+
+### Fixed
+- Request dari Claude Code CLI dengan model Opus 5 (fast mode aktif) tidak lagi gagal `400 "speed: Extra inputs are not permitted"`. CLI ≥2.1.219 otomatis menyisipkan field `speed: "fast"` untuk model Opus yang dikenalinya; proxy kini membuang field itu sebelum forward sehingga request berjalan normal di kecepatan standar. Fast mode sengaja tidak diteruskan: penggunaannya ditagih ke usage credits pemilik akun ($10/$50 per MTok), bukan kuota subscription — detail di `docs/LOGIC.md` section "Batasan: field `speed`"
+
 ## [2.1.80] - 2026-07-30
 
 ### Fixed
