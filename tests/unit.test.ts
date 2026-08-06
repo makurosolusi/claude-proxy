@@ -952,3 +952,32 @@ describe("window rotation detection", () => {
     expect(isWindowRotated(now + 30 * 60_000, now)).toBe(false);
   });
 });
+
+import { stripClientOnlyFields } from "../src/messageSanitizer";
+
+describe("stripClientOnlyFields", () => {
+  test("strips speed (fast mode) — golden path", () => {
+    const body: any = { model: "claude-opus-5", speed: "fast", max_tokens: 16, messages: [] };
+    stripClientOnlyFields(body);
+    expect("speed" in body).toBe(false);
+    expect(body.model).toBe("claude-opus-5");
+    expect(body.max_tokens).toBe(16);
+  });
+
+  test("strips context_management", () => {
+    const body: any = { model: "claude-sonnet-5", context_management: { edits: [] } };
+    stripClientOnlyFields(body);
+    expect("context_management" in body).toBe(false);
+  });
+
+  test("body without client-only fields stays untouched", () => {
+    const body: any = { model: "claude-opus-5", messages: [{ role: "user", content: "hi" }] };
+    stripClientOnlyFields(body);
+    expect(body).toEqual({ model: "claude-opus-5", messages: [{ role: "user", content: "hi" }] });
+  });
+
+  test("null/undefined body does not throw", () => {
+    expect(() => stripClientOnlyFields(null)).not.toThrow();
+    expect(() => stripClientOnlyFields(undefined)).not.toThrow();
+  });
+});

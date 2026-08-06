@@ -12,6 +12,7 @@ import {
   getCapabilities,
   sanitizeRequestBody,
   stripAllThinking,
+  stripClientOnlyFields,
   isThinkingIncompatibleError,
 } from "../messageSanitizer";
 import { handleCountTokens } from "./countTokens";
@@ -497,10 +498,10 @@ export async function handleProxy(
     dbSaveSetting("oauth_billing_header", bh).catch(() => {});
   }
 
-  // Strip client-specific fields Anthropic API doesn't accept.
+  // Strip client-specific fields Anthropic API doesn't accept (see messageSanitizer).
   // Capability-aware sanitization happens later, AFTER provider/model finalized.
   if (bodyJson) {
-    delete bodyJson.context_management;
+    stripClientOnlyFields(bodyJson);
     bodyText = JSON.stringify(bodyJson);
   }
 

@@ -71,6 +71,19 @@ export function getCapabilities(
   return { acceptsThinkingBlocks: true, acceptsThinkingParam: true };
 }
 
+// Client-only fields yang tidak boleh sampai ke upstream manapun, dibuang
+// unconditional sebelum provider/model diputuskan. Mutate in place, idempotent.
+// - context_management: field internal Claude Code CLI, Anthropic API menolaknya.
+// - speed: fast mode. Butuh beta header fast-mode-2026-02-01 (di-overwrite proxy
+//   jadi selalu 400 "Extra inputs are not permitted"), DAN by policy dibuang:
+//   fast mode ditagih ke usage credits pemilik akun ($10/$50 per MTok), bukan
+//   kuota subscription — shared proxy tidak membiarkan user membakar credits.
+export function stripClientOnlyFields(body: any): void {
+  if (!body) return;
+  delete body.context_management;
+  delete body.speed;
+}
+
 // Mutate body in place. Idempotent — safe to call multiple times.
 export function sanitizeRequestBody(
   body: any,
