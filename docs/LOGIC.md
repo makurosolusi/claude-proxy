@@ -298,6 +298,36 @@ field `system` — terbukti dipatuhi. Alternatif: pakai API key Anthropic berbay
 **Implikasi untuk `count_tokens`:** `input_tokens` kecil pada request bersystem
 besar bukan bug pencatatan proxy — memang itu yang dihitung upstream.
 
+## Batasan: field `speed` (fast mode) di-strip by policy
+
+Claude Code CLI ≥2.1.219 auto-inject `speed: "fast"` untuk model yang dikenalinya
+sebagai Opus 5/4.8 saat fast mode aktif. Proxy **membuang field ini** sebelum
+forward (`stripClientOnlyFields()` di `src/messageSanitizer.ts`, dipanggil dari
+`proxy.ts`) — request jalan di kecepatan standar.
+
+**Kenapa di-strip (dua alasan, keduanya diverifikasi 2026-08-06):**
+
+1. **Tanpa strip, request 400.** Field `speed` butuh beta header
+   `fast-mode-2026-02-01` menyertainya. `buildUpstreamRequest()` meng-overwrite
+   `anthropic-beta` menjadi `oauth-2025-04-20` (fixed), sehingga flag fast-mode
+   dari client hilang → Anthropic menolak dengan
+   `400 "speed: Extra inputs are not permitted"`. Diverifikasi langsung ke
+   `api.anthropic.com` dengan OAuth token Max: dengan header
+   `oauth-2025-04-20,fast-mode-2026-02-01` field `speed` DITERIMA; dengan
+   `oauth-2025-04-20` saja → 400.
+2. **Kebijakan biaya.** Fast mode ditagih ke **usage credits** pemilik akun
+   ($10/$50 per MTok dari token pertama), BUKAN kuota subscription Max — shared
+   proxy tidak membiarkan user membakar credits pemilik akun. Karena itu fix-nya
+   strip field, bukan merge beta header.
+
+**Gejala tanpa strip (historis):** nama model dikenal CLI (mis. `claude-opus-5`)
+→ 400; nama model typo (mis. `claude-opus5`) → jalan normal, karena CLI hanya
+inject `speed` untuk model yang dikenalinya.
+
+Kalau suatu saat fast mode mau diizinkan (mis. per-token gating), yang perlu
+diubah: berhenti strip `speed` + merge flag client ke header `anthropic-beta`
+di `buildUpstreamRequest()` alih-alih overwrite.
+
 ## /mind Graph (User → Date → Hour → Request)
 `GET /api/mind` group `request_logs` (max 2000) menjadi 4 tier:
 - **Cat 0** User — ukuran √(requests/maxUser)
