@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.1.82] - 2026-08-11
+
+### Fixed
+- Custom provider OpenAI-like yang membalas respons kosong (HTTP 200, 0 token output — mis. qwen free tier saat input melebihi ± 43k token) kini di-surface sebagai error eksplisit ke client, bukan stream kosong yang tampak sukses. Claude Code sebelumnya menampilkan "no visible output" lalu retry tanpa henti; sekarang muncul pesan error jelas berisi jumlah input token dan kemungkinan penyebab (context limit provider). Detail di `docs/LOGIC.md` section "OpenAI ↔ Anthropic Translation" → "Empty-completion guard"
+
 ## [2.1.81] - 2026-08-06
 
 ### Fixed
