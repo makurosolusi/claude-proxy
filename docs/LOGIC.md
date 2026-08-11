@@ -140,6 +140,7 @@ Custom provider type `"openai"` butuh translation karena client Claude Code meng
 **Response translation** (streaming, `translateOpenAiStreamToAnthropic`):
 - OpenAI SSE `data:` chunks → Anthropic SSE events: `message_start` → `content_block_start` → `content_block_delta` (text_delta) → `content_block_stop` → `message_delta` (stop_reason) → `message_stop`
 - **Tool calls**: `delta.tool_calls` → `content_block_start` (tool_use w/ id+name) + `content_block_delta` (input_json_delta untuk arguments). Anthropic mengharuskan satu block terbuka per waktu — block sebelumnya (text/tool) ditutup sebelum block baru dibuka, sehingga text-then-tool dan parallel tool calls tetap valid.
+- **Empty-completion guard**: kalau stream upstream berakhir tanpa satu pun content block (text maupun tool), translator emit SSE `error` event (`api_error`, sebutkan input tokens bila ada) alih-alih `message_stop` kosong. Latar: qwen free tier (`qwenapi`) balas `200` + `finish_reason: "stop"` + `completion_tokens: 0` **tanpa pesan error** saat input melebihi ± 43k token (diverifikasi 2026-08-11: 42.6k lolos, 46k kosong) — tanpa guard, client (Claude Code) melihat respons kosong "sukses" lalu retry tanpa henti. Usage chunk qwen datang dengan `choices: []`, karena itu capture `usage` dilakukan sebelum guard `choices[0]`.
 
 ## Settings Storage
 
