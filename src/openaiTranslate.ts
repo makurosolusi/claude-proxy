@@ -278,6 +278,10 @@ function emitMessageStop(): string {
   return sseEvent("message_stop", { type: "message_stop" });
 }
 
+function emitErrorEvent(message: string): string {
+  return sseEvent("error", { type: "error", error: { type: "api_error", message } });
+}
+
 // ── Direction B helpers: tool call translation ────────────────────────────────
 
 function translateOpenAiTools(tools: any[]): any[] {
@@ -581,6 +585,11 @@ export function translateOpenAiStreamToAnthropic(
                 controller.enqueue(encoder.encode(emitMessageStart(state)));
               }
 
+              // Final usage if upstream provides it — often arrives in a chunk with
+              // empty `choices` (e.g. qwen), so capture it before the choice guard.
+              if (parsed?.usage?.completion_tokens) state.outputTokens = parsed.usage.completion_tokens;
+              if (parsed?.usage?.prompt_tokens)     state.inputTokens  = parsed.usage.prompt_tokens;
+
               const choice = parsed?.choices?.[0];
               if (!choice) continue;
 
@@ -624,16 +633,21 @@ export function translateOpenAiStreamToAnthropic(
               if (choice.finish_reason) {
                 state.finishReason = choice.finish_reason;
               }
-
-              // Final usage if upstream provides it
-              if (parsed?.usage?.completion_tokens) state.outputTokens = parsed.usage.completion_tokens;
             }
           }
         }
       } finally {
         // Always emit closing events
         closeOpenBlocks();
-        if (state.emittedStart) {
+        // Some providers (e.g. qwen free tier) reply 200 + finish "stop" with zero
+        // content when the input exceeds their context limit. Surface that as an
+        // explicit error event instead of an empty-but-successful-looking response.
+        if (state.textBlockIndex === null && state.toolBlocks.size === 0) {
+          controller.enqueue(encoder.encode(emitErrorEvent(
+            `Upstream returned an empty completion (0 output tokens${state.inputTokens ? `, input ${state.inputTokens} tokens` : ""}). ` +
+            `The input likely exceeds the provider's context limit.`,
+          )));
+        } else if (state.emittedStart) {
           controller.enqueue(encoder.encode(emitMessageDelta(state)));
           controller.enqueue(encoder.encode(emitMessageStop()));
         }
