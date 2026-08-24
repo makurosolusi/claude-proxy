@@ -16,6 +16,7 @@ import {
   isThinkingIncompatibleError,
 } from "../messageSanitizer";
 import { handleCountTokens } from "./countTokens";
+import { isOverloadStatus, overloadDelayMs, MAX_OVERLOAD_RETRIES } from "../overloadRetry";
 import { runPreRequest, runPostRequest } from "../extensions";
 import type { ProxyContext } from "../extensions";
 import type { TokenEntry } from "../types";
@@ -616,6 +617,17 @@ export async function handleProxy(
   // ── Forward & respond — reservation ALWAYS released via try-finally ─────────
   try {
     let resp = await fetch(upstreamUrl, { method: "POST", headers, body: upstreamBody });
+
+    // 529 overloaded_error → transient upstream saturation. Retry with jittered
+    // backoff (honors retry-after). Direct API clients auto-retry this, so a blip
+    // is invisible to them; the proxy previously forwarded it straight through as
+    // a hard failure. Safe to retry: 529 is rejected before processing (no usage).
+    for (let attempt = 0; isOverloadStatus(resp.status) && attempt < MAX_OVERLOAD_RETRIES; attempt++) {
+      const delay = overloadDelayMs(attempt, resp.headers.get("retry-after"));
+      console.log(`[proxy] Upstream 529 overloaded — retry ${attempt + 1}/${MAX_OVERLOAD_RETRIES} in ${delay}ms [${key.slice(-6)}]`);
+      await new Promise(r => setTimeout(r, delay));
+      resp = await fetch(upstreamUrl, { method: "POST", headers, body: upstreamBody });
+    }
 
     // 401 → refresh Anthropic token → retry once (Anthropic only)
     if (provider === "anthropic" && resp.status === 401) {

@@ -69,6 +69,8 @@ Urutan penentuan provider untuk tiap request di `proxy.ts`:
 
 **429 retry chain**: Kalau Claude balas 429 saat forward, code retry sekali dengan built-in fallback provider. Tidak ada chain berlapis — satu fallback attempt saja.
 
+**529 overloaded retry**: Anthropic balas HTTP `529` + `overloaded_error` saat kapasitas upstream sesaat penuh — ini **transient**, bukan kuota. Client API langsung (Claude Code, SDK resmi) auto-retry dengan backoff, jadi blip tak terlihat oleh mereka. Sebelumnya proxy meneruskan 529 apa adanya, sehingga blip yang sama muncul sebagai kegagalan keras ("Overloaded") lewat proxy. Sekarang proxy retry sampai `MAX_OVERLOAD_RETRIES` (4) kali dengan **exponential backoff + full jitter** (honor `retry-after`, clamp 10s) sebelum menyerah dan meneruskan error. Aman di-retry: 529 ditolak sebelum diproses (tidak ada usage terpakai). Logika murni di `src/overloadRetry.ts` (testable), di-wire di `proxy.ts` sebelum handling 401/400/429. Test: `tests/overloadRetry.test.ts`.
+
 ## Operation Mode (Anthropic optional)
 
 Aplikasi awalnya didesain dengan Claude Max OAuth sebagai primary. Sekarang Anthropic **opsional** — aplikasi tetap berjalan tanpa credential Claude.
