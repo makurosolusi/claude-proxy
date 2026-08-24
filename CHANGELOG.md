@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.1.83] - 2026-08-24
+
+### Fixed
+- Request lewat proxy tidak lagi gagal keras saat Anthropic membalas `529 overloaded_error` (kapasitas upstream sesaat penuh). Error ini **transient** dan client API langsung (Claude Code, SDK resmi) meng-auto-retry-nya, jadi blip tak terlihat oleh mereka; proxy sebelumnya meneruskannya mentah-mentah sehingga muncul sebagai kegagalan "Overloaded". Proxy kini retry sampai 4x dengan exponential backoff + full jitter (menghormati header `retry-after`, clamp 10s) sebelum menyerah. Aman di-retry: 529 ditolak upstream sebelum diproses (tidak ada usage terpakai). Detail di `docs/LOGIC.md` section "Provider Selection" → "529 overloaded retry"
+
 ## [2.1.82] - 2026-08-11
 
 ### Fixed
