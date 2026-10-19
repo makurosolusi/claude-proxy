@@ -2,7 +2,9 @@ import fs   from "fs";
 import path from "path";
 import crypto from "crypto";
 import { config }   from "../config";
-import { upstream } from "../state";
+import { settings } from "../state";
+import { bustCredentialCaches, getOauthCredential } from "../upstream";
+import { listCredentials, setCredentialDisabled }   from "../anthropicAccounts";
 
 const OAUTH_CLIENT_ID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const OAUTH_AUTH_URL    = "https://claude.ai/oauth/authorize";
@@ -106,7 +108,7 @@ async function exchangeAndSave(code: string, codeVerifier: string, state: string
     return { ok: false, error: "Save failed: " + e.message };
   }
 
-  upstream.tokenCache = { value: null, readAt: 0, email: null };
+  bustCredentialCaches();
   console.log(`[auth] Credential saved → ${safeFile}`);
   return { ok: true, email };
 }
@@ -183,20 +185,17 @@ export async function handleAuthExchange(req: Request): Promise<Response> {
 }
 
 export function handleAuthStatus(): Response {
-  try {
-    const dir = config.authDir;
-    if (!fs.existsSync(dir)) return Response.json({ credentials: [] });
-    const files = fs.readdirSync(dir).filter((f: string) => f.startsWith("claude-") && f.endsWith(".json"));
-    const credentials = files.flatMap((f: string) => {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
-        return [{ file: f, email: data.email || f, disabled: !!data.disabled, active: !!(data.access_token && data.refresh_token && !data.disabled) }];
-      } catch { return []; }
-    });
-    return Response.json({ credentials });
-  } catch (e: any) {
-    return Response.json({ error: e.message }, { status: 500 });
-  }
+  const pinnedEmail  = settings["anthropic_account"] || "";
+  const servingEmail = getOauthCredential()?.email ?? null;
+  const credentials = listCredentials(config.authDir).map(r => ({
+    file:     r.file,
+    email:    r.email,
+    disabled: r.disabled,
+    active:   r.usable,                       // frozen contract: "has usable tokens"
+    pinned:   r.email === pinnedEmail,
+    serving:  r.email === servingEmail,
+  }));
+  return Response.json({ credentials, pinned_email: pinnedEmail, serving_email: servingEmail });
 }
 
 // Import an existing claude-*.json credential by pasting its JSON content directly.
@@ -252,7 +251,7 @@ export async function handleAuthImport(req: Request): Promise<Response> {
     return Response.json({ ok: false, error: "Save failed: " + e.message }, { status: 500 });
   }
 
-  upstream.tokenCache = { value: null, readAt: 0, email: null };
+  bustCredentialCaches();
   console.log(`[auth] Credential imported → ${safeFile}`);
   return Response.json({ ok: true, email, file: safeFile });
 }
@@ -260,17 +259,11 @@ export async function handleAuthImport(req: Request): Promise<Response> {
 export async function handleAuthRemove(req: Request): Promise<Response> {
   const body = await req.json() as any;
   const file = body?.file as string | undefined;
-  if (!file || !/^claude-[\w@._+-]+\.json$/.test(file)) {
-    return Response.json({ error: "Invalid file name" }, { status: 400 });
-  }
-  const filePath = path.join(config.authDir, file);
-  try {
-    const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-    data.disabled = true;
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-    upstream.tokenCache = { value: null, readAt: 0, email: null };
-    return Response.json({ ok: true });
-  } catch (e: any) {
-    return Response.json({ error: e.message }, { status: 500 });
-  }
+  if (!file) return Response.json({ error: "Invalid file name" }, { status: 400 });
+
+  const res = setCredentialDisabled(config.authDir, file, true);
+  if (!res.ok) return Response.json({ error: res.error }, { status: res.badName ? 400 : 500 });
+
+  bustCredentialCaches();
+  return Response.json({ ok: true });
 }

@@ -1,22 +1,17 @@
 import fs from "fs";
-import path from "path";
 import { config } from "./config";
 import { upstream, tokens, dbSaveUpstream, dbResetAllTokens, dbAlignAllTokens, settings } from "./state";
 import { triggerBroadcast, broadcastSystemMsg } from "./broadcast";
+import { listCredentials, pickCredential, type OauthCredential } from "./anthropicAccounts";
 
 const TOKEN_CACHE_MS    = 30_000;
 const OAUTH_CLIENT_ID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const OAUTH_REFRESH_URL = "https://api.anthropic.com/v1/oauth/token";
 
-export interface OauthCredential {
-  token:        string;
-  filePath:     string;
-  refreshToken: string;
-  email:        string;
-}
-
-// Mutex: prevent concurrent refresh calls (refresh tokens are single-use)
-let isRefreshing = false;
+// Refresh tokens are single-use, so concurrent refreshes of the SAME file must
+// share one call. Keyed per file: two accounts refresh independently.
+const refreshInFlight = new Map<string, Promise<string | null>>();
+let lastPinWarnAt      = 0; // throttle the "pinned account unavailable" warning
 let lastUtilAlertPct   = 0; // track last 5h utilization threshold that triggered a system message
 let lastSonnetAlertPct = 0; // track last sonnet 7d threshold
 let lastOpusAlertPct   = 0; // track last opus 7d threshold
@@ -33,19 +28,16 @@ export function hasAnthropicCredential(): boolean {
   if (settings["simulate_anthropic_disabled"] === "true") return false;
   const now = Date.now();
   if (now - hasAnthrCache.at < HAS_ANTHR_TTL) return hasAnthrCache.value;
-  try {
-    const files = fs.readdirSync(config.authDir).filter(f => f.startsWith("claude-") && f.endsWith(".json"));
-    for (const f of files) {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(config.authDir, f), "utf-8"));
-        if (!data.disabled && data.access_token && data.refresh_token) {
-          hasAnthrCache = { value: true, at: now }; return true;
-        }
-      } catch {}
-    }
-  } catch {}
-  hasAnthrCache = { value: false, at: now };
-  return false;
+  const value = listCredentials(config.authDir).some(r => r.usable);
+  hasAnthrCache = { value, at: now };
+  return value;
+}
+
+// Both credential caches must be dropped together: busting only tokenCache
+// leaves hasAnthropicCredential() reporting stale availability for up to 30s.
+export function bustCredentialCaches() {
+  upstream.tokenCache = { value: null, readAt: 0, email: null };
+  hasAnthrCache       = { value: false, at: 0 };
 }
 
 export function getOauthCredential(): OauthCredential | null {
@@ -53,41 +45,31 @@ export function getOauthCredential(): OauthCredential | null {
   if (upstream.tokenCache.value && now - upstream.tokenCache.readAt < TOKEN_CACHE_MS) {
     return upstream.tokenCache.credential ?? null;
   }
-  try {
-    const dir   = config.authDir;
-    const files = fs.readdirSync(dir).filter((f: string) => f.startsWith("claude-") && f.endsWith(".json"));
-    if (!files.length) {
-      upstream.lastError = "No claude-*.json in " + dir;
-      return null;
-    }
-    for (const f of files) {
-      const fp   = path.join(dir, f);
-      const data = JSON.parse(fs.readFileSync(fp, "utf-8"));
-      if (data.disabled || !data.access_token || !data.refresh_token) continue;
-      const cred: OauthCredential = {
-        token:        data.access_token,
-        filePath:     fp,
-        refreshToken: data.refresh_token,
-        email:        data.email || f,
-      };
-      upstream.tokenCache = { value: data.access_token, readAt: now, email: cred.email, credential: cred };
-      return cred;
-    }
-    upstream.lastError = "All credentials disabled or missing tokens";
-    return null;
-  } catch (e: any) {
-    upstream.lastError = "Read credential: " + e.message;
+
+  const { cred, error, warning } = pickCredential(config.authDir, settings["anthropic_account"] || "");
+
+  if (warning && now - lastPinWarnAt > 60_000) {
+    console.warn(`[upstream] ${warning}`);
+    lastPinWarnAt = now;
+  }
+  if (!cred) {
+    upstream.lastError = error;
     return null;
   }
+
+  upstream.tokenCache = { value: cred.token, readAt: now, email: cred.email, credential: cred };
+  return cred;
 }
 
-export async function refreshOauthToken(filePath: string, refreshToken: string): Promise<string | null> {
-  // If a refresh is already in progress, wait for it to finish then return cached value
-  if (isRefreshing) {
-    await new Promise(r => setTimeout(r, 2000));
-    return upstream.tokenCache.value ?? null;
-  }
-  isRefreshing = true;
+export function refreshOauthToken(filePath: string, refreshToken: string): Promise<string | null> {
+  const inFlight = refreshInFlight.get(filePath);
+  if (inFlight) return inFlight;
+  const p = doRefresh(filePath, refreshToken).finally(() => refreshInFlight.delete(filePath));
+  refreshInFlight.set(filePath, p);
+  return p;
+}
+
+async function doRefresh(filePath: string, refreshToken: string): Promise<string | null> {
   try {
     console.log("[upstream] Refreshing OAuth token...");
     const resp = await fetch(OAUTH_REFRESH_URL, {
@@ -125,15 +107,17 @@ export async function refreshOauthToken(filePath: string, refreshToken: string):
     const cred: OauthCredential = {
       token: newAccess, filePath, refreshToken: newRefresh, email: existing.email || filePath,
     };
-    upstream.tokenCache = { value: newAccess, readAt: Date.now(), email: cred.email, credential: cred };
+    // Only the account currently being served owns the cache slot — refreshing a
+    // non-active account must not hijack it.
+    if (!upstream.tokenCache.credential || upstream.tokenCache.credential.filePath === filePath) {
+      upstream.tokenCache = { value: newAccess, readAt: Date.now(), email: cred.email, credential: cred };
+    }
     console.log(`[upstream] Token refreshed for ${cred.email}, expires in ${data.expires_in ?? "?"}s`);
     return newAccess;
   } catch (e: any) {
     upstream.lastError = "Token refresh error: " + e.message;
     console.error("[upstream] Token refresh error:", e.message);
     return null;
-  } finally {
-    isRefreshing = false;
   }
 }
 

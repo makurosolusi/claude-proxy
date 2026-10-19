@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.84] - 2026-10-19
+
+### Added
+- Pemilihan akun Claude eksplisit saat ada lebih dari satu credential `claude-*.json`. Admin → Accounts kini bisa **pin** akun mana yang melayani request (`Use this account` / `Back to auto`), dan badge menunjukkan akun yang sedang `serving` vs yang di-`pinned`. Pin tersimpan di `settings.anthropic_account` — `""` berarti auto (akun usable pertama)
+- Tombol **Enable** untuk akun yang sebelumnya di-disable. Sebelumnya disable adalah pintu satu arah: tidak ada endpoint untuk mengaktifkan kembali, jadi satu kali salah klik berarti harus edit file credential manual di server
+- Peringatan di UI kalau akun yang di-pin tidak tersedia (hilang/disabled) dan request jatuh ke akun lain — pin yang mati tidak mematikan Anthropic, hanya memunculkan warning
+- MCP debug tool `check_anthropic_accounts` di `proxy-dev` dan `proxy-stg` untuk melihat akun mana yang pinned vs serving tanpa perlu SSH atau buka admin UI
+
+### Fixed
+- Pemilihan akun tidak lagi bergantung urutan filesystem. Listing credential sebelumnya memakai `readdir` tanpa sort, sehingga "akun pertama yang usable" bisa berbeda antara mesin lokal (APFS) dan server (ext4) untuk set credential yang sama
+- Refresh OAuth token tidak lagi bisa mengembalikan token akun yang salah. Mutex global `isRefreshing` diganti dedupe per file credential — refresh token Anthropic single-use dan rotate, jadi dua akun yang refresh bersamaan sebelumnya bisa saling membajak hasilnya. Refresh akun non-aktif juga tidak lagi menimpa cache akun yang sedang melayani
+- Status ketersediaan Anthropic tidak lagi basi sampai 30 detik setelah akun terakhir di-disable. Cache `hasAnthropicCredential()` kini selalu dibuang bersama cache token
+
 ## [2.1.83] - 2026-08-24
 
 ### Fixed

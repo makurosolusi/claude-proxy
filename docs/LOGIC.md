@@ -71,6 +71,54 @@ Urutan penentuan provider untuk tiap request di `proxy.ts`:
 
 **529 overloaded retry**: Anthropic balas HTTP `529` + `overloaded_error` saat kapasitas upstream sesaat penuh — ini **transient**, bukan kuota. Client API langsung (Claude Code, SDK resmi) auto-retry dengan backoff, jadi blip tak terlihat oleh mereka. Sebelumnya proxy meneruskan 529 apa adanya, sehingga blip yang sama muncul sebagai kegagalan keras ("Overloaded") lewat proxy. Sekarang proxy retry sampai `MAX_OVERLOAD_RETRIES` (4) kali dengan **exponential backoff + full jitter** (honor `retry-after`, clamp 10s) sebelum menyerah dan meneruskan error. Aman di-retry: 529 ditolak sebelum diproses (tidak ada usage terpakai). Logika murni di `src/overloadRetry.ts` (testable), di-wire di `proxy.ts` sebelum handling 401/400/429. Test: `tests/overloadRetry.test.ts`.
 
+## Multi-Account Anthropic (Account Selection)
+
+Beberapa credential `claude-*.json` boleh hidup berdampingan di `CLIPROXY_AUTH_DIR`.
+Yang menentukan **akun mana yang melayani request** adalah `src/anthropicAccounts.ts`
+(pure, tidak baca `settings` sendiri — `activeEmail` dioper sebagai parameter).
+
+**Urutan pemilihan** (`pickCredential(dir, activeEmail)`):
+
+1. Listing di-`.sort()` by filename. Tanpa ini urutan `readdir` tergantung filesystem,
+   jadi "akun pertama yang usable" berbeda antara APFS (lokal) dan ext4 (server) untuk
+   set credential yang sama.
+2. Hanya record `usable` yang ikut — `usable = !disabled && access_token && refresh_token`.
+3. `activeEmail` (dari `settings.anthropic_account`) cocok dengan salah satu yang usable →
+   akun itu yang dipakai.
+4. `activeEmail` kosong (`""` = auto) → akun usable pertama dalam urutan sorted.
+5. `activeEmail` di-set tapi akunnya hilang/disabled → **fallback** ke akun usable pertama,
+   bukan mematikan Anthropic. Alasan: availability > strictness; satu akun di-disable
+   tidak boleh menjatuhkan proxy. `warning` dikembalikan dan di-log (throttle 60 detik).
+
+**Switching akun** (admin → Accounts):
+
+| Aksi | Endpoint | Efek |
+|---|---|---|
+| Pin akun aktif | `POST /api/admin/credentials/activate` `{ email }` | Set `settings.anthropic_account`. `email: ""` = kembali ke auto. 400 kalau email tidak punya credential usable. |
+| Disable akun | `POST /api/admin/credentials/remove` `{ file }` | `disabled = true` di file credential |
+| Enable akun | `POST /api/admin/credentials/enable` `{ file }` | `disabled = false` — counterpart dari remove |
+
+Ketiganya bust cache + `triggerBroadcast()`, jadi efeknya instan tanpa restart.
+
+**Dua cache credential wajib dibuang bersamaan** — `bustCredentialCaches()` di
+`src/upstream.ts` mereset `upstream.tokenCache` DAN `hasAnthrCache`. Kalau hanya
+`tokenCache` yang dibuang, `hasAnthropicCredential()` masih melaporkan availability
+basi sampai 30 detik setelah akun terakhir di-disable.
+
+**Refresh token di-dedupe per file**, bukan per proses. Refresh token Anthropic
+single-use dan rotate; dengan mutex global lama (`isRefreshing` boolean) refresh
+akun A yang berjalan bersamaan dengan akun B bisa mengembalikan token akun yang
+salah. Sekarang `refreshInFlight: Map<filePath, Promise>` — dua akun refresh
+independen, request ke file yang sama berbagi satu panggilan. `doRefresh` juga
+hanya menulis `tokenCache` kalau file yang di-refresh memang akun yang sedang
+melayani, supaya refresh akun non-aktif tidak membajak cache.
+
+**Belum ada** (fase berikutnya, belum dikerjakan): quota per-akun (`upstream_state`
+masih single row), poll ke semua akun, dan auto-switch ke akun Claude berikutnya
+saat 429. Sekarang switching masih manual lewat admin UI.
+
+Test: `tests/anthropicAccounts.test.ts`.
+
 ## Operation Mode (Anthropic optional)
 
 Aplikasi awalnya didesain dengan Claude Max OAuth sebagai primary. Sekarang Anthropic **opsional** — aplikasi tetap berjalan tanpa credential Claude.
@@ -151,6 +199,7 @@ Key settings di tabel `settings` (`{ key, value }`):
 | Key | Type | Default | Purpose |
 |---|---|---|---|
 | `provider_override` | string | `""` (auto) | Global routing target |
+| `anthropic_account` | string (email) | `""` (auto) | Akun Claude yang melayani request; `""` = akun usable pertama (sorted) |
 | `poll_interval_ms` | string (ms) | `60000` | Upstream `/api/oauth/usage` poll frequency |
 | `deepseek_api_key` | string | — | DS Bearer token |
 | `deepseek_base_url` | string | env default | DS endpoint |

@@ -8,20 +8,25 @@ import { notifications } from "@mantine/notifications";
 import {
   IconExternalLink, IconCircleCheck, IconKey, IconPlayerStop,
   IconUserCircle, IconPlugConnected, IconAlertTriangle,
-  IconAi, IconFileImport,
+  IconAi, IconFileImport, IconPlayerPlay, IconPin, IconPinnedOff,
 } from "@tabler/icons-react";
 import { ApiKeyProvider } from "./ApiKeyProvider";
 import { CustomProvidersSection } from "./CustomProviders";
 
-interface CredentialInfo { file: string; email: string; disabled: boolean; active: boolean; }
+interface CredentialInfo {
+  file: string; email: string; disabled: boolean; active: boolean;
+  pinned: boolean; serving: boolean;
+}
 type ConnectStep = "idle" | "authorizing" | "done";
 
 
 export function AdminAccounts() {
-  const [creds, setCreds]       = useState<CredentialInfo[] | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [removing, setRemoving] = useState<string | null>(null);
-  const [err, setErr]           = useState<string | null>(null);
+  const [creds, setCreds]           = useState<CredentialInfo[] | null>(null);
+  const [loading, setLoading]       = useState(false);
+  const [toggling, setToggling]     = useState<string | null>(null);
+  const [activating, setActivating] = useState<string | null>(null);
+  const [pinnedEmail, setPinnedEmail] = useState("");
+  const [err, setErr]               = useState<string | null>(null);
 
   const [step, setStep]               = useState<ConnectStep>("idle");
   const [authUrl, setAuthUrl]         = useState("");
@@ -37,26 +42,43 @@ export function AdminAccounts() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
     try {
-      const r = await fetch("/api/admin/credentials");
+      const r = await fetch("/api/admin/credentials", { credentials: "include" });
       const d = await r.json() as any;
       setCreds(d.credentials ?? []);
+      setPinnedEmail(d.pinned_email ?? "");
     } catch (e: any) { setErr(e.message); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const remove = async (file: string) => {
-    setRemoving(file);
+  const setDisabled = async (file: string, disabled: boolean) => {
+    setToggling(file);
     try {
-      const r = await fetch("/api/admin/credentials/remove", {
+      const r = await fetch(`/api/admin/credentials/${disabled ? "remove" : "enable"}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ file }),
       });
       const d = await r.json() as any;
       if (d.ok) load(); else setErr(d.error || "Failed");
     } catch (e: any) { setErr(e.message); }
-    finally { setRemoving(null); }
+    finally { setToggling(null); }
+  };
+
+  // email "" = auto (first usable account)
+  const activate = async (email: string) => {
+    setActivating(email || "auto");
+    try {
+      const r = await fetch("/api/admin/credentials/activate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email }),
+      });
+      const d = await r.json() as any;
+      if (d.ok) load(); else setErr(d.error || "Failed");
+    } catch (e: any) { setErr(e.message); }
+    finally { setActivating(null); }
   };
 
   const startConnect = async () => {
@@ -113,7 +135,9 @@ export function AdminAccounts() {
     finally { setImporting(false); }
   };
 
-  const activeCount = creds?.filter(c => c.active).length ?? 0;
+  const activeCount  = creds?.filter(c => c.active).length ?? 0;
+  const servingEmail = creds?.find(c => c.serving)?.email ?? "";
+  const pinFellBack  = !!pinnedEmail && !!servingEmail && servingEmail !== pinnedEmail;
 
   return (
     <Stack gap="xl" maw={780} px={{ base: "xs", sm: 0 }}>
@@ -141,7 +165,7 @@ export function AdminAccounts() {
               <Text size="sm" fw={700}>Claude Max</Text>
               <Text size="xs" c="dimmed">
                 {creds && creds.length > 0
-                  ? `${creds.length} credential${creds.length > 1 ? "s" : ""} · ${activeCount} active`
+                  ? `${creds.length} credential${creds.length > 1 ? "s" : ""} · ${activeCount} active · ${pinnedEmail ? `pinned to ${pinnedEmail}` : "auto"}`
                   : "OAuth via claude-*.json credentials"}
               </Text>
             </div>
@@ -262,6 +286,15 @@ export function AdminAccounts() {
           </Center>
         )}
 
+        {/* Pinned account unavailable — proxy fell back */}
+        {!loading && pinFellBack && (
+          <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={14} />} p="sm" mt="sm">
+            <Text size="xs">
+              Pinned account <b>{pinnedEmail}</b> is unavailable — serving <b>{servingEmail}</b> instead.
+            </Text>
+          </Alert>
+        )}
+
         {/* Credential list */}
         {!loading && creds && creds.length > 0 && (
           <Stack gap="xs" mt="sm">
@@ -280,20 +313,31 @@ export function AdminAccounts() {
                     </div>
                   </Group>
                   <Group gap="xs" wrap="nowrap">
+                    {c.serving && <Badge size="sm" color="green" variant="filled">serving</Badge>}
+                    {c.pinned  && <Badge size="sm" color="blue"  variant="light">pinned</Badge>}
                     <Badge size="sm" color={c.active ? "teal" : "gray"} variant="light">
                       {c.active ? "active" : "disabled"}
                     </Badge>
                     {c.active && (
-                      <Tooltip label="Disable credential" withArrow>
+                      <Tooltip label={c.pinned ? "Back to auto" : "Use this account"} withArrow>
                         <ActionIcon
-                          size="sm" variant="subtle" color="red"
-                          loading={removing === c.file}
-                          onClick={() => remove(c.file)}
+                          size="sm" variant="subtle" color={c.pinned ? "gray" : "blue"}
+                          loading={activating === (c.pinned ? "auto" : c.email)}
+                          onClick={() => activate(c.pinned ? "" : c.email)}
                         >
-                          <IconPlayerStop size={14} />
+                          {c.pinned ? <IconPinnedOff size={14} /> : <IconPin size={14} />}
                         </ActionIcon>
                       </Tooltip>
                     )}
+                    <Tooltip label={c.active ? "Disable credential" : "Enable credential"} withArrow>
+                      <ActionIcon
+                        size="sm" variant="subtle" color={c.active ? "red" : "teal"}
+                        loading={toggling === c.file}
+                        onClick={() => setDisabled(c.file, c.active)}
+                      >
+                        {c.active ? <IconPlayerStop size={14} /> : <IconPlayerPlay size={14} />}
+                      </ActionIcon>
+                    </Tooltip>
                   </Group>
                 </Group>
               </Paper>

@@ -277,6 +277,10 @@ async function toolCheckNotifications(args: { limit?: number; include_deleted?: 
   return apiGet(`/api/debug/notifications${q ? `?${q}` : ""}`);
 }
 
+async function toolCheckAnthropicAccounts() {
+  return apiGet("/api/debug/anthropic-accounts");
+}
+
 async function toolCheckTestUpstream(args: { provider: string }) {
   if (!args.provider) return { error: "provider is required (anthropic|deepseek|openrouter|<custom-id>)" };
   return apiGet(`/api/debug/test-upstream/${encodeURIComponent(args.provider)}`);
@@ -565,6 +569,14 @@ const TOOLS = [
     },
   },
   {
+    name: "check_anthropic_accounts",
+    description:
+      "List Claude OAuth accounts (claude-*.json) on staging: which is pinned via " +
+      "settings.anthropic_account, which is actually serving, and whether a pin is " +
+      "being fallen back on. No token values returned.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
     name: "dev_login",
     description:
       "Login as a user via dev backdoor on staging (skips Google OAuth). Returns Playwright-ready cookies. " +
@@ -683,6 +695,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
   if (name === "tail_app_logs")          return toolTailAppLogs(args);
   if (name === "check_app_logs_stats")   return toolCheckAppLogsStats(args);
   if (name === "check_notifications")    return toolCheckNotifications(args as { limit?: number; include_deleted?: boolean });
+  if (name === "check_anthropic_accounts") return toolCheckAnthropicAccounts();
   if (name === "dev_login")              return toolDevLogin(args as { email: string; name?: string });
   throw new Error(`Unknown tool: ${name}`);
 }
