@@ -24,6 +24,7 @@ import { handleApiCompetition }  from "./handlers/apiCompetition";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleDeepSeekTest, handleOpenRouterTest, handleCustomProviderTest } from "./handlers/apiTestProviders";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove, handleAuthImport } from "./handlers/apiAuth";
+import { handleAccountEnable, handleAccountActivate } from "./handlers/apiAccounts";
 import { handleDebugQuery } from "./handlers/apiDebug";
 import {
   handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure,
@@ -37,6 +38,7 @@ import {
   handleDebugAppLogs, handleDebugAppLogsStats,
 } from "./handlers/apiDebugBrain";
 import { handleDebugNotifications } from "./handlers/apiDebugNotifications";
+import { handleDebugAnthropicAccounts } from "./handlers/apiDebugAccounts";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModels } from "./handlers/apiModels";
@@ -774,6 +776,14 @@ server = serve({
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthRemove(req);
     },
+    "/api/admin/credentials/enable": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleAccountEnable(req);
+    },
+    "/api/admin/credentials/activate": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleAccountActivate(req);
+    },
     "/admin/auth/start": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAuthStart(req);
@@ -843,6 +853,7 @@ server = serve({
     "/api/debug/app-logs":         async req => handleDebugAppLogs(req, new URL(req.url)),
     "/api/debug/app-logs/stats":   async req => handleDebugAppLogsStats(req, new URL(req.url)),
     "/api/debug/notifications":   async req => handleDebugNotifications(req, new URL(req.url)),
+    "/api/debug/anthropic-accounts": async req => handleDebugAnthropicAccounts(req),
     "/api/debug/ws":               async req => {
       // WS stats inline because wsClients lives in this module
       const t = req.headers.get("x-mcp-secret") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");

@@ -170,6 +170,10 @@ async function toolCheckNotifications(args: { limit?: number; include_deleted?: 
   return apiGet(`/api/debug/notifications${q ? `?${q}` : ""}`);
 }
 
+async function toolCheckAnthropicAccounts() {
+  return apiGet("/api/debug/anthropic-accounts");
+}
+
 async function toolCheckSessions() {
   return toolQueryDb({ sql: "SELECT s.id, s.\"userId\", s.\"expiresAt\", s.\"userAgent\", s.\"ipAddress\", u.email FROM session s JOIN \"user\" u ON s.\"userId\" = u.id ORDER BY s.\"createdAt\" DESC LIMIT 10" });
 }
@@ -329,6 +333,11 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "check_anthropic_accounts",
+    description: "List Claude OAuth accounts (claude-*.json): which is pinned via settings.anthropic_account, which is actually serving, and whether a pin is being fallen back on. No token values returned.",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 async function callTool(name: string, args: Record<string, unknown>) {
@@ -346,6 +355,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
     case "check_users":            return toolCheckUsers();
     case "check_sessions":         return toolCheckSessions();
     case "check_notifications":    return toolCheckNotifications(args as { limit?: number; include_deleted?: boolean });
+    case "check_anthropic_accounts": return toolCheckAnthropicAccounts();
     case "dev_login":              return toolDevLogin(args as { email: string; name?: string });
     default: throw new Error(`Unknown tool: ${name}`);
   }

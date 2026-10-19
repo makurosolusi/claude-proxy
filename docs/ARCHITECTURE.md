@@ -18,6 +18,7 @@ src/
 ├── state.ts          # PostgreSQL runtime state, settings cache, in-flight reservation
 ├── tokens.ts         # Token CRUD, incrementUsage, in-flight reservation system
 ├── upstream.ts       # Poll /api/oauth/usage, backoff, token refresh, window rotation
+├── anthropicAccounts.ts # Multi-account credential listing + selection (pure, testable)
 ├── customProviders.ts # Custom provider type, validation, getCustomProvider/listCustomProviders
 ├── openaiTranslate.ts # OpenAI ↔ Anthropic translation (request body + SSE stream)
 ├── providerDisplay.ts # Shared frontend helper: resolveProvider, shortenModel
@@ -29,6 +30,7 @@ src/
     ├── apiMind.ts            # GET /api/mind (User→Date→Hour→Request graph data)
     ├── apiTest.ts            # GET /api/admin/test (connection test)
     ├── apiAuth.ts            # OAuth PKCE + paste-JSON credential import
+    ├── apiAccounts.ts        # Enable + activate (pin) Anthropic account
     ├── apiCustomProviders.ts # CRUD /api/admin/custom-providers
     ├── apiModels.ts          # GET /v1/models, /api/admin/models/:id (provider-aware)
     ├── proxy.ts              # Forward POST /v1/messages (cliproxy/direct/custom)
@@ -78,8 +80,10 @@ docs/
 | GET | `/api/usage/hourly` | approved | Hourly usage aggregation — approved user / admin only |
 | GET | `/api/admin/user-activity` | approved | User activity feed — approved user / admin only |
 | GET | `/api/admin/test` | admin | Connection test (credential, usage API, messages API) |
-| GET | `/api/admin/credentials` | admin | List OAuth credential files (`claude-*.json`) |
+| GET | `/api/admin/credentials` | admin | List OAuth credential files (`claude-*.json`) + `pinned_email`/`serving_email` |
 | POST | `/api/admin/credentials/remove` | admin | Disable credential file (`{ file }`) |
+| POST | `/api/admin/credentials/enable` | admin | Re-enable credential file (`{ file }`) |
+| POST | `/api/admin/credentials/activate` | admin | Pin akun Claude yang melayani (`{ email }`, `""` = auto) |
 | GET | `/admin/auth/login` | admin | Mulai OAuth PKCE flow → redirect ke claude.ai |
 | POST | `/admin/reset` | admin | Reset usage token |
 | POST | `/admin/token/add` | admin | Tambah token |

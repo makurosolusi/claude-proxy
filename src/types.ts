@@ -58,7 +58,7 @@ export interface UpstreamState {
   lastKnownResetsAt: string | null;
   detectedWindowMs:  number | null;
   pollBackoffUntil:  number;
-  tokenCache:        { value: string | null; readAt: number; email: string | null; credential?: import("./upstream").OauthCredential };
+  tokenCache:        { value: string | null; readAt: number; email: string | null; credential?: import("./anthropicAccounts").OauthCredential };
   fallbackActive:    boolean;
   fallbackProvider:  string | null;
 }
