@@ -450,6 +450,7 @@ export function translateAnthropicStreamToOpenAi(
       const reader = upstream.getReader();
       let buffer = "";
       let emittedRole = false;
+      let failed = false;
       // Tool call index tracking: Anthropic content block index → OpenAI tool_calls index
       const toolCallIndexMap = new Map<number, number>();
       let nextToolCallIdx = 0;
@@ -507,13 +508,21 @@ export function translateAnthropicStreamToOpenAi(
             }
           }
         }
+      } catch (e) {
+        // Source aborted mid-stream. Closing here would synthesize a [DONE] the
+        // upstream never sent — the client would read a truncated answer as complete.
+        failed = true;
+        controller.error(e);
+        reader.cancel(e).catch(() => {});
       } finally {
-        if (!emittedRole) {
-          controller.enqueue(encoder.encode(oaiChunk({ role: "assistant", content: "" }, null)));
-          controller.enqueue(encoder.encode(oaiChunk({}, "stop")));
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        if (!failed) {
+          if (!emittedRole) {
+            controller.enqueue(encoder.encode(oaiChunk({ role: "assistant", content: "" }, null)));
+            controller.enqueue(encoder.encode(oaiChunk({}, "stop")));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          }
+          controller.close();
         }
-        controller.close();
       }
     },
   });

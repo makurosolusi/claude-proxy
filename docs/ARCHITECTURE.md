@@ -20,6 +20,7 @@ src/
 ├── upstream.ts       # Poll /api/oauth/usage, backoff, token refresh, window rotation
 ├── anthropicAccounts.ts # Multi-account credential listing + selection (pure, testable)
 ├── customProviders.ts # Custom provider type, validation, getCustomProvider/listCustomProviders
+├── sseRelay.ts       # Pump SSE upstream→client; owns terminal state (abort saat gagal, bukan close)
 ├── openaiTranslate.ts # OpenAI ↔ Anthropic translation (request body + SSE stream)
 ├── providerDisplay.ts # Shared frontend helper: resolveProvider, shortenModel
 ├── auth.ts           # Better Auth instance (Google OAuth)
