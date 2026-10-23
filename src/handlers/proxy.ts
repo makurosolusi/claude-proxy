@@ -17,6 +17,7 @@ import {
 } from "../messageSanitizer";
 import { handleCountTokens } from "./countTokens";
 import { isOverloadStatus, overloadDelayMs, MAX_OVERLOAD_RETRIES } from "../overloadRetry";
+import { relaySse } from "../sseRelay";
 import { runPreRequest, runPostRequest } from "../extensions";
 import type { ProxyContext } from "../extensions";
 import type { TokenEntry } from "../types";
@@ -719,8 +720,6 @@ export async function handleProxy(
     if (isStream) {
       const { readable, writable } = new TransformStream();
       const writer = writable.getWriter();
-      const decoder = new TextDecoder();
-      const encoder = new TextEncoder();
       const httpStatus = resp.status;
       // Streaming async — reservation released in its own finally
       const needModelFix = provider !== "anthropic" && !!originalModel;
@@ -731,81 +730,72 @@ export async function handleProxy(
         ? getPendingTerminalForUser(userIdForInject).catch(() => [])
         : Promise.resolve([]);
       (async () => {
-        let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
         let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheCreation = 0;
         let stopReason = "", toolUseCount = 0, responseText = "";
         let modelFixPending = needModelFix;
         let injected = false;          // have we emitted our content_block?
         let indexShift = 0;            // +1 once we inject (shifts upstream indices)
         const announcements = await pendingAnnouncePromise;
-        try {
-          reader = resp.body!.getReader();
-          let buffer = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            // Split on newlines but keep terminator so we can rewrite correctly
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (let line of lines) {
-              // Try parse for tracking + transformation
-              if (line.startsWith("data: ") && line !== "data: [DONE]") {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  // ── Usage / state tracking (unchanged) ─────────────────
-                  if (data.type === "message_start" && data.message?.usage) {
-                    inputTokens   = data.message.usage.input_tokens || 0;
-                    cacheRead     = data.message.usage.cache_read_input_tokens || 0;
-                    cacheCreation = data.message.usage.cache_creation_input_tokens || 0;
-                    incrementUsage(key, inputTokens, reqGen);
-                  }
-                  if (data.type === "message_delta" && data.usage) {
-                    outputTokens = data.usage.output_tokens || 0;
-                    stopReason   = data.delta?.stop_reason || stopReason;
-                    incrementUsage(key, outputTokens, reqGen);
-                    console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
-                  }
-                  if (data.type === "content_block_start" && data.content_block?.type === "tool_use") toolUseCount++;
-                  if (data.type === "content_block_delta" && data.delta?.type === "text_delta" && responseText.length < 3000)
-                    responseText += data.delta.text || "";
 
-                  // ── Model rename on message_start ──────────────────────
-                  if (modelFixPending && data.type === "message_start" && data.message?.model === model) {
-                    data.message.model = originalModel;
-                    modelFixPending = false;
-                    line = `data: ${JSON.stringify(data)}`;
-                  }
+        // Rewrite/expand one SSE line. Must not throw — relaySse would blame upstream.
+        const transform = (line: string): string[] => {
+          if (!line.startsWith("data: ") || line === "data: [DONE]") return [line + "\n"];
+          let data: any;
+          try { data = JSON.parse(line.slice(6)); } catch { return [line + "\n"]; }  // not JSON → verbatim
 
-                  // ── Inject our content_block right after message_start ─
-                  if (!injected && announcements.length > 0 && data.type === "message_start") {
-                    // First, write the message_start line (potentially model-fixed above)
-                    await writer.write(encoder.encode(line + "\n"));
-                    // Then write our 3 events at index 0 (text block)
-                    const text = announcements.map(formatTerminalAnnouncement).join("");
-                    const cbStart  = `event: content_block_start\ndata: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}\n\n`;
-                    const cbDelta  = `event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })}\n\n`;
-                    const cbStop   = `event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: 0 })}\n\n`;
-                    await writer.write(encoder.encode(cbStart + cbDelta + cbStop));
-                    injected = true;
-                    indexShift = 1;
-                    for (const n of announcements) markTerminalDelivered(n.id, userIdForInject).catch(() => {});
-                    continue; // we've already written message_start above
-                  }
-
-                  // ── Shift index of subsequent content_block events ─────
-                  if (indexShift > 0 && typeof data.index === "number") {
-                    data.index += indexShift;
-                    line = `data: ${JSON.stringify(data)}`;
-                  }
-                } catch {}
-              }
-              await writer.write(encoder.encode(line + "\n"));
-            }
+          // ── Usage / state tracking ────────────────────────────────────
+          if (data.type === "message_start" && data.message?.usage) {
+            inputTokens   = data.message.usage.input_tokens || 0;
+            cacheRead     = data.message.usage.cache_read_input_tokens || 0;
+            cacheCreation = data.message.usage.cache_creation_input_tokens || 0;
+            incrementUsage(key, inputTokens, reqGen);
           }
-          if (buffer) await writer.write(encoder.encode(buffer));
+          if (data.type === "message_delta" && data.usage) {
+            outputTokens = data.usage.output_tokens || 0;
+            stopReason   = data.delta?.stop_reason || stopReason;
+            incrementUsage(key, outputTokens, reqGen);
+            console.log(`[${key.slice(-6)}] ${t.used.toLocaleString()}/${t.limit === Infinity ? "∞" : t.limit.toLocaleString()}`);
+          }
+          if (data.type === "content_block_start" && data.content_block?.type === "tool_use") toolUseCount++;
+          if (data.type === "content_block_delta" && data.delta?.type === "text_delta" && responseText.length < 3000)
+            responseText += data.delta.text || "";
+
+          // ── Model rename on message_start ─────────────────────────────
+          if (modelFixPending && data.type === "message_start" && data.message?.model === model) {
+            data.message.model = originalModel;
+            modelFixPending = false;
+            line = `data: ${JSON.stringify(data)}`;
+          }
+
+          // ── Inject our content_block right after message_start ────────
+          if (!injected && announcements.length > 0 && data.type === "message_start") {
+            const text = announcements.map(formatTerminalAnnouncement).join("");
+            const cbStart  = `event: content_block_start\ndata: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}\n\n`;
+            const cbDelta  = `event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })}\n\n`;
+            const cbStop   = `event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: 0 })}\n\n`;
+            injected = true;
+            indexShift = 1;
+            for (const n of announcements) markTerminalDelivered(n.id, userIdForInject).catch(() => {});
+            return [line + "\n", cbStart + cbDelta + cbStop];
+          }
+
+          // ── Shift index of subsequent content_block events ────────────
+          if (indexShift > 0 && typeof data.index === "number") {
+            data.index += indexShift;
+            line = `data: ${JSON.stringify(data)}`;
+          }
+          return [line + "\n"];
+        };
+
+        try {
+          const outcome = await relaySse(resp.body!, writer, transform);
+          if (!outcome.ok) {
+            // A mid-stream failure used to end as a clean 200: invisible here and
+            // unretryable for the client. Mark it so it can be counted.
+            stopReason = stopReason || (outcome.side === "client" ? "client_disconnect" : "upstream_error");
+            console.error(`[${key.slice(-6)}] stream aborted by ${outcome.side} after ${outputTokens} output tokens: ${outcome.message}`);
+          }
         } finally {
-          await writer.close().catch(() => {});
           releaseInFlight(key, reservationId);
           const displayName = resolveTokenName(key, t);
           dbLogRequest({ ts, token_key: key, user_id: t.user_id || "", name: displayName, model, input_tokens: inputTokens, output_tokens: outputTokens,
@@ -826,7 +816,7 @@ export async function handleProxy(
             else if (pct === 80) pushAlert(`${displayName}: quota 80% — mendekati batas.`);
           }
         }
-      })();
+      })().catch(e => console.error("[proxy] stream pump crashed:", e?.message ?? e));
       const outHeaders = new Headers(resp.headers);
       // fetch() already decoded these — strip to avoid client confusion
       outHeaders.delete("transfer-encoding");

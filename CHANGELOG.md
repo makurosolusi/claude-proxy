@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.85] - 2026-10-23
+
+### Fixed
+- Peringatan `API Error: Connection lost mid-response. The response above may be incomplete.` di Claude Code kini jauh lebih jarang muncul, dan kalau muncul Claude Code bisa retry sendiri. Stream SSE yang mati di tengah — upstream menjatuhkan body, atau client pergi sehingga penulisan ke client reject — sebelumnya selalu berakhir sebagai *clean close*: client menerima HTTP 200 yang well-formed tapi SSE-nya tidak pernah mencapai `message_stop`, jadi tidak ada network error untuk dipicu retry otomatisnya dan user melihat peringatan itu. Di log staging 7 hari terakhir, 143 dari 46.862 request streaming (0,31%) berakhir seperti itu — semuanya 200 dengan `output_tokens` 0, dan 69% mati tepat setelah `message_start` (belum ada teks sama sekali), tersebar rata maksimal 8/jam jadi sistemik, bukan insiden. Angka itu batas atas: user yang menekan Esc menghasilkan signature log yang identik. Pump SSE kini tinggal di modul `src/sseRelay.ts` yang memegang terminal state stream — sukses `close()`, gagal `writer.abort(err)` supaya client melihat network error nyata yang bisa di-retry, plus `reader.cancel()` agar proxy berhenti menarik byte upstream yang sudah tidak ada pembacanya. Detail di `docs/LOGIC.md` section "Stream Error Propagation (SSE)"
+- Kegagalan stream sekarang meninggalkan jejak yang bisa didiagnosis: `request_logs.stop_reason` diisi `client_disconnect` (client menutup koneksi) atau `upstream_error` (upstream menjatuhkan body). Sebelumnya kedua kasus punya signature identik — 200 dengan `stop_reason` kosong — sehingga "upstream drop" tidak bisa dipisahkan dari "user tekan Esc". Tidak butuh migration, langsung bisa di-query
+- Client yang memakai format OpenAI chat ikut mendapat error yang benar. `translateAnthropicStreamToOpenAi` di `src/openaiTranslate.ts` kehilangan `controller.error(e)`, sehingga `finally`-nya mengubah abort balik menjadi clean close dan fix di atas tidak akan pernah sampai ke jalur itu
+
 ## [2.1.84] - 2026-10-19
 
 ### Added

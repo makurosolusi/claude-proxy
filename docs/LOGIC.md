@@ -210,6 +210,46 @@ Key settings di tabel `settings` (`{ key, value }`):
 | `custom_providers` | JSON array | `[]` | Custom provider list (id/name/type/base_url/api_key/color) |
 | `demo_mode` | "true"\|"false" | `"false"` | Auto-approve pending users |
 
+## Stream Error Propagation (SSE)
+
+Streaming `/v1/messages` dipompa oleh `relaySse()` di `src/sseRelay.ts`; `proxy.ts` hanya
+menyuplai fungsi `transform(line) => chunks` (tracking usage, rename model, inject
+announcement). Pembagian ini disengaja: terminal state stream dipegang satu tempat.
+
+**Masalah yang diperbaiki:** dulu pump inline punya `try` tanpa `catch` dan `finally` yang
+selalu `writer.close()`. Stream yang mati di tengah — upstream drop body, atau client
+pergi sehingga `writer.write` reject — berakhir sebagai **clean close**. Client menerima
+HTTP 200 yang well-formed tapi SSE-nya tidak pernah sampai `message_stop`, jadi:
+
+- Claude Code tidak punya network error untuk di-retry → tampil
+  `API Error: Connection lost mid-response. The response above may be incomplete.`
+- Tidak ada jejak sama sekali di log — `stop_reason` kosong, `output_tokens` 0, status 200.
+
+**Sekarang:** `relaySse` mengembalikan `RelayOutcome`. Sukses → `writer.close()`. Gagal →
+`writer.abort(err)` (readable dari TransformStream ikut error, jadi client melihat network
+error yang bisa di-retry) + `reader.cancel(err)` supaya berhenti menarik byte upstream yang
+tidak ada pembacanya.
+
+**Observability:** saat `!outcome.ok`, `proxy.ts` menulis sentinel ke `request_logs.stop_reason`
+(hanya kalau upstream belum mengirim `stop_reason` asli):
+
+| Sentinel | Arti |
+|---|---|
+| `client_disconnect` | `writer.write` reject — client menutup koneksi di tengah respons |
+| `upstream_error` | `reader.read` throw — upstream menjatuhkan body |
+
+Keduanya queryable lewat `/api/debug/query` tanpa migration; frontend sudah render
+`stop_reason` apa pun secara generik. Ini yang akhirnya memisahkan "upstream drop" dari
+"user tekan Esc" — keduanya dulu punya signature log identik (200 + `stop_reason` kosong).
+
+**Translator wajib ikut propagate.** `readable` sering dibungkus lagi untuk klien non-Anthropic.
+`translateAnthropicStreamToOpenAi` dan `translateAnthropicStreamToResponses` memanggil
+`controller.error(e)` saat source-nya error — tanpa itu, `controller.close()` di `finally`
+mengubah abort balik menjadi clean close dan fix ini tidak sampai ke klien format OpenAI.
+
+Test: `tests/sseRelay.test.ts` (golden path, injection multi-chunk, upstream mati, client
+disconnect, gagal setelah newline terakhir).
+
 ## Poll Backoff
 HTTP 429 dari usage endpoint → backoff minimum 5 menit. Saat 401 pada poll → auto-refresh OAuth token dan retry.
 
