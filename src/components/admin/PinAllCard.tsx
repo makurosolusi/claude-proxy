@@ -8,6 +8,7 @@ import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { useStatus } from "../../contexts";
 import type { ApiUser } from "./UserModals";
+import { PinAllModelRow, PinAllAutoRow } from "./PinAllModelRow";
 
 type Provider = string; // built-in or custom slug
 
@@ -138,12 +139,14 @@ export function PinAllCard({ onSaved, lockedProvider, globalOverride: globalOver
     return effectiveProviderOf(tokenProvider) === scope;
   }, [effectiveProviderOf]);
 
-  // Aggregate pinned_model for tokens matching the selected provider (for active-button highlight)
+  // Aggregate allowlist for tokens matching the selected provider (for active-button highlight).
+  // Whole allowlist joined as one value: "" = unrestricted, "x" = single model (matches a row),
+  // "x,y" = multi-model (matches no row, so no row lights up).
   const pinnedSummary = useMemo(() => {
     if (!apiUsers) return { active: null as string | null, mixed: false };
     const relevantPins: string[] = [];
     for (const u of apiUsers) for (const t of u.tokens) {
-      if (tokenMatchesScope(t.provider || "inherit", pinProvider)) relevantPins.push(t.pinned_model || "");
+      if (tokenMatchesScope(t.provider || "inherit", pinProvider)) relevantPins.push(t.allowed_models.join(","));
     }
     if (relevantPins.length === 0) return { active: "", mixed: false };
     const unique = new Set(relevantPins);
@@ -223,7 +226,7 @@ export function PinAllCard({ onSaved, lockedProvider, globalOverride: globalOver
     modals.openConfirmModal({
       title: "Pin All Tokens",
       children: <Text size="sm">
-        Apply <b>{displayLabel}</b> as pinned model for <b>{scopeCount}</b> {providerLabel(pinProvider)} token{scopeCount !== 1 ? "s" : ""}? This overrides per-token settings.
+        Apply <b>{displayLabel}</b> as the only allowed model for <b>{scopeCount}</b> {providerLabel(pinProvider)} token{scopeCount !== 1 ? "s" : ""}? This overrides per-token settings.
       </Text>,
       labels: { confirm: modelId ? `Pin to ${displayLabel}` : "Clear pins", cancel: "Cancel" },
       confirmProps: { color: providerColor(pinProvider) },
@@ -241,101 +244,28 @@ export function PinAllCard({ onSaved, lockedProvider, globalOverride: globalOver
     : models;
   const isLoading = loading[pinProvider];
 
-  const ROW_BG_HOVER     = "var(--mantine-color-default-hover)";
-  const ROW_BG_ACTIVE    = `var(--mantine-color-${providerColor(pinProvider)}-light)`;
-  const ROW_BORDER_ACTIVE = `var(--mantine-color-${providerColor(pinProvider)}-filled)`;
+  const renderModelRow = (m: ModelEntry) => (
+    <PinAllModelRow
+      key={m.id}
+      modelId={m.id}
+      displayName={m.display_name}
+      isActive={!pinnedSummary.mixed && pinnedSummary.active === m.id}
+      disabled={bulkBusy}
+      accentColor={providerColor(pinProvider)}
+      provider={pinProvider}
+      upstream={upstreamData}
+      onClick={() => confirmPin(m.id, m.display_name)}
+    />
+  );
 
-  const renderModelRow = (m: ModelEntry) => {
-    const isActive = !pinnedSummary.mixed && pinnedSummary.active === m.id;
-    // Claude util data (only for anthropic)
-    let util: number | null = null;
-    if (pinProvider === "anthropic") {
-      if (m.id.includes("haiku"))  util = upstreamData?.sevenDay?.utilization      ?? null;
-      if (m.id.includes("sonnet")) util = upstreamData?.sevenDaySonnet?.utilization ?? null;
-      if (m.id.includes("opus"))   util = upstreamData?.sevenDayOpus?.utilization   ?? null;
-    }
-    const utilColor = util === null ? "gray" : util >= 90 ? "red" : util >= 70 ? "orange" : "teal";
-
-    return (
-      <UnstyledButton key={m.id} disabled={bulkBusy}
-        onClick={() => confirmPin(m.id, m.display_name)}
-        style={{
-          display: "block", width: "100%",
-          padding: "10px 12px",
-          borderRadius: 8,
-          background: isActive ? ROW_BG_ACTIVE : "transparent",
-          border: `1px solid ${isActive ? ROW_BORDER_ACTIVE : "var(--mantine-color-default-border)"}`,
-          transition: "background 0.12s",
-          cursor: bulkBusy ? "wait" : "pointer",
-        }}
-        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = ROW_BG_HOVER; }}
-        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
-        <Group justify="space-between" gap="sm" wrap="nowrap" align="center">
-          <Group gap="sm" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
-            <Box style={{
-              width: 18, height: 18,
-              borderRadius: 4,
-              background: isActive ? ROW_BORDER_ACTIVE : "var(--mantine-color-default-border)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0,
-            }}>
-              {isActive && <IconCheck size={12} color="white" stroke={3} />}
-            </Box>
-            <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
-              <Text size="sm" fw={600} style={{ wordBreak: "break-word" }}>
-                {m.display_name}
-              </Text>
-              <Text size="xs" c="dimmed" ff="monospace" truncate>
-                {m.id}
-              </Text>
-            </Stack>
-          </Group>
-          {util !== null && (
-            <Badge size="sm" variant="light" color={utilColor} style={{ flexShrink: 0 }}>
-              {util.toFixed(0)}%
-            </Badge>
-          )}
-        </Group>
-      </UnstyledButton>
-    );
-  };
-
-  const renderAutoRow = () => {
-    const isActive = !pinnedSummary.mixed && pinnedSummary.active === "";
-    return (
-      <UnstyledButton disabled={bulkBusy}
-        onClick={() => confirmPin("", "Auto (clear)")}
-        style={{
-          display: "block", width: "100%",
-          padding: "10px 12px",
-          borderRadius: 8,
-          background: isActive ? ROW_BG_ACTIVE : "transparent",
-          border: `1px solid ${isActive ? ROW_BORDER_ACTIVE : "var(--mantine-color-default-border)"}`,
-          transition: "background 0.12s",
-          cursor: bulkBusy ? "wait" : "pointer",
-        }}
-        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = ROW_BG_HOVER; }}
-        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
-        <Group gap="sm" wrap="nowrap" align="center">
-          <Box style={{
-            width: 18, height: 18,
-            borderRadius: 4,
-            background: isActive ? ROW_BORDER_ACTIVE : "var(--mantine-color-default-border)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}>
-            {isActive && <IconCheck size={12} color="white" stroke={3} />}
-          </Box>
-          <Stack gap={2} style={{ flex: 1 }}>
-            <Text size="sm" fw={600}>Auto — no pin</Text>
-            <Text size="xs" c="dimmed">
-              Tokens use whatever model the client requests
-            </Text>
-          </Stack>
-        </Group>
-      </UnstyledButton>
-    );
-  };
+  const renderAutoRow = () => (
+    <PinAllAutoRow
+      isActive={!pinnedSummary.mixed && pinnedSummary.active === ""}
+      disabled={bulkBusy}
+      accentColor={providerColor(pinProvider)}
+      onClick={() => confirmPin("", "Auto (clear)")}
+    />
+  );
 
   const scopeCount = tokenCounts[pinProvider];
 
@@ -352,7 +282,9 @@ export function PinAllCard({ onSaved, lockedProvider, globalOverride: globalOver
                   ? <>{providerLabel(pinProvider)} tokens have <b>mixed</b> pin settings — click any below to unify</>
                   : pinnedSummary.active === ""
                     ? <>All {providerLabel(pinProvider)} tokens currently on <b>Auto</b> (no pin)</>
-                    : <>All {providerLabel(pinProvider)} tokens currently pinned to <b>{pinnedSummary.active}</b></>
+                    : pinnedSummary.active?.includes(",")
+                      ? <>All {providerLabel(pinProvider)} tokens allow <b>{pinnedSummary.active}</b> — clicking a model below replaces that with one model</>
+                      : <>All {providerLabel(pinProvider)} tokens currently pinned to <b>{pinnedSummary.active}</b></>
                 }
               </Text>
             </div>
@@ -422,7 +354,9 @@ export function PinAllCard({ onSaved, lockedProvider, globalOverride: globalOver
                   ? <><b>Mixed</b> — click any below to unify</>
                   : pinnedSummary.active === ""
                     ? <>{scopeCount} token{scopeCount !== 1 ? "s" : ""} — currently no pin</>
-                    : <>{scopeCount} token{scopeCount !== 1 ? "s" : ""} pinned to <b>{pinnedSummary.active}</b></>
+                    : pinnedSummary.active?.includes(",")
+                      ? <>{scopeCount} token{scopeCount !== 1 ? "s" : ""} allow <b>{pinnedSummary.active}</b> — click to replace with one model</>
+                      : <>{scopeCount} token{scopeCount !== 1 ? "s" : ""} pinned to <b>{pinnedSummary.active}</b></>
               }
             </Text>
             <Tooltip label={current ? `Refresh — fetched ${relAge(current.age_seconds)}${current.stale ? " (stale)" : ""}` : "Refresh model list"} withArrow>

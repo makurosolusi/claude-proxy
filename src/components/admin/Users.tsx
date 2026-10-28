@@ -151,15 +151,15 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
   const resetUserPins = (u: ApiUser) => {
     modals.openConfirmModal({
-      title: "Reset Pinned Models",
-      children: <Text size="sm">Clear pinned model on all <b>{u.tokens.length}</b> token(s) for <b>{u.name}</b>? Each token will go back to Auto.</Text>,
+      title: "Clear Model Allowlists",
+      children: <Text size="sm">Clear the model allowlist on all <b>{u.tokens.length}</b> token(s) for <b>{u.name}</b>? Each token becomes unrestricted — any model the client requests is forwarded.</Text>,
       labels: { confirm: "Reset", cancel: "Cancel" },
       confirmProps: { color: "gray" },
       onConfirm: async () => {
         try {
           await adminPost("/admin/token/pin-all", { model: "", user_id: u.id });
           await reload();
-          notifications.show({ color: "teal", message: `Pinned models cleared for ${u.name}`, autoClose: 2000 });
+          notifications.show({ color: "teal", message: `Model allowlists cleared for ${u.name}`, autoClose: 2000 });
         } catch (e: any) {
           notifications.show({ color: "red", title: "Error", message: e.message || "Failed", autoClose: 4000 });
         }
@@ -364,7 +364,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
         </Paper>
         {([
           { key: "edit-provider", label: "Edit by Provider", desc: "Set limit for a specific provider's tokens", by: "provider" as const },
-          { key: "edit-model",    label: "Edit by Model",    desc: "Set limit for tokens with a pinned model",  by: "model" as const },
+          { key: "edit-model",    label: "Edit by Model",    desc: "Set limit for tokens allowing a model",  by: "model" as const },
         ]).map(({ key, label, desc, by }) => (
           <Paper key={key} withBorder p="sm" radius="md" style={{ cursor: bulkAction === key ? "default" : "pointer", opacity: bulkAction === key ? 0.7 : 1 }}
             onClick={bulkAction === key ? undefined : () => openFilter("edit", by)}>
@@ -378,7 +378,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
         ))}
         {([
           { key: "reset-provider", label: "Reset by Provider", desc: "Zero out counters for a provider's tokens", by: "provider" as const },
-          { key: "reset-model",    label: "Reset by Model",    desc: "Zero out counters for a pinned model's tokens", by: "model" as const },
+          { key: "reset-model",    label: "Reset by Model",    desc: "Zero out counters for tokens allowing a model", by: "model" as const },
         ]).map(({ key, label, desc, by }) => (
           <Paper key={key} withBorder p="sm" radius="md" style={{ cursor: bulkAction === key ? "default" : "pointer", opacity: bulkAction === key ? 0.7 : 1 }}
             onClick={bulkAction === key ? undefined : () => openFilter("reset", by)}>
