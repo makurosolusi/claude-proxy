@@ -110,6 +110,10 @@ process.on("unhandledRejection", (reason: unknown) => {
       PRIMARY KEY (notification_id, user_id)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notif_term_user ON notification_terminal_deliveries (user_id)`,
+    // Backfill token pin lama ke allowed_models agar perilakunya sama setelah app baca allowed_models;
+    // guard cardinality = 0 bikin statement ini no-op di boot berikutnya.
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS allowed_models TEXT[] NOT NULL DEFAULT '{}'`,
+    `UPDATE tokens SET allowed_models = ARRAY[pinned_model] WHERE pinned_model <> '' AND cardinality(allowed_models) = 0`,
   ];
   for (const sql of migrations) {
     await prisma.$executeRawUnsafe(sql).catch(e => console.warn("[migration]", sql.slice(0, 60), e?.message));

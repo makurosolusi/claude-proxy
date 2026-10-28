@@ -191,7 +191,8 @@ Ketiga endpoint di atas dipegang `src/handlers/adminTokenModels.ts`.
 
 **Debug:** `GET /api/debug/token-models` (auth `x-mcp-secret`, **bukan** `x-admin-key`) — query `limit` (default 50, max 200), `key` (cocok akhiran), `mode` (`unrestricted`|`pinned`|`multi`). Mengembalikan `counts` agregat (scope: semua token non-deleted, tidak terpengaruh filter) + daftar token dengan key termasker, `allowed_models`, `mode`, dan `mirror_ok`. Tool MCP `check_token_models` tersedia di `proxy-dev` dan `proxy-stg`.
 
-**Migration**: `prisma/migrations/20261028000000_add_token_allowed_models/` — idempotent (`ADD COLUMN IF NOT EXISTS`) + backfill `UPDATE tokens SET allowed_models = ARRAY[pinned_model] WHERE pinned_model <> '' AND cardinality(allowed_models) = 0`.
+**Migration**: file `prisma/migrations/20261028000000_add_token_allowed_models/` ada untuk schema history + dev lokal, tapi **tidak** pernah dijalankan di staging/production — lihat section "Cara Migration Sampai ke Deployed Environment".
+Yang benar-benar menerapkan kolom ini di environment terdeploy adalah statement `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS allowed_models` + backfill `UPDATE tokens SET allowed_models = ARRAY[pinned_model] WHERE pinned_model <> '' AND cardinality(allowed_models) = 0` yang ditambahkan ke array migration boot-time di `src/index.tsx`.
 
 UI menampilkan **state agregat** via effective routing (mirrors proxy.ts): kalau semua token effective ke provider X dengan allowlist yang sama → tombol itu aktif (✓). Kalau campur → "Mixed". Effective routing = `tokenProvider !== "inherit" ? tokenProvider : globalOverride || "anthropic"` (dengan configured check).
 
@@ -218,6 +219,14 @@ Custom provider type `"openai"` butuh translation karena client Claude Code meng
 - OpenAI SSE `data:` chunks → Anthropic SSE events: `message_start` → `content_block_start` → `content_block_delta` (text_delta) → `content_block_stop` → `message_delta` (stop_reason) → `message_stop`
 - **Tool calls**: `delta.tool_calls` → `content_block_start` (tool_use w/ id+name) + `content_block_delta` (input_json_delta untuk arguments). Anthropic mengharuskan satu block terbuka per waktu — block sebelumnya (text/tool) ditutup sebelum block baru dibuka, sehingga text-then-tool dan parallel tool calls tetap valid.
 - **Empty-completion guard**: kalau stream upstream berakhir tanpa satu pun content block (text maupun tool), translator emit SSE `error` event (`api_error`, sebutkan input tokens bila ada) alih-alih `message_stop` kosong. Latar: qwen free tier (`qwenapi`) balas `200` + `finish_reason: "stop"` + `completion_tokens: 0` **tanpa pesan error** saat input melebihi ± 43k token (diverifikasi 2026-08-11: 42.6k lolos, 46k kosong) — tanpa guard, client (Claude Code) melihat respons kosong "sukses" lalu retry tanpa henti. Usage chunk qwen datang dengan `choices: []`, karena itu capture `usage` dilakukan sebelum guard `choices[0]`.
+
+## Cara Migration Sampai ke Deployed Environment
+
+Deploy path project ini **tidak pernah** menjalankan `prisma migrate deploy`. Sudah dicek: `Dockerfile` (hanya `bunx prisma generate` saat build, lalu `CMD ["bun", "src/index.tsx"]`), `package.json`, `.github/workflows/publish.yml` (build image), dan `.github/workflows/re-pull.yml` (re-pull via Portainer) — tidak ada satupun yang memanggilnya.
+
+Satu-satunya mekanisme yang menerapkan DDL otomatis adalah **array migration boot-time di `src/index.tsx`** (di bawah komentar `// ── Startup migrations (idempotent, IF NOT EXISTS) ───`); tiap statement di sana dijalankan lewat `prisma.$executeRawUnsafe(sql)` pada setiap boot.
+
+Konsekuensinya: setiap kolom baru **wajib** ditambahkan ke array itu, idempotent (`IF NOT EXISTS` / guard setara) dan aman di-rerun setiap boot. File di `prisma/migrations/` tetap ditulis untuk schema history dan dev lokal, tapi commit file itu sendiri tidak mengubah apa pun di staging/production. `/api/debug/query` SELECT-only, jadi tidak bisa dipakai menambal schema secara manual.
 
 ## Settings Storage
 
