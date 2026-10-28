@@ -23,6 +23,10 @@ model tokens {
   label        String   @default("")
   description  String   @default("")
   pinned_model String   @default("")
+  // Per-token model allowlist. Order = priority: [0] is the redirect target for
+  // models not in the list. Empty = no restriction. `pinned_model` is kept as a
+  // derived mirror (single entry) for the frozen public API contract.
+  allowed_models String[] @default([])
   // Quota reset behavior. "manual" (default for new tokens) = never auto-reset,
   // admin must reset or raise limit. "auto" = legacy rolling-window behavior
   // (resets every window_ms, also resets when Anthropic 5h window rotates).

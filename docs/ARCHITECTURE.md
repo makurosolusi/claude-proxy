@@ -20,6 +20,7 @@ src/
 ├── upstream.ts       # Poll /api/oauth/usage, backoff, token refresh, window rotation
 ├── anthropicAccounts.ts # Multi-account credential listing + selection (pure, testable)
 ├── customProviders.ts # Custom provider type, validation, getCustomProvider/listCustomProviders
+├── modelAllowlist.ts # Per-token model allowlist: resolveModel, normalizeAllowed, derivePinnedModel (pure)
 ├── sseRelay.ts       # Pump SSE upstream→client; owns terminal state (abort saat gagal, bukan close)
 ├── openaiTranslate.ts # OpenAI ↔ Anthropic translation (request body + SSE stream)
 ├── providerDisplay.ts # Shared frontend helper: resolveProvider, shortenModel
@@ -34,6 +35,8 @@ src/
     ├── apiAccounts.ts        # Enable + activate (pin) Anthropic account
     ├── apiCustomProviders.ts # CRUD /api/admin/custom-providers
     ├── apiModels.ts          # GET /v1/models, /api/admin/models/:id (provider-aware)
+    ├── adminTokenModels.ts   # POST /admin/token/allowed-models + pin-model + pin-all
+    ├── apiDebugTokenModels.ts # GET /api/debug/token-models (x-mcp-secret)
     ├── proxy.ts              # Forward POST /v1/messages (cliproxy/direct/custom)
     └── admin.ts              # Admin CRUD — all mutations return JSON {ok:true}
 vite.config.ts        # Vite: middlewareMode=true, inspectorPlugin + react, hmr port 24678
@@ -50,7 +53,7 @@ docs/
 
 | Tabel | Kolom penting |
 |---|---|
-| `tokens` | key, lim, win, used, window_start, paused, dynamic, deleted, **provider** (inherit/anthropic/deepseek/openrouter/custom-slug), **mode** (inherit/direct/cliproxy), **label**, **description**, **pinned_model**, **user_id** (FK) |
+| `tokens` | key, lim, win, used, window_start, paused, dynamic, deleted, **provider** (inherit/anthropic/deepseek/openrouter/custom-slug), **mode** (inherit/direct/cliproxy), **label**, **description**, **allowed_models** (`TEXT[]`, urutan = prioritas), **pinned_model** (turunan read-only dari `allowed_models`), **user_id** (FK) |
 | `users` | id, email, role (USER/ADMIN/SUPER_ADMIN), status (PENDING/APPROVED/REJECTED) — Better Auth synced |
 | `user`, `session`, `account` | Better Auth tables (Google OAuth) |
 | `settings` | key/value — `provider_override`, `poll_interval_ms`, `custom_providers` (JSON), `deepseek_*`, `openrouter_*`, `demo_mode` |
@@ -93,7 +96,8 @@ docs/
 | POST | `/admin/token/pause` | admin | Pause/resume |
 | POST | `/admin/token/delete` | admin | Hapus (soft delete) |
 | POST | `/admin/token/meta` | admin | Edit label + description (`{ key, label, description }`) |
-| POST | `/admin/token/pin-model` | admin | Set/clear pinned_model per token (`{ key, model }`, `""` = clear) |
+| POST | `/admin/token/allowed-models` | admin | Set model allowlist per token (`{ token, models }` comma-separated, kosong = unrestricted) → `{ ok, allowed_models }` |
+| POST | `/admin/token/pin-model` | admin | Set/clear single model per token (`{ key, model }`, `""` = clear) — wrapper tulis `[model]`/`[]` |
 | POST | `/admin/token/pin-all` | admin | Bulk pin (`{ model, user_id?, provider_scope? }`) → `{ ok, count }` |
 | POST | `/admin/token/mode` | admin | Set per-token mode (inherit/direct/cliproxy) |
 | POST | `/admin/token/provider` | admin | Set per-token provider override |
@@ -105,9 +109,10 @@ docs/
 | DELETE | `/api/admin/custom-providers/:id` | admin | Hapus custom provider |
 | GET | `/api/admin/models/:id` | admin | Fetch `/v1/models` dari provider (30 min cache) |
 | GET | `/api/admin/test/:id` | admin | Connection test per provider (auto-pick model) |
+| GET | `/api/debug/token-models` | `x-mcp-secret` | Inspeksi allowlist per token (`?limit&key&mode=unrestricted\|pinned\|multi`) — `counts` + daftar token (key masked, `mode`, `mirror_ok`) |
 | POST | `/admin/auth/import` | admin | Paste-JSON credential import (no PKCE flow) |
 | POST | `/admin/logs/clear` | admin | Hapus request logs |
-| GET | `/api/profile` | session | Current user profile + tokens (with `effective_provider`, `pinned_model`) + `custom_providers` |
+| GET | `/api/profile` | session | Current user profile + tokens (with `effective_provider`, `allowed_models`, `pinned_model` turunan read-only) + `custom_providers` |
 | GET | `/api/notifications/pending` | session | List notifikasi admin yang belum di-dismiss user ini (target: all atau spesifik) |
 | POST | `/api/notifications/:id/dismiss` | session | Tandai notifikasi sudah di-close oleh user ini |
 | GET | `/api/admin/notifications` | admin | List notifikasi yang masih aktif (+ `dismissed_count` per item) |

@@ -34,7 +34,7 @@ export interface ApiToken {
   key: string; name: string; limit: number | null; used: number;
   paused: boolean; dynamic: boolean; today: number; alltime: number; pct: number;
   provider: string;
-  label: string; description: string; pinned_model: string;
+  label: string; description: string; pinned_model: string; allowed_models: string[];
   output_type?: string;
   last_reset?: number;
 }

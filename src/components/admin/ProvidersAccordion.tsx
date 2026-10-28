@@ -8,9 +8,10 @@ import {
 import { PinAllCard } from "./PinAllCard";
 import { PollIntervalCard } from "./PollIntervalCard";
 import { useStatus } from "../../contexts";
+import { shortenModel } from "../../providerDisplay";
 
 interface CustomProviderInfo { id: string; name: string; type: "anthropic" | "openai"; color?: string; api_key_set?: boolean; }
-interface ApiToken { provider?: string; pinned_model?: string; }
+interface ApiToken { provider?: string; allowed_models?: string[]; }
 interface ApiUser { tokens: ApiToken[]; }
 
 interface ProviderDef {
@@ -91,7 +92,7 @@ export function ProvidersAccordion({ activeProvider, globalOverride }: Props) {
       if (!(key in out)) continue; // unknown provider, skip
       out[key].count++;
       pinsByProvider[key] = pinsByProvider[key] || [];
-      pinsByProvider[key].push(t.pinned_model || "");
+      pinsByProvider[key].push((t.allowed_models || []).join(","));
     }
 
     for (const id of allIds) {
@@ -143,7 +144,10 @@ export function ProvidersAccordion({ activeProvider, globalOverride }: Props) {
     if (st.count === 0)        pinText = "no tokens routed here";
     else if (st.mixed)         pinText = "mixed pins";
     else if (st.pin === "")    pinText = "no model pinned";
-    else                       pinText = String(st.pin);
+    else {
+      const list = String(st.pin).split(",");
+      pinText = list.length > 1 ? `${shortenModel(list[0]!)} +${list.length - 1}` : String(st.pin);
+    }
     // Trim long model names for collapsed view
     if (pinText.length > 28) pinText = pinText.slice(0, 25) + "…";
 

@@ -1,10 +1,11 @@
-import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdatePinnedModel, dbUpdateOutputType, dbSetContextBlock, dbClearContextBlock, dbSetContextGrace, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { tokens, users, dbInsertToken, dbUpdateToken, dbSoftDelete, dbResetToken, dbClearLogs, dbUpsertUser, dbUpdateUser, dbSaveSetting, dbUpdateProvider, dbSetUserStatus, dbUpdateTokenMeta, dbUpdateOutputType, dbSetContextBlock, dbClearContextBlock, dbSetContextGrace, deriveNameFromKey, slugify, ensureUniqueSlug, settings } from "../state";
+import { handleTokenAllowedModels } from "./adminTokenModels";
 import { prisma } from "../prisma";
 import type { TokenProvider, UserStatus } from "../types";
 import { clearInFlight, bumpGeneration } from "../tokens";
 import { config }  from "../config";
 import { triggerBroadcast } from "../broadcast";
-import { getCustomProvider, isCustomProviderId } from "../customProviders";
+import { isCustomProviderId } from "../customProviders";
 import { randomBytes } from "crypto";
 import type { TokenEntry } from "../types";
 
@@ -28,6 +29,9 @@ function redirect(): Response {
 export async function handleAdmin(req: Request, url: URL): Promise<Response> {
   const pathname = url.pathname;
   const form     = await parseForm(req);
+
+  const modelRoute = await handleTokenAllowedModels(pathname, req, form);
+  if (modelRoute) return modelRoute;
 
   if (pathname === "/admin/reset") {
     const target = form ? String(form.get("token") || "") : url.searchParams.get("token");
@@ -80,7 +84,7 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       limit: parsed, window: config.windowMs,
       used: 0, windowStart: Date.now(), paused: false, dynamic: true, mode: "inherit", provider: "inherit",
       user_id: uid,
-      label, description, pinned_model: "", output_type: "anthropic",
+      label, description, pinned_model: "", allowed_models: [], output_type: "anthropic",
       last_reset: 0,
     };
     tokens[newKey] = entry;
@@ -171,60 +175,6 @@ export async function handleAdmin(req: Request, url: URL): Promise<Response> {
       return new Response("Invalid output_type\n", { status: 400 });
     await dbUpdateOutputType(target, output_type);
     return redirect();
-  }
-
-  if (pathname === "/admin/token/pin-model" && req.method === "POST") {
-    const target = String(form?.get("token") || "").trim();
-    const model  = String(form?.get("model") || "").trim();
-    if (!target || !tokens[target]) return new Response("Token not found\n", { status: 404 });
-    tokens[target].pinned_model = model;
-    await dbUpdatePinnedModel(target, model);
-    return redirect();
-  }
-
-  if (pathname === "/admin/token/pin-all" && req.method === "POST") {
-    const model         = String(form?.get("model")          || "").trim();
-    const userId        = String(form?.get("user_id")        || "").trim();
-    const providerScope = String(form?.get("provider_scope") || "").trim();
-    // providerScope semantics — uses EFFECTIVE routing (matches what proxy.ts does at runtime).
-    //  - ""           = all tokens (no scope filter)
-    //  - "anthropic"  = tokens that effectively route to Claude
-    //  - "deepseek"   = tokens that effectively route to DeepSeek
-    //  - "openrouter" = tokens that effectively route to OpenRouter
-    //  - custom slug  = tokens that effectively route to that custom provider
-    const globalOverride = settings["provider_override"] || "";
-    const deepseekConfigured   = !!(settings["deepseek_api_key"]   || config.deepseekApiKey);
-    const openrouterConfigured = !!(settings["openrouter_api_key"] || config.openrouterApiKey);
-    const isConfigured = (id: string): boolean => {
-      if (id === "anthropic" || id === "" || id === "inherit") return true;
-      if (id === "deepseek")   return deepseekConfigured;
-      if (id === "openrouter") return openrouterConfigured;
-      const cp = getCustomProvider(id);
-      return !!(cp && cp.api_key);
-    };
-    const effectiveProviderOf = (tokenProvider: string): string => {
-      if (tokenProvider && tokenProvider !== "inherit") {
-        return isConfigured(tokenProvider) ? tokenProvider : "anthropic";
-      }
-      if (globalOverride) {
-        return isConfigured(globalOverride) ? globalOverride : "anthropic";
-      }
-      return "anthropic";
-    };
-    const inScope = (tokenProvider: string) => {
-      if (!providerScope) return true;
-      return effectiveProviderOf(tokenProvider) === providerScope;
-    };
-    let pinnedCount = 0;
-    for (const [k, tk] of Object.entries(tokens)) {
-      if (userId && tk.user_id !== userId) continue;
-      if (!inScope(tk.provider || "inherit")) continue;
-      tk.pinned_model = model;
-      await dbUpdatePinnedModel(k, model);
-      pinnedCount++;
-    }
-    triggerBroadcast();
-    return Response.json({ ok: true, count: pinnedCount });
   }
 
   if (pathname === "/admin/token/provider" && req.method === "POST") {

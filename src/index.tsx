@@ -39,6 +39,7 @@ import {
 } from "./handlers/apiDebugBrain";
 import { handleDebugNotifications } from "./handlers/apiDebugNotifications";
 import { handleDebugAnthropicAccounts } from "./handlers/apiDebugAccounts";
+import { handleDebugTokenModels } from "./handlers/apiDebugTokenModels";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModels } from "./handlers/apiModels";
@@ -538,6 +539,7 @@ server = serve({
             provider:           tokenProvider,
             effective_provider: effectiveProvider,
             pinned_model:       tk.pinned_model || "",
+            allowed_models:     tk.allowed_models || [],
             today:              (dailyUsage[today] || {})[k] || 0,
             alltime:            allTimePerUser[u.userId] || 0,
             last_reset:         tk.last_reset || 0,
@@ -854,6 +856,7 @@ server = serve({
     "/api/debug/app-logs/stats":   async req => handleDebugAppLogsStats(req, new URL(req.url)),
     "/api/debug/notifications":   async req => handleDebugNotifications(req, new URL(req.url)),
     "/api/debug/anthropic-accounts": async req => handleDebugAnthropicAccounts(req),
+    "/api/debug/token-models":     async req => handleDebugTokenModels(req, new URL(req.url)),
     "/api/debug/ws":               async req => {
       // WS stats inline because wsClients lives in this module
       const t = req.headers.get("x-mcp-secret") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -965,6 +968,7 @@ server = serve({
     "/admin/token/meta":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/pin-model":    async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/pin-all":      async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/allowed-models": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/output-type":  async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/mode":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/user/edit":          async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },

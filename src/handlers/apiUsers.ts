@@ -33,6 +33,7 @@ export async function handleApiUsers(
             pct, today: todayV, alltime,
             label: tk.label || "", description: tk.description || "",
             pinned_model: tk.pinned_model || "",
+            allowed_models: tk.allowed_models || [],
             output_type: tk.output_type || "anthropic",
             last_reset: tk.last_reset || 0,
           };

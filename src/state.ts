@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { config } from "./config";
 import { localDateStr } from "./date";
+import { derivePinnedModel } from "./modelAllowlist";
 import type { TokenEntry, UserEntry, UpstreamState, DailyUsage, RequestLogEntry } from "./types";
 
 // ── Runtime state (in-memory) ─────────────────────────────────────────────────
@@ -116,6 +117,7 @@ export async function dbInsertEnvToken(key: string, entry: TokenEntry) {
       window_start: BigInt(entry.windowStart),
       paused: entry.paused, dynamic: false, provider: entry.provider || "inherit",
       label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
+      allowed_models: entry.allowed_models ?? [],
       last_reset: entry.last_reset ? BigInt(entry.last_reset) : null,
     },
     update: {}, // do nothing on conflict
@@ -132,6 +134,7 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
       provider: entry.provider || "inherit",
       label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
+      allowed_models: entry.allowed_models ?? [],
       last_reset: entry.last_reset ? BigInt(entry.last_reset) : null,
     },
     update: {
@@ -141,6 +144,7 @@ export async function dbInsertToken(key: string, entry: TokenEntry) {
       paused: entry.paused, dynamic: entry.dynamic, deleted: false,
       provider: entry.provider || "inherit",
       label: entry.label || "", description: entry.description || "", pinned_model: entry.pinned_model || "",
+      allowed_models: entry.allowed_models ?? [],
       last_reset: entry.last_reset ? BigInt(entry.last_reset) : null,
     },
   });
@@ -152,6 +156,15 @@ export async function dbUpdateTokenMeta(key: string, label: string, description:
 
 export async function dbUpdatePinnedModel(key: string, pinned_model: string) {
   await prisma.tokens.update({ where: { key }, data: { pinned_model } });
+}
+
+// pinned_model is written as a derived mirror so DB and API never disagree;
+// the app itself only ever reads allowed_models.
+export async function dbUpdateAllowedModels(key: string, allowed_models: string[]) {
+  await prisma.tokens.update({
+    where: { key },
+    data: { allowed_models, pinned_model: derivePinnedModel(allowed_models) },
+  });
 }
 
 export async function dbUpdateProvider(key: string, provider: string) {
@@ -454,6 +467,7 @@ export async function loadFromDb() {
       label:        (row as any).label || "",
       description:  (row as any).description || "",
       pinned_model: (row as any).pinned_model || "",
+      allowed_models: (row as any).allowed_models ?? [],
       last_reset:   (row as any).last_reset != null ? Number((row as any).last_reset) : 0,
       output_type:  (row as any).output_type || "anthropic",
     };

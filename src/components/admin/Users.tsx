@@ -113,7 +113,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     title: `${type === "reset" ? "Reset" : "Edit Limit"} by ${by === "provider" ? "Provider" : "Model"}`,
     children: <FilterModal options={by === "provider" ? uniqueProviders : uniqueModels} action={type}
       onConfirm={async (val, lim) => { modals.closeAll();
-        const keys = entries.filter(([,t]) => (by === "provider" ? t.activeProvider : t.pinned_model) === val).map(([k]) => k);
+        const keys = entries.filter(([,t]) => by === "provider" ? t.activeProvider === val : t.allowed_models.includes(val)).map(([k]) => k);
         if (type === "reset") await runBulkAction(`reset-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/reset", { token: k }))); }, `${keys.length} token(s) reset`);
         else await runBulkAction(`edit-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/token/edit", { token: k, limit: lim }))); }, `${keys.length} token(s) updated`);
       }} />,
@@ -245,7 +245,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const paused     = entries.filter(([, t]) => t.paused).length;
   const overLimit  = entries.filter(([, t]) => t.pct > 100).length;
   const uniqueProviders = useMemo(() => [...new Set(Object.values(tokenStatuses).map(t => t.activeProvider).filter(Boolean))].sort(), [tokenStatuses]);
-  const uniqueModels    = useMemo(() => [...new Set(Object.values(tokenStatuses).map(t => t.pinned_model).filter(Boolean))].sort(), [tokenStatuses]);
+  const uniqueModels    = useMemo(() => [...new Set(Object.values(tokenStatuses).flatMap(t => t.allowed_models).filter(Boolean))].sort(), [tokenStatuses]);
 
   const cardActions: UserCardActions = {
     rowAction, statusBusy, customProviders,
