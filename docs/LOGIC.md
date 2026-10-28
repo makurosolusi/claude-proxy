@@ -158,17 +158,45 @@ Selain built-in (Claude/DS/OR), admin bisa add custom API-key providers via `Cre
   - `GET /api/admin/models/:id` — fetch `/v1/models` dari provider, cache 30 menit
   - `GET /api/admin/test/:id` — generic test, auto-pick model pertama dari `/v1/models`
 
-## Pinned Model per Token
+## Model Allowlist per Token
 
-`tokens.pinned_model` (nullable) — kalau di-set, semua request untuk token ini di-rewrite ke model itu, **mengabaikan** model yang dikirim client.
+`tokens.allowed_models` (Postgres `TEXT[] NOT NULL DEFAULT '{}'`, Prisma `allowed_models String[] @default([])`) — daftar model yang boleh dipakai satu token. Menggantikan `pinned_model` tunggal: satu token bisa diberi beberapa model (mis. haiku + sonnet-4-6 + opus-5).
 
-- **Universal**: berlaku untuk semua provider (Claude, DS, OR, custom). Untuk OpenAI-like custom provider, pin diteruskan ke `model` field di OpenAI body.
-- **Wajib untuk custom provider** — kalau token pakai custom + tidak ada pin → request gagal 400 dengan pesan jelas (built-in DS/OR ada fallback default `toProviderModel()`).
-- **Bulk action**: `POST /admin/token/pin-all` dengan `model` (kosong = clear) + optional `user_id` filter + optional `provider_scope` (effective routing match).
+**Urutan array = prioritas.** Elemen 0 adalah model default sekaligus target redirect.
+
+Satu aturan resolusi untuk semua provider — `resolveModel(requested, allowed)` di `src/modelAllowlist.ts`:
+
+| `allowed_models` | Perilaku |
+|---|---|
+| 0 item | Tanpa batasan — model yang diminta klien diteruskan apa adanya |
+| 1 item | Identik dengan perilaku `pinned_model` lama (semua request di-rewrite ke model itu) |
+| ≥2 item | Model yang diminta lolos kalau terdaftar; kalau tidak → **redirect** ke `allowed_models[0]` |
+
+**Kenapa redirect, bukan 400.** Claude Code hardcode haiku untuk background task (judul percakapan, dsb). Membalas 400 akan mematikan task-task itu diam-diam, tanpa pesan error yang terlihat user. Redirect menjaga background task tetap jalan di model yang memang diizinkan.
+
+**`pinned_model` dipertahankan sebagai mirror turunan read-only.** `derivePinnedModel(allowed)` = `allowed.length === 1 ? allowed[0] : ""`. Field itu tidak dihapus karena merupakan kontrak publik beku (AI-CONTRACT.md §10) — dia muncul di response `/api/profile` dan `/api/status`. Konsekuensi yang perlu dicatat: untuk token **multi-model** `pinned_model` jadi `""`, jadi konsumen mana pun yang masih membaca field itu akan melaporkan "tanpa pin" secara menyesatkan — baca `allowed_models` untuk state yang sebenarnya. Semua jalur tulis **wajib** lewat `dbUpdateAllowedModels(key, allowed)` di `src/state.ts` yang menulis kedua kolom dalam satu update; kalau ada jalur yang melewatinya, mirror drift (lihat `mirror_ok` di tool debug di bawah).
+
+**Efek di `proxy.ts`:**
+- `GET /v1/models` — kalau allowlist tidak kosong, hanya model dalam allowlist yang dikembalikan, dalam urutan allowlist. Allowlist kosong → katalog provider seperti biasa.
+- `POST /v1/messages` — model di-resolve via `resolveModel`; `bodyJson.model` ditulis ulang **hanya** saat ter-redirect, dan response membawa header `x-model-fallback` (seperti perilaku fallback sebelumnya).
+- **Provider non-Anthropic** — allowlist tidak kosong → pakai model hasil resolve; allowlist kosong → fallback ke default provider (`toProviderModel()`). Custom provider **tanpa** allowlist tetap gagal `400 invalid_request_error` dengan pesan jelas (built-in DS/OR punya default, custom tidak).
+
+**Endpoint admin:**
+- `POST /admin/token/allowed-models` (admin) — body form `token` + `models` (comma-separated). Normalisasi: trim, buang kosong, dedupe, urutan dipertahankan. Response `{ ok: true, allowed_models: string[] }`.
+- `POST /admin/token/pin-model` — wrapper single-model: tulis `[model]`, atau `[]` kalau `model=""`.
+- **Bulk action**: `POST /admin/token/pin-all` dengan `model` (kosong = clear) + optional `user_id` filter + optional `provider_scope` (effective routing match). Tetap penulis 1-item. Response `{ ok: true, count: N }` — jumlah token actual yang ter-set (frontend tampilkan jika 0).
 - **Per-user reset**: tombol "Reset Pinned" di card tiap user — call `pin-all` dengan `model=""` + `user_id=u.id`.
-- **Backend response**: `{ ok: true, count: N }` — jumlah token actual yang ter-pin (frontend tampilkan jika 0).
 
-UI menampilkan **state agregat** via effective routing (mirrors proxy.ts): kalau semua token effective ke provider X dengan pin yang sama → tombol itu aktif (✓). Kalau campur → "Mixed". Effective routing = `tokenProvider !== "inherit" ? tokenProvider : globalOverride || "anthropic"` (dengan configured check).
+Ketiga endpoint di atas dipegang `src/handlers/adminTokenModels.ts`.
+
+**Debug:** `GET /api/debug/token-models` (auth `x-mcp-secret`, **bukan** `x-admin-key`) — query `limit` (default 50, max 200), `key` (cocok akhiran), `mode` (`unrestricted`|`pinned`|`multi`). Mengembalikan `counts` agregat (scope: semua token non-deleted, tidak terpengaruh filter) + daftar token dengan key termasker, `allowed_models`, `mode`, dan `mirror_ok`. Tool MCP `check_token_models` tersedia di `proxy-dev` dan `proxy-stg`.
+
+**Migration**: file `prisma/migrations/20261028000000_add_token_allowed_models/` ada untuk schema history + dev lokal, tapi **tidak** pernah dijalankan di staging/production — lihat section "Cara Migration Sampai ke Deployed Environment".
+Yang benar-benar menerapkan kolom ini di environment terdeploy adalah statement `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS allowed_models` + backfill `UPDATE tokens SET allowed_models = ARRAY[pinned_model] WHERE pinned_model <> '' AND cardinality(allowed_models) = 0` yang ditambahkan ke array migration boot-time di `src/index.tsx`.
+
+UI menampilkan **state agregat** via effective routing (mirrors proxy.ts): kalau semua token effective ke provider X dengan allowlist yang sama → tombol itu aktif (✓). Kalau campur → "Mixed". Effective routing = `tokenProvider !== "inherit" ? tokenProvider : globalOverride || "anthropic"` (dengan configured check).
+
+Test: `tests/modelAllowlist.test.ts`.
 
 ## OpenAI ↔ Anthropic Translation
 
@@ -191,6 +219,14 @@ Custom provider type `"openai"` butuh translation karena client Claude Code meng
 - OpenAI SSE `data:` chunks → Anthropic SSE events: `message_start` → `content_block_start` → `content_block_delta` (text_delta) → `content_block_stop` → `message_delta` (stop_reason) → `message_stop`
 - **Tool calls**: `delta.tool_calls` → `content_block_start` (tool_use w/ id+name) + `content_block_delta` (input_json_delta untuk arguments). Anthropic mengharuskan satu block terbuka per waktu — block sebelumnya (text/tool) ditutup sebelum block baru dibuka, sehingga text-then-tool dan parallel tool calls tetap valid.
 - **Empty-completion guard**: kalau stream upstream berakhir tanpa satu pun content block (text maupun tool), translator emit SSE `error` event (`api_error`, sebutkan input tokens bila ada) alih-alih `message_stop` kosong. Latar: qwen free tier (`qwenapi`) balas `200` + `finish_reason: "stop"` + `completion_tokens: 0` **tanpa pesan error** saat input melebihi ± 43k token (diverifikasi 2026-08-11: 42.6k lolos, 46k kosong) — tanpa guard, client (Claude Code) melihat respons kosong "sukses" lalu retry tanpa henti. Usage chunk qwen datang dengan `choices: []`, karena itu capture `usage` dilakukan sebelum guard `choices[0]`.
+
+## Cara Migration Sampai ke Deployed Environment
+
+Deploy path project ini **tidak pernah** menjalankan `prisma migrate deploy`. Sudah dicek: `Dockerfile` (hanya `bunx prisma generate` saat build, lalu `CMD ["bun", "src/index.tsx"]`), `package.json`, `.github/workflows/publish.yml` (build image), dan `.github/workflows/re-pull.yml` (re-pull via Portainer) — tidak ada satupun yang memanggilnya.
+
+Satu-satunya mekanisme yang menerapkan DDL otomatis adalah **array migration boot-time di `src/index.tsx`** (di bawah komentar `// ── Startup migrations (idempotent, IF NOT EXISTS) ───`); tiap statement di sana dijalankan lewat `prisma.$executeRawUnsafe(sql)` pada setiap boot.
+
+Konsekuensinya: setiap kolom baru **wajib** ditambahkan ke array itu, idempotent (`IF NOT EXISTS` / guard setara) dan aman di-rerun setiap boot. File di `prisma/migrations/` tetap ditulis untuk schema history dan dev lokal, tapi commit file itu sendiri tidak mengubah apa pun di staging/production. `/api/debug/query` SELECT-only, jadi tidak bisa dipakai menambal schema secara manual.
 
 ## Settings Storage
 

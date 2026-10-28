@@ -120,6 +120,7 @@ export function ProfilePage() {
                 const pn = showInfo.name;
                 const pc = showInfo.color;
                 const showEffectiveTooltip = tk.provider === "inherit" && tk.effective_provider !== "anthropic";
+                const allowed = tk.allowed_models ?? [];
                 return (
                   <Paper key={key} withBorder p="md" radius="md"
                     style={{ borderColor: tk.paused ? "var(--mantine-color-orange-4)" : undefined, opacity: tk.paused ? 0.85 : 1 }}>
@@ -153,11 +154,16 @@ export function ProfilePage() {
                               {tk.provider === "inherit" ? `Auto → ${effectiveInfo.name}` : pn}
                             </Badge>
                           </Tooltip>
-                          {tk.pinned_model && (
-                            <Tooltip withArrow label={`Pinned model: ${tk.pinned_model}`}>
-                              <Badge size="xs" color={pc} variant="outline">{shortenModel(tk.pinned_model, 16)}</Badge>
+                          {allowed.map((m, i) => (
+                            <Tooltip key={m} withArrow label={allowed.length === 1
+                              ? `Pinned model: ${m}`
+                              : i === 0 ? `Default model — unlisted requests are redirected here: ${m}`
+                                        : `Allowed model: ${m}`}>
+                              <Badge size="xs" color={pc} variant={allowed.length > 1 && i === 0 ? "filled" : "outline"}>
+                                {shortenModel(m, 16)}
+                              </Badge>
                             </Tooltip>
-                          )}
+                          ))}
                           <Badge size="xs" color={tk.paused ? "orange" : "teal"} variant="light">
                             {tk.paused ? "Inactive" : "Active"}
                           </Badge>

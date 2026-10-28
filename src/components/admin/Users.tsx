@@ -113,7 +113,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
     title: `${type === "reset" ? "Reset" : "Edit Limit"} by ${by === "provider" ? "Provider" : "Model"}`,
     children: <FilterModal options={by === "provider" ? uniqueProviders : uniqueModels} action={type}
       onConfirm={async (val, lim) => { modals.closeAll();
-        const keys = entries.filter(([,t]) => (by === "provider" ? t.activeProvider : t.pinned_model) === val).map(([k]) => k);
+        const keys = entries.filter(([,t]) => by === "provider" ? t.activeProvider === val : t.allowed_models.includes(val)).map(([k]) => k);
         if (type === "reset") await runBulkAction(`reset-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/reset", { token: k }))); }, `${keys.length} token(s) reset`);
         else await runBulkAction(`edit-${by}`, async () => { await Promise.all(keys.map(k => adminPost("/admin/token/edit", { token: k, limit: lim }))); }, `${keys.length} token(s) updated`);
       }} />,
@@ -151,15 +151,15 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
 
   const resetUserPins = (u: ApiUser) => {
     modals.openConfirmModal({
-      title: "Reset Pinned Models",
-      children: <Text size="sm">Clear pinned model on all <b>{u.tokens.length}</b> token(s) for <b>{u.name}</b>? Each token will go back to Auto.</Text>,
+      title: "Clear Model Allowlists",
+      children: <Text size="sm">Clear the model allowlist on all <b>{u.tokens.length}</b> token(s) for <b>{u.name}</b>? Each token becomes unrestricted — any model the client requests is forwarded.</Text>,
       labels: { confirm: "Reset", cancel: "Cancel" },
       confirmProps: { color: "gray" },
       onConfirm: async () => {
         try {
           await adminPost("/admin/token/pin-all", { model: "", user_id: u.id });
           await reload();
-          notifications.show({ color: "teal", message: `Pinned models cleared for ${u.name}`, autoClose: 2000 });
+          notifications.show({ color: "teal", message: `Model allowlists cleared for ${u.name}`, autoClose: 2000 });
         } catch (e: any) {
           notifications.show({ color: "red", title: "Error", message: e.message || "Failed", autoClose: 4000 });
         }
@@ -245,7 +245,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
   const paused     = entries.filter(([, t]) => t.paused).length;
   const overLimit  = entries.filter(([, t]) => t.pct > 100).length;
   const uniqueProviders = useMemo(() => [...new Set(Object.values(tokenStatuses).map(t => t.activeProvider).filter(Boolean))].sort(), [tokenStatuses]);
-  const uniqueModels    = useMemo(() => [...new Set(Object.values(tokenStatuses).map(t => t.pinned_model).filter(Boolean))].sort(), [tokenStatuses]);
+  const uniqueModels    = useMemo(() => [...new Set(Object.values(tokenStatuses).flatMap(t => t.allowed_models).filter(Boolean))].sort(), [tokenStatuses]);
 
   const cardActions: UserCardActions = {
     rowAction, statusBusy, customProviders,
@@ -364,7 +364,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
         </Paper>
         {([
           { key: "edit-provider", label: "Edit by Provider", desc: "Set limit for a specific provider's tokens", by: "provider" as const },
-          { key: "edit-model",    label: "Edit by Model",    desc: "Set limit for tokens with a pinned model",  by: "model" as const },
+          { key: "edit-model",    label: "Edit by Model",    desc: "Set limit for tokens allowing a model",  by: "model" as const },
         ]).map(({ key, label, desc, by }) => (
           <Paper key={key} withBorder p="sm" radius="md" style={{ cursor: bulkAction === key ? "default" : "pointer", opacity: bulkAction === key ? 0.7 : 1 }}
             onClick={bulkAction === key ? undefined : () => openFilter("edit", by)}>
@@ -378,7 +378,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
         ))}
         {([
           { key: "reset-provider", label: "Reset by Provider", desc: "Zero out counters for a provider's tokens", by: "provider" as const },
-          { key: "reset-model",    label: "Reset by Model",    desc: "Zero out counters for a pinned model's tokens", by: "model" as const },
+          { key: "reset-model",    label: "Reset by Model",    desc: "Zero out counters for tokens allowing a model", by: "model" as const },
         ]).map(({ key, label, desc, by }) => (
           <Paper key={key} withBorder p="sm" radius="md" style={{ cursor: bulkAction === key ? "default" : "pointer", opacity: bulkAction === key ? 0.7 : 1 }}
             onClick={bulkAction === key ? undefined : () => openFilter("reset", by)}>

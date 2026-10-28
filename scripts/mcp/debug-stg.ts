@@ -277,6 +277,15 @@ async function toolCheckNotifications(args: { limit?: number; include_deleted?: 
   return apiGet(`/api/debug/notifications${q ? `?${q}` : ""}`);
 }
 
+async function toolCheckTokenModels(args: { limit?: number; key?: string; mode?: string }) {
+  const params = new URLSearchParams();
+  if (args.limit) params.set("limit", String(args.limit));
+  if (args.key) params.set("key", args.key);
+  if (args.mode) params.set("mode", args.mode);
+  const q = params.toString();
+  return apiGet(`/api/debug/token-models${q ? `?${q}` : ""}`);
+}
+
 async function toolCheckAnthropicAccounts() {
   return apiGet("/api/debug/anthropic-accounts");
 }
@@ -569,6 +578,21 @@ const TOOLS = [
     },
   },
   {
+    name: "check_token_models",
+    description:
+      "Inspect per-token model allowlists (tokens.allowed_models) on staging: which tokens have a multi-model allowlist, " +
+      "which are still a single pin, which are unrestricted. Returns aggregate counts per mode plus per-token allowed_models " +
+      "in priority order (index 0 = redirect target). Token keys are masked.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max tokens (default 50, max 200)" },
+        key:   { type: "string", description: "Filter by token key suffix (e.g. last 6 chars) — full key not needed" },
+        mode:  { type: "string", enum: ["unrestricted", "pinned", "multi"], description: "Filter by allowlist mode: unrestricted (0 models), pinned (1), multi (2+)" },
+      },
+    },
+  },
+  {
     name: "check_anthropic_accounts",
     description:
       "List Claude OAuth accounts (claude-*.json) on staging: which is pinned via " +
@@ -695,6 +719,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
   if (name === "tail_app_logs")          return toolTailAppLogs(args);
   if (name === "check_app_logs_stats")   return toolCheckAppLogsStats(args);
   if (name === "check_notifications")    return toolCheckNotifications(args as { limit?: number; include_deleted?: boolean });
+  if (name === "check_token_models")     return toolCheckTokenModels(args as { limit?: number; key?: string; mode?: string });
   if (name === "check_anthropic_accounts") return toolCheckAnthropicAccounts();
   if (name === "dev_login")              return toolDevLogin(args as { email: string; name?: string });
   throw new Error(`Unknown tool: ${name}`);

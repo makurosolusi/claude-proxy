@@ -36,7 +36,8 @@ export interface TokenEntry {
   user_id:      string;   // references users.id — owner identity comes from here
   label:        string;   // admin-set explicit label, optional
   description:  string;   // admin-set description
-  pinned_model: string;   // if non-empty, force this model for all requests on this token
+  pinned_model: string;   // derived mirror of allowed_models (single entry); kept for API contract
+  allowed_models: string[];  // urutan = prioritas; [0] jadi target redirect. Kosong = tanpa batasan.
   last_reset:   number;   // epoch ms; 0 if never. UI display only.
   output_type:  string;   // "anthropic" (default) | "openai" — response format for this token
 }

@@ -123,8 +123,11 @@ export function buildTokenData(): Record<string, any> {
   for (const [k, tk] of Object.entries(tokens)) {
     const tp = tk.provider || "inherit";
     const effectiveProvider = tp === "inherit" ? globalActiveProvider : tp;
-    const activeModel = tk.pinned_model
-      ? tk.pinned_model
+    const allowed = tk.allowed_models || [];
+    // With 2+ allowed models the client picks; allowed[0] is what any other
+    // request gets redirected to, so it is the model actually in effect here.
+    const activeModel = allowed[0]
+      ? allowed[0]
       : effectiveProvider === "deepseek"   ? (settings["deepseek_model"]   || "deepseek-v4-pro[1m]")
       : effectiveProvider === "openrouter" ? (settings["openrouter_model"] || "anthropic/claude-sonnet-4")
       : null;
@@ -144,6 +147,7 @@ export function buildTokenData(): Record<string, any> {
       alltime:         allTimePerUser[k] || 0,
       provider:        tp,
       pinned_model:    tk.pinned_model || "",
+      allowed_models:  allowed,
       output_type:     tk.output_type || "anthropic",
       activeProvider:  effectiveProvider,
       activeModel,

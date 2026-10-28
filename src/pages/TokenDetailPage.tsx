@@ -2,27 +2,21 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Stack, Text, Group, Paper, TextInput, Textarea, Box, Badge, Button,
-  Switch, Select, Loader, Progress, ActionIcon, Tooltip, Code,
+  Switch, Select, Loader, Progress, ActionIcon, Code,
 } from "@mantine/core";
 import {
-  IconKey, IconRotate, IconTrash, IconPlayerPause, IconPlayerPlay, IconRefresh, IconArrowLeft,
+  IconKey, IconRotate, IconTrash, IconPlayerPause, IconPlayerPlay, IconArrowLeft,
 } from "@tabler/icons-react";
 import { adminPost } from "../utils";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { CopyButton, RotateModal } from "../components/admin/UserModals";
 import type { ApiToken } from "../components/admin/UserModals";
+import { TokenAllowedModels } from "../components/admin/TokenAllowedModels";
 
 function nf(n: number) { return n.toLocaleString(); }
 
-interface ModelEntry { id: string; display_name: string; }
 interface CustomProviderInfo { id: string; name: string; type: "anthropic" | "openai"; api_key_set?: boolean; }
-
-function shortenModel(m: string): string {
-  if (!m) return "";
-  const stripped = m.includes("/") ? (m.split("/").pop() || m) : m;
-  return stripped.length <= 24 ? stripped : stripped.slice(0, 21) + "…";
-}
 
 export function TokenDetailPage({ tokenKey: key }: { tokenKey: string }) {
   const navigate = useNavigate();
@@ -53,7 +47,6 @@ export function TokenDetailPage({ tokenKey: key }: { tokenKey: string }) {
   const [limit, setLimit]         = useState("40000");
 
   const [providerValue, setProviderValue]     = useState("inherit");
-  const [pinValue, setPinValue]               = useState("");
   const [outputTypeValue, setOutputTypeValue] = useState("anthropic");
 
   useEffect(() => {
@@ -63,23 +56,18 @@ export function TokenDetailPage({ tokenKey: key }: { tokenKey: string }) {
     setUnlimited(tk.limit === null);
     setLimit(tk.limit === null ? "40000" : String(tk.limit));
     setProviderValue(tk.provider || "inherit");
-    setPinValue(tk.pinned_model || "");
     setOutputTypeValue(tk.output_type || "anthropic");
   }, [tk]);
 
   const [savingMeta, setSavingMeta]           = useState(false);
   const [savingLimit, setSavingLimit]         = useState(false);
   const [savingProvider, setSavingProvider]   = useState(false);
-  const [savingPinModel, setSavingPinModel]   = useState(false);
   const [savingOutputType, setSavingOutputType] = useState(false);
   const [busyAction, setBusyAction]           = useState<"pause" | "delete" | null>(null);
 
   const [customProviders, setCustomProviders]         = useState<CustomProviderInfo[]>([]);
   const [deepseekConfigured,   setDeepseekConfigured]   = useState(false);
   const [openrouterConfigured, setOpenrouterConfigured] = useState(false);
-  const [modelList, setModelList]     = useState<ModelEntry[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [modelFilter, setModelFilter] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/custom-providers")
@@ -95,18 +83,6 @@ export function TokenDetailPage({ tokenKey: key }: { tokenKey: string }) {
   const effectiveProvider = providerValue === "inherit" || providerValue === "anthropic" ? "anthropic" : providerValue;
   const isOrphanProvider  = providerValue !== "inherit" && providerValue !== "anthropic" && providerValue !== "deepseek" && providerValue !== "openrouter"
     && !customProviders.find(c => c.id === providerValue);
-
-  const fetchModels = useCallback(async (p: string, force = false) => {
-    setLoadingModels(true);
-    try {
-      const r = await fetch(`/api/admin/models/${p}${force ? "?refresh=1" : ""}`, { credentials: "include" });
-      const d = await r.json() as any;
-      setModelList(Array.isArray(d?.models) ? d.models : []);
-    } catch { setModelList([]); }
-    finally { setLoadingModels(false); }
-  }, []);
-
-  useEffect(() => { setModelFilter(""); fetchModels(effectiveProvider); }, [effectiveProvider, fetchModels]);
 
   if (fetching) return <Loader />;
   if (!tk)      return <Stack gap="xs"><Text>Token not found.</Text><Button size="xs" variant="subtle" onClick={() => navigate("/admin")}>Back to Users</Button></Stack>;
@@ -161,19 +137,6 @@ export function TokenDetailPage({ tokenKey: key }: { tokenKey: string }) {
       setProviderValue(tk.provider || "inherit");
       notifications.show({ color: "red", message: e.message || "Failed", autoClose: 3000 });
     } finally { setSavingProvider(false); }
-  };
-
-  const changePinModel = async (model: string) => {
-    setPinValue(model);
-    setSavingPinModel(true);
-    try {
-      await adminPost("/admin/token/pin-model", { token: tk.key, model });
-      await reload();
-      notifications.show({ color: "teal", message: model ? `Pinned: ${shortenModel(model)}` : "Pin cleared", autoClose: 2000 });
-    } catch (e: any) {
-      setPinValue(tk.pinned_model || "");
-      notifications.show({ color: "red", message: e.message || "Failed", autoClose: 3000 });
-    } finally { setSavingPinModel(false); }
   };
 
   const changeOutputType = async (output_type: string) => {
@@ -286,23 +249,8 @@ export function TokenDetailPage({ tokenKey: key }: { tokenKey: string }) {
                 ]} />
               {isOrphanProvider && <Text size="xs" c="red" mt={4}>Provider <Code>{providerValue}</Code> no longer exists.</Text>}
             </Box>
-            <Box>
-              <Group gap="xs" mb={4} justify="space-between">
-                <Group gap="xs"><Text size="xs" c="dimmed">Pinned Model</Text>{savingPinModel && <Loader size={10} />}</Group>
-                <Tooltip label="Refresh model list" withArrow>
-                  <ActionIcon size="xs" variant="subtle" color="gray" loading={loadingModels} onClick={() => fetchModels(effectiveProvider, true)}>
-                    <IconRefresh size={11} />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
-              <Select size="xs" placeholder={loadingModels ? "Loading…" : `Pick a ${effectiveProvider} model`}
-                searchable clearable data={[{ value: "", label: "Auto (no pin)" }, ...modelList.map(m => ({ value: m.id, label: m.display_name }))]}
-                value={pinValue} disabled={savingPinModel || loadingModels}
-                onChange={v => changePinModel(v || "")}
-                searchValue={modelFilter} onSearchChange={setModelFilter}
-                nothingFoundMessage={loadingModels ? "Loading…" : "No models match"} comboboxProps={{ withinPortal: true }} />
-              <Text size="xs" c="dimmed" mt={6}>{modelList.length} {effectiveProvider} model{modelList.length !== 1 ? "s" : ""} available.</Text>
-            </Box>
+            <TokenAllowedModels tokenKey={tk.key} provider={effectiveProvider}
+              allowedModels={tk.allowed_models} onSaved={reload} />
             <Box>
               <Group gap="xs" mb={4}><Text size="xs" c="dimmed">Response Format</Text>{savingOutputType && <Loader size={10} />}</Group>
               <Select size="xs" value={outputTypeValue} disabled={savingOutputType} allowDeselect={false}

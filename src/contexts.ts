@@ -8,6 +8,7 @@ export interface TokenStatus {
   remaining: number | null; pct: number; paused: boolean; today: number; alltime: number;
   provider:       string;
   pinned_model:   string;
+  allowed_models: string[];
   activeProvider: string;
   activeModel:    string | null;
   last_reset?:    number;  // epoch ms; 0 if never. Display only.
@@ -99,6 +100,7 @@ export interface ProfileToken {
   provider:           string;
   effective_provider: string;   // resolved routing (provider/inherit + global override)
   pinned_model:       string;   // model forced for this token (if any)
+  allowed_models:     string[]; // order = priority; [0] is the redirect target. Empty = unrestricted.
   today:   number;
   alltime: number;
   last_reset?: number;

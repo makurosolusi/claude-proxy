@@ -15,6 +15,7 @@ import {
   stripClientOnlyFields,
   isThinkingIncompatibleError,
 } from "../messageSanitizer";
+import { resolveModel } from "../modelAllowlist";
 import { handleCountTokens } from "./countTokens";
 import { isOverloadStatus, overloadDelayMs, MAX_OVERLOAD_RETRIES } from "../overloadRetry";
 import { relaySse } from "../sseRelay";
@@ -260,8 +261,14 @@ function buildUpstreamRequest(
   return { url: config.anthropicUrl + pathname, headers, body: bodyText, translatedToOpenAi: false };
 }
 
-// Translate Claude model name to provider-specific model (fallback when no pinned_model).
-// Returns "" for custom providers — admin must pin a model explicitly via Pin All Tokens.
+const MODEL_DISPLAY_NAMES: Record<string, string> = {
+  "claude-opus-4-7":           "Claude Opus 4.7",
+  "claude-sonnet-4-6":         "Claude Sonnet 4.6",
+  "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+};
+
+// Translate Claude model name to provider-specific model (fallback when token has no allowlist).
+// Returns "" for custom providers — admin must set allowed models explicitly.
 function toProviderModel(model: string, provider: string): string {
   if (provider === "deepseek") {
     const ds = getDeepSeekConfig();
@@ -317,6 +324,14 @@ export async function handleProxy(
   const openrouter = getOpenRouterConfig();
 
   if (req.method === "GET" && pathname === "/v1/models") {
+    // Allowlist wins over any provider catalog — urutan allowed_models = prioritas,
+    // elemen 0 adalah target redirect default.
+    if (t.allowed_models.length > 0) {
+      return Response.json({
+        data: t.allowed_models.map(id => ({ id, type: "model", display_name: MODEL_DISPLAY_NAMES[id] || id })),
+        has_more: false,
+      });
+    }
     // Try Anthropic first if available — otherwise probe the active provider's
     // /v1/models so clients see a useful catalog instead of a hardcoded Claude list.
     if (hasAnthropicCredential()) {
@@ -336,11 +351,7 @@ export async function handleProxy(
       } catch {}
       // Fall through to hardcoded Claude defaults
       return Response.json({
-        data: [
-          { id: "claude-opus-4-7",           type: "model", display_name: "Claude Opus 4.7" },
-          { id: "claude-sonnet-4-6",         type: "model", display_name: "Claude Sonnet 4.6" },
-          { id: "claude-haiku-4-5-20251001", type: "model", display_name: "Claude Haiku 4.5" },
-        ],
+        data: Object.entries(MODEL_DISPLAY_NAMES).map(([id, display_name]) => ({ id, type: "model", display_name })),
         has_more: false,
       });
     }
@@ -351,12 +362,6 @@ export async function handleProxy(
     }
     if (fallbackProvider === "openrouter" && openrouter) {
       return Response.json({ data: [{ id: openrouter.model, type: "model", display_name: openrouter.model }], has_more: false });
-    }
-    if (fallbackProvider) {
-      const cp = getCustomProvider(fallbackProvider);
-      if (cp && t.pinned_model) {
-        return Response.json({ data: [{ id: t.pinned_model, type: "model", display_name: t.pinned_model }], has_more: false });
-      }
     }
     return Response.json({ data: [], has_more: false });
   }
@@ -507,19 +512,20 @@ export async function handleProxy(
     bodyText = JSON.stringify(bodyJson);
   }
 
-  // Per-token pinned model — forces all requests on this token to a specific model.
-  // Now provider-agnostic: works for Claude, DeepSeek, and OpenRouter.
+  // Per-token model allowlist — model di luar daftar di-redirect ke allowed_models[0],
+  // bukan ditolak: Claude Code hardcode haiku untuk background task.
   let fallbackModel: string | null = null;
   const originalModel = model;
-  if (t.pinned_model && t.pinned_model !== model && bodyJson) {
-    fallbackModel = t.pinned_model;
-    model = t.pinned_model;
-    bodyJson.model = t.pinned_model;
+  const resolved = resolveModel(model, t.allowed_models);
+  if (resolved.redirected && bodyJson) {
+    fallbackModel = resolved.model;
+    model = resolved.model;
+    bodyJson.model = resolved.model;
     bodyText = JSON.stringify(bodyJson);
-    console.log(`[proxy] Token pinned: ${originalModel} → ${t.pinned_model} [${key.slice(-6)}]`);
+    console.log(`[proxy] Allowlist redirect: ${originalModel} → ${resolved.model} [${key.slice(-6)}]`);
   }
 
-  // Strip model-specific incompatible params — must run AFTER pinned model rewrite
+  // Strip model-specific incompatible params — must run AFTER allowlist rewrite
   // so the final model (post-redirect) is what's checked.
   if (bodyJson && bodyJson.model === "claude-opus-4-7" && "temperature" in bodyJson) {
     delete bodyJson.temperature;
@@ -527,16 +533,16 @@ export async function handleProxy(
     console.log(`[proxy] Stripped deprecated temperature param for opus-4-7 [${key.slice(-6)}]`);
   }
 
-  // For non-Anthropic providers: if no pinned_model, fall back to provider's configured default.
-  // Custom providers have NO fallback — admin must pin a model explicitly.
+  // For non-Anthropic providers: tanpa allowlist, fall back ke default provider.
+  // Custom providers NO fallback — admin harus set allowed models explicitly.
   if (provider !== "anthropic") {
-    const pm = t.pinned_model || toProviderModel(model, provider);
+    const pm = t.allowed_models.length > 0 ? model : toProviderModel(model, provider);
     if (!pm) {
       const cp = getCustomProvider(provider);
       return Response.json({
         error: {
           type: "invalid_request_error",
-          message: `No pinned model for token using "${cp?.name || provider}". Set Pinned Model in Token Details, or use Pin All Tokens in the Providers tab.`,
+          message: `No allowed model for token using "${cp?.name || provider}". Set Allowed Models in Token Details.`,
         },
       }, { status: 400 });
     }

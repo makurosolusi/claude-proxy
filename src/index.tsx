@@ -39,6 +39,7 @@ import {
 } from "./handlers/apiDebugBrain";
 import { handleDebugNotifications } from "./handlers/apiDebugNotifications";
 import { handleDebugAnthropicAccounts } from "./handlers/apiDebugAccounts";
+import { handleDebugTokenModels } from "./handlers/apiDebugTokenModels";
 import { handleAdmin }     from "./handlers/admin";
 import { handleApiUsers }  from "./handlers/apiUsers";
 import { handleApiModels } from "./handlers/apiModels";
@@ -109,6 +110,10 @@ process.on("unhandledRejection", (reason: unknown) => {
       PRIMARY KEY (notification_id, user_id)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_notif_term_user ON notification_terminal_deliveries (user_id)`,
+    // Backfill token pin lama ke allowed_models agar perilakunya sama setelah app baca allowed_models;
+    // guard cardinality = 0 bikin statement ini no-op di boot berikutnya.
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS allowed_models TEXT[] NOT NULL DEFAULT '{}'`,
+    `UPDATE tokens SET allowed_models = ARRAY[pinned_model] WHERE pinned_model <> '' AND cardinality(allowed_models) = 0`,
   ];
   for (const sql of migrations) {
     await prisma.$executeRawUnsafe(sql).catch(e => console.warn("[migration]", sql.slice(0, 60), e?.message));
@@ -538,6 +543,7 @@ server = serve({
             provider:           tokenProvider,
             effective_provider: effectiveProvider,
             pinned_model:       tk.pinned_model || "",
+            allowed_models:     tk.allowed_models || [],
             today:              (dailyUsage[today] || {})[k] || 0,
             alltime:            allTimePerUser[u.userId] || 0,
             last_reset:         tk.last_reset || 0,
@@ -854,6 +860,7 @@ server = serve({
     "/api/debug/app-logs/stats":   async req => handleDebugAppLogsStats(req, new URL(req.url)),
     "/api/debug/notifications":   async req => handleDebugNotifications(req, new URL(req.url)),
     "/api/debug/anthropic-accounts": async req => handleDebugAnthropicAccounts(req),
+    "/api/debug/token-models":     async req => handleDebugTokenModels(req, new URL(req.url)),
     "/api/debug/ws":               async req => {
       // WS stats inline because wsClients lives in this module
       const t = req.headers.get("x-mcp-secret") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -965,6 +972,7 @@ server = serve({
     "/admin/token/meta":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/pin-model":    async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/pin-all":      async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
+    "/admin/token/allowed-models": async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/output-type":  async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/token/mode":         async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },
     "/admin/user/edit":          async req => { if (!await checkAdmin(req)) return new Response(null, { status: 303, headers: { Location: "/login" } }); return handleAdmin(req, new URL(req.url)); },

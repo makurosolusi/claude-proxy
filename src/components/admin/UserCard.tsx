@@ -70,13 +70,18 @@ function shortenModel(m: string): string {
 
 function RoutingBadge({ tk, customProviders }: { tk: ApiToken; customProviders: ProviderInfo[] }) {
   const info  = resolveProvider(tk.provider || "inherit", customProviders);
-  const model = tk.pinned_model ? shortenModel(tk.pinned_model) : null;
+  const allowed = tk.allowed_models;
+  const extra   = allowed.length - 1;
+  const model   = allowed.length === 0 ? null : shortenModel(allowed[0]!) + (extra > 0 ? ` +${extra}` : "");
+  const pinLabel = allowed.length === 0 ? " · No pin"
+    : extra > 0 ? ` · Models: ${allowed.join(", ")} · default ${allowed[0]}`
+    : ` · Pinned: ${allowed[0]}`;
   const isOrphan = !BUILTIN_PROVIDER_MAP[tk.provider || "inherit"] && !customProviders.find(p => p.id === tk.provider);
   return (
     <Tooltip
       label={isOrphan
         ? `Provider "${tk.provider}" no longer exists — token may fail. Re-assign in Token Details.`
-        : `Provider: ${info.name}${model ? ` · Pinned: ${tk.pinned_model}` : " · No pin"}`}
+        : `Provider: ${info.name}${pinLabel}`}
       withArrow>
       <Badge size="xs" variant={isOrphan ? "outline" : "light"} color={isOrphan ? "red" : info.color}>
         {isOrphan && <IconAlertTriangle size={10} style={{ marginRight: 4, verticalAlign: -1 }} />}
@@ -237,7 +242,7 @@ export function UserCard({ user: u, userImage, viewMode, actions }: UserCardProp
   const StatusIcon  = u.status === "approved" ? IconCheck : u.status === "blocked" ? IconBan : IconClock;
 
   const { statusBusy, onEditUser, onDeleteUser, onSetStatus, onEditAllLimits, onAddToken, onResetUserPins, onBlockContext, onUnblockContext, onForceGrace, onOpenUser } = actions;
-  const hasPinnedTokens = u.tokens.some(t => t.pinned_model);
+  const hasPinnedTokens = u.tokens.some(t => t.allowed_models.length > 0);
 
   const perPage      = expanded ? PER_PAGE_EXPANDED : PER_PAGE;
   const totalPages   = Math.ceil(u.tokens.length / perPage);
