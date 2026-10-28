@@ -22,6 +22,15 @@ export function normalizeAllowed(raw: string[] | string): string[] {
   return out;
 }
 
+// Bulk switch: `to` empty or already listed collapses to a removal, so the
+// result never duplicates a model or moves an existing one out of priority.
+export function swapModel(allowed: string[], from: string, to: string): string[] {
+  const i = from ? allowed.indexOf(from) : -1;
+  if (i === -1) return allowed;
+  if (!to || allowed.includes(to)) return allowed.filter((_, n) => n !== i);
+  return allowed.map((m, n) => (n === i ? to : m));
+}
+
 export function derivePinnedModel(allowed: string[]): string {
   const list = normalizeAllowed(allowed);
   return list.length === 1 ? list[0]! : "";

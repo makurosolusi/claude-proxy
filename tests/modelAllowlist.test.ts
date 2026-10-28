@@ -3,7 +3,7 @@
  * Run: bun test tests/modelAllowlist.test.ts
  */
 import { describe, test, expect } from "bun:test";
-import { resolveModel, normalizeAllowed, derivePinnedModel } from "../src/modelAllowlist";
+import { resolveModel, normalizeAllowed, derivePinnedModel, swapModel } from "../src/modelAllowlist";
 
 const HAIKU  = "claude-haiku-4-5";
 const SONNET = "claude-sonnet-4-6";
@@ -53,6 +53,39 @@ describe("normalizeAllowed", () => {
 
   test("already-clean input is unchanged", () => {
     expect(normalizeAllowed([HAIKU, SONNET])).toEqual([HAIKU, SONNET]);
+  });
+});
+
+describe("swapModel", () => {
+  const SONNET5 = "claude-sonnet-5";
+
+  test("swaps in place, order of other models preserved", () => {
+    expect(swapModel([HAIKU, OPUS, SONNET], OPUS, SONNET5)).toEqual([HAIKU, SONNET5, SONNET]);
+    expect(swapModel([OPUS], OPUS, SONNET5)).toEqual([SONNET5]);
+  });
+
+  test("target already listed → drops `from`, target keeps its original position", () => {
+    expect(swapModel([OPUS, SONNET5], OPUS, SONNET5)).toEqual([SONNET5]);
+    expect(swapModel([SONNET5, HAIKU, OPUS], OPUS, SONNET5)).toEqual([SONNET5, HAIKU]);
+  });
+
+  test("empty target → revoke without replacement", () => {
+    expect(swapModel([HAIKU, OPUS], OPUS, "")).toEqual([HAIKU]);
+    expect(swapModel([OPUS], OPUS, "")).toEqual([]);
+  });
+
+  test("no-op when `from` absent, allowlist empty, or `from` blank", () => {
+    expect(swapModel([HAIKU], OPUS, SONNET5)).toEqual([HAIKU]);
+    expect(swapModel([], OPUS, SONNET5)).toEqual([]);
+    expect(swapModel([HAIKU, OPUS], "", SONNET5)).toEqual([HAIKU, OPUS]);
+  });
+
+  test("does not mutate the input array", () => {
+    const input = [HAIKU, OPUS, SONNET];
+    swapModel(input, OPUS, SONNET5);
+    swapModel(input, OPUS, "");
+    swapModel(input, OPUS, SONNET);
+    expect(input).toEqual([HAIKU, OPUS, SONNET]);
   });
 });
 
