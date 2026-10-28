@@ -373,9 +373,10 @@ export async function dbLogRequest(entry: Omit<RequestLogEntry, "id" | "owner_na
 export async function dbQueryLogs(page: number, limit: number, user: string): Promise<RequestLogEntry[]> {
   try {
     const offset = (page - 1) * limit;
+    // ts ties within the same millisecond leave LIMIT/OFFSET order undefined, so pages can repeat or drop rows without an id tiebreaker
     const rows = user
-      ? await prisma.request_logs.findMany({ where: { token_key: user }, orderBy: { ts: "desc" }, skip: offset, take: limit })
-      : await prisma.request_logs.findMany({ orderBy: { ts: "desc" }, skip: offset, take: limit });
+      ? await prisma.request_logs.findMany({ where: { token_key: user }, orderBy: [{ ts: "desc" }, { id: "desc" }], skip: offset, take: limit })
+      : await prisma.request_logs.findMany({ orderBy: [{ ts: "desc" }, { id: "desc" }], skip: offset, take: limit });
     return rows.map(rowToLog);
   } catch { return []; }
 }

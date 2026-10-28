@@ -35,7 +35,7 @@ src/
     ├── apiAccounts.ts        # Enable + activate (pin) Anthropic account
     ├── apiCustomProviders.ts # CRUD /api/admin/custom-providers
     ├── apiModels.ts          # GET /v1/models, /api/admin/models/:id (provider-aware)
-    ├── adminTokenModels.ts   # POST /admin/token/allowed-models + pin-model + pin-all
+    ├── adminTokenModels.ts   # POST /admin/token/allowed-models + pin-model + pin-all + swap-model
     ├── apiDebugTokenModels.ts # GET /api/debug/token-models (x-mcp-secret)
     ├── proxy.ts              # Forward POST /v1/messages (cliproxy/direct/custom)
     └── admin.ts              # Admin CRUD — all mutations return JSON {ok:true}
@@ -99,6 +99,7 @@ docs/
 | POST | `/admin/token/allowed-models` | admin | Set model allowlist per token (`{ token, models }` comma-separated, kosong = unrestricted) → `{ ok, allowed_models }` |
 | POST | `/admin/token/pin-model` | admin | Set/clear single model per token (`{ key, model }`, `""` = clear) — wrapper tulis `[model]`/`[]` |
 | POST | `/admin/token/pin-all` | admin | Bulk pin (`{ model, user_id?, provider_scope? }`) → `{ ok, count }` |
+| POST | `/admin/token/swap-model` | admin | Bulk switch satu model di allowlist (`{ from, to?, user_id?, provider_scope?, include_unrestricted? }`, `to` kosong = cabut tanpa pengganti) → `{ ok, count }` |
 | POST | `/admin/token/mode` | admin | Set per-token mode (inherit/direct/cliproxy) |
 | POST | `/admin/token/provider` | admin | Set per-token provider override |
 | POST | `/admin/settings/provider-override` | admin | Set global routing target (`{ value }`) |

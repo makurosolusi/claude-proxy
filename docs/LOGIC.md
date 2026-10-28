@@ -186,8 +186,55 @@ Satu aturan resolusi untuk semua provider — `resolveModel(requested, allowed)`
 - `POST /admin/token/pin-model` — wrapper single-model: tulis `[model]`, atau `[]` kalau `model=""`.
 - **Bulk action**: `POST /admin/token/pin-all` dengan `model` (kosong = clear) + optional `user_id` filter + optional `provider_scope` (effective routing match). Tetap penulis 1-item. Response `{ ok: true, count: N }` — jumlah token actual yang ter-set (frontend tampilkan jika 0).
 - **Per-user reset**: tombol "Reset Pinned" di card tiap user — call `pin-all` dengan `model=""` + `user_id=u.id`.
+- **Bulk switch**: `POST /admin/token/swap-model` — lihat sub-bagian di bawah.
 
-Ketiga endpoint di atas dipegang `src/handlers/adminTokenModels.ts`.
+Keempat endpoint di atas dipegang `src/handlers/adminTokenModels.ts`.
+
+### Bulk Switch Model (`POST /admin/token/swap-model`)
+
+Menukar **satu** model di dalam allowlist tiap token tanpa mengganggu model lain di
+daftar yang sama. Motivasi: menurunkan sekelompok token dari model mahal (mis. `opus-5`)
+ke yang lebih murah (mis. `sonnet-5`) tanpa menyamakan seluruh allowlist seperti `pin-all`.
+
+Form field: `from` (wajib, 400 kalau kosong), `to` (opsional — kosong = cabut `from` tanpa
+pengganti), `user_id` (opsional), `provider_scope` (opsional, effective routing, sama
+seperti `pin-all`), `include_unrestricted` (`"1"`/`"true"`). Response `{ ok: true, count }`;
+endpoint memanggil `triggerBroadcast()`.
+
+Logika murni di `swapModel(allowed, from, to)` (`src/modelAllowlist.ts`) — **swap di
+tempat, urutan terjaga** supaya prioritas (elemen 0) tidak bergeser:
+
+| Kondisi | Hasil |
+|---|---|
+| `from` tidak ada di allowlist | array dikembalikan apa adanya (token tidak ikut dihitung) |
+| `to` kosong | `from` dihapus |
+| `to` sudah terdaftar | `from` dihapus, bukan ditimpa |
+| selain itu | `from` diganti `to` di indeks yang sama |
+
+Dua kasus tengah sengaja dikolapskan jadi penghapusan: menulis `to` ke posisi `from`
+padahal `to` sudah ada di daftar akan menduplikasi entri **dan** memindahkan `to` dari
+posisi prioritasnya.
+
+**Token unrestricted (allowlist kosong) di-skip secara default.** Token itu baru ikut
+kalau `include_unrestricted` dikirim **dan** `to` tidak kosong — kalau `to` kosong,
+"cabut model" tidak punya arti untuk token yang memang tanpa batasan. Saat ikut,
+allowlist-nya di-set ke `[to]`, jadi aksi ini **mempersempit** akses (dari bebas jadi satu
+model). Karena itu checkbox-nya di UI default OFF dan disabled selama field "To" kosong.
+
+**`count` hanya menghitung token yang arraynya benar-benar berubah** (dibanding
+elemen-per-elemen sebelum tulis), bukan jumlah token yang lolos filter. `count: 0` berarti
+tidak ada token yang cocok `from` di scope itu — frontend memunculkan notifikasi kuning,
+bukan sukses.
+
+**`provider_scope` tidak dipakai UI** walau backend mendukungnya. Menghitung effective
+provider di sisi klien butuh fetch `/api/admin/settings` + `/api/admin/custom-providers`
+plus menyalin logika `effectiveProviderOf` (lihat `PinAllCard.tsx`). Backend memperlakukan
+scope kosong sebagai "semua token", jadi field itu tersedia untuk pemanggil programatik
+(`x-admin-key`) — bukan bug UI.
+
+UI: `src/components/admin/SwapModelCard.tsx` (kartu + modal di Admin → Users → Bulk
+Actions). Preview "N token(s) will change" menjalankan `swapModel` yang sama di klien
+supaya angka pratinjau tidak melenceng dari loop backend.
 
 **Debug:** `GET /api/debug/token-models` (auth `x-mcp-secret`, **bukan** `x-admin-key`) — query `limit` (default 50, max 200), `key` (cocok akhiran), `mode` (`unrestricted`|`pinned`|`multi`). Mengembalikan `counts` agregat (scope: semua token non-deleted, tidak terpengaruh filter) + daftar token dengan key termasker, `allowed_models`, `mode`, dan `mirror_ok`. Tool MCP `check_token_models` tersedia di `proxy-dev` dan `proxy-stg`.
 

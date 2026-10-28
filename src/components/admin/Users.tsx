@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Stack, SimpleGrid, Text, Group, Paper, TextInput, ThemeIcon,
-  Loader, Select, Switch, SegmentedControl, Button, ActionIcon, Tooltip, Pagination,
+  Loader, Select, Switch, SegmentedControl, ActionIcon, Tooltip, Pagination,
 } from "@mantine/core";
 import {
   IconRefresh, IconPlayerPause, IconPencil, IconAlertTriangle,
@@ -21,6 +21,7 @@ import type { ApiUser, ApiToken } from "./UserModals";
 import { UserCard, userAggregates } from "./UserCard";
 import type { UserCardActions, ProviderInfo } from "./UserCard";
 import { NotificationBroadcast } from "./NotificationBroadcast";
+import { SwapModelCard } from "./SwapModelCard";
 
 type UserStatus = "pending" | "approved" | "blocked";
 type SortKey = "name" | "usage" | "tokens" | "newest";
@@ -390,6 +391,7 @@ export function AdminUsers({ tokens: tokenStatuses }: { tokens: Record<string, T
             </Group>
           </Paper>
         ))}
+        <SwapModelCard tokens={tokenStatuses} apiUsers={apiUsers} reload={reload} />
         </SimpleGrid>
       </Stack>
 
