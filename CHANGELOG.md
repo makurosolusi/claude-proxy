@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.1.86] - 2026-10-28
+
+### Added
+- Satu token API kini bisa diizinkan memakai **beberapa** model sekaligus, bukan hanya satu model yang di-pin. Admin menentukannya per token — misalnya satu token boleh memakai haiku, `claude-sonnet-4-6`, dan `claude-opus-5` sekaligus, sehingga user tidak lagi harus memilih antara "dikunci ke satu model" atau "bebas sepenuhnya". Daftarnya tersimpan di kolom baru `tokens.allowed_models` (Postgres `TEXT[]`)
+- Satu aturan resolusi yang sama untuk semua provider, di `resolveModel` pada `src/modelAllowlist.ts`: daftar berisi 0 item berarti tanpa batasan (model apa pun yang diminta klien diteruskan apa adanya), 1 item identik dengan perilaku pin yang lama (semua request di-rewrite ke model itu), dan 2 item atau lebih berarti model yang diminta lolos kalau memang terdaftar. **Urutan daftar adalah urutan prioritas** — elemen pertama berperan sebagai model default sekaligus target redirect, jadi admin mengurutkan daftar sesuai model yang paling ingin dipakai
+- Model di luar daftar di-**redirect** ke model pertama dalam daftar, bukan dibalas `400`. Alasannya konkret: Claude Code hardcode haiku untuk background task-nya (membuat judul percakapan dan sejenisnya), jadi membalas error akan mematikan task-task itu diam-diam tanpa pesan apa pun yang terlihat user. Dengan redirect, background task tetap jalan di model yang memang diizinkan, dan request yang ter-redirect membawa header response `x-model-fallback` supaya kejadiannya tetap bisa dilacak
+- Endpoint admin `POST /admin/token/allowed-models` untuk mengeset daftar per token (comma-separated; daftar kosong berarti token itu tanpa batasan), lengkap dengan UI pengaturannya di panel admin sehingga tidak perlu menyentuh database langsung
+- MCP debug tool `check_token_models` di `proxy-dev` dan `proxy-stg` (di belakangnya endpoint `GET /api/debug/token-models`) untuk melihat token mana yang sudah multi-model, mana yang masih single-pin, dan mana yang tanpa batasan — tanpa perlu SSH ke server atau membuka admin UI
+
+### Changed
+- `GET /v1/models` kini hanya mengembalikan model yang ada di allowlist token, dalam urutan allowlist, selama allowlist-nya tidak kosong. Ini juga berlaku untuk token berisi tepat 1 model, yang sebelumnya tetap melihat katalog penuh provider meski semua request-nya dipaksa ke satu model. Bentuk response tidak berubah, hanya isinya yang menyempit mengikuti izin token
+- Field `pinned_model` **dipertahankan** sebagai mirror turunan read-only: nilainya adalah item tunggal itu kalau `allowed_models` berisi tepat 1 item, dan string kosong untuk kasus lainnya. Field itu tidak dihapus karena merupakan kontrak publik yang muncul di response `/api/profile` dan `/api/status`. Konsekuensi yang perlu diketahui konsumen: untuk token multi-model nilainya kosong, jadi konsumen mana pun yang masih membaca field itu akan melaporkan "tanpa pin" secara menyesatkan — baca `allowed_models` untuk mengetahui state yang sebenarnya
+- Migration `20261028000000_add_token_allowed_models` menambah kolom secara idempotent (`ADD COLUMN IF NOT EXISTS`) dan mem-backfill daftarnya dari `pinned_model` yang sudah ada, sehingga token yang sudah di-pin sebelum upgrade tidak berubah perilakunya sedikit pun setelah upgrade
+
+### Fixed
+- Panel bulk-pin di admin tidak lagi salah melaporkan token multi-model sebagai "Auto — no pin". Panel itu membaca `pinned_model`, yang untuk token multi-model memang kosong, sehingga token yang sebenarnya dibatasi ke beberapa model tampil seolah tanpa batasan sama sekali — admin bisa menyimpulkan sebaliknya dari apa yang sudah ia set sendiri
+
 ## [2.1.85] - 2026-10-23
 
 ### Fixed
