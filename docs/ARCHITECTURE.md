@@ -21,6 +21,8 @@ src/
 ├── anthropicAccounts.ts # Multi-account credential listing + selection (pure, testable) + label/email writer
 ├── oauthProfile.ts   # Resolve email akun: token-exchange response + GET /api/oauth/profile
 ├── credentialUsage.ts # Last-used per credential di settings.credential_last_used (persist throttle 60s)
+├── oauthPkce.ts      # PKCE session (state/verifier, TTL 10 menit) + token exchange → simpan credential
+├── credentialSave.ts # Tulis file claude-*.json: resolve email, target file, merge existing (sync read→write)
 ├── customProviders.ts # Custom provider type, validation, getCustomProvider/listCustomProviders
 ├── modelAllowlist.ts # Per-token model allowlist: resolveModel, normalizeAllowed, derivePinnedModel (pure)
 ├── sseRelay.ts       # Pump SSE upstream→client; owns terminal state (abort saat gagal, bukan close)
@@ -33,7 +35,7 @@ src/
     ├── apiStats.ts           # GET /api/stats (analytics aggregation)
     ├── apiMind.ts            # GET /api/mind (User→Date→Hour→Request graph data)
     ├── apiTest.ts            # GET /api/admin/test (connection test)
-    ├── apiAuth.ts            # OAuth PKCE + paste-JSON credential import
+    ├── apiAuth.ts            # HTTP handler OAuth PKCE + paste-JSON import
     ├── apiAccounts.ts        # Enable + activate (pin) + label + resolve-email Anthropic account
     ├── apiDebugAccounts.ts   # GET /api/debug/anthropic-accounts (x-mcp-secret)
     ├── apiCustomProviders.ts # CRUD /api/admin/custom-providers
