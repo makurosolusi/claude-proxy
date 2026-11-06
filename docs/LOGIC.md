@@ -97,8 +97,11 @@ Yang menentukan **akun mana yang melayani request** adalah `src/anthropicAccount
 | Pin akun aktif | `POST /api/admin/credentials/activate` `{ email }` | Set `settings.anthropic_account`. `email: ""` = kembali ke auto. 400 kalau email tidak punya credential usable. |
 | Disable akun | `POST /api/admin/credentials/remove` `{ file }` | `disabled = true` di file credential |
 | Enable akun | `POST /api/admin/credentials/enable` `{ file }` | `disabled = false` — counterpart dari remove |
+| Beri label | `POST /api/admin/credentials/label` `{ file, label }` → `{ ok, label }` | Set field `label` di file credential (lihat "Identitas Credential" di bawah) |
+| Resolve email | `POST /api/admin/credentials/resolve-email` `{ file }` → `{ ok, email, changed }` | Isi field `email` dari profile endpoint (lihat di bawah) |
 
-Ketiganya bust cache + `triggerBroadcast()`, jadi efeknya instan tanpa restart.
+Pin/disable/enable/resolve-email bust cache + `triggerBroadcast()`, jadi efeknya instan
+tanpa restart. Label hanya `triggerBroadcast()` (tidak memengaruhi pemilihan akun).
 
 **Dua cache credential wajib dibuang bersamaan** — `bustCredentialCaches()` di
 `src/upstream.ts` mereset `upstream.tokenCache` DAN `hasAnthrCache`. Kalau hanya
@@ -117,7 +120,71 @@ melayani, supaya refresh akun non-aktif tidak membajak cache.
 masih single row), poll ke semua akun, dan auto-switch ke akun Claude berikutnya
 saat 429. Sekarang switching masih manual lewat admin UI.
 
-Test: `tests/anthropicAccounts.test.ts`.
+### Identitas Credential (email, label, last used)
+
+**Akar masalah lama:** credential tersimpan sebagai `claude-account-<ms>.json` (tanpa
+email) karena lookup profile memanggil path salah `/api/auth/oauth/profile` (404) dan
+error-nya ditelan `catch` kosong. Path benar: `https://api.anthropic.com/api/oauth/profile`
+(`OAUTH_PROFILE_URL` di `src/oauthProfile.ts`). Diverifikasi 2026-11-06: path lama → 404,
+path baru → 401 dengan token kedaluwarsa (artinya route ada).
+
+**Urutan resolusi email** (`resolveEmail()` di `src/handlers/apiAuth.ts`, dipakai OAuth
+callback dan paste-JSON import bila `email` kosong/tanpa `@`):
+
+1. `account.email_address` dari respons token exchange (`emailFromTokenResponse`) —
+   **belum diverifikasi dengan login nyata**; bentuk field diambil dari respons token yang
+   diketahui, bukan dari login yang diamati.
+2. Profile endpoint (`fetchProfileEmail`).
+3. Fallback `account-<ts>` + `console.warn` berisi penyebab gagal — tidak lagi diam.
+
+**Dedupe re-login** (`credentialTarget()`): kalau email asli sudah dimiliki file lain,
+file itu yang ditimpa (token baru, `label` & `created_at` dipertahankan), bukan membuat
+file duplikat. Email fallback (tanpa `@`) tidak pernah di-dedupe.
+
+**Field per credential** (additive di `GET /api/admin/credentials`):
+
+| Field | Sumber | Catatan |
+|---|---|---|
+| `label` | field `label` di file credential | `""` kalau belum diberi |
+| `created_at` | field `created_at` di file | Fallback dari nama file `claude-account-<13 digit>.json` (epoch ms); selain itu `null` |
+| `last_refresh` | field `last_refresh` di file | `null` kalau belum pernah refresh |
+| `last_used_at` | `settings.credential_last_used` | `null` = belum pernah dipakai sejak tracking ada |
+| `email_resolved` | `email.includes("@")` | `false` = masih nama fallback |
+
+**Label** — `POST /api/admin/credentials/label` `{ file, label }` → `{ ok, label }`. Label di-trim,
+maks 60 karakter (`MAX_LABEL_LEN`), `""` menghapus field. 400 untuk nama file invalid, file
+tidak ada, atau label terlalu panjang.
+
+**Resolve email** — `POST /api/admin/credentials/resolve-email` `{ file }` → `{ ok, email, changed }`.
+Fetch profile pakai `access_token` file itu; 401 → refresh sekali → retry. Gagal → 502
+`{ ok: false, error }`. File **tidak di-rename** (hanya field `email`) supaya refresh yang
+sedang berjalan tetap menulis ke path yang sama. Kalau email berubah dan
+`settings.anthropic_account` = email lama, pin ikut dipindah ke email baru.
+
+**Last used** — disimpan di `settings.credential_last_used` (JSON `{ file: iso }`), **bukan** di
+file credential: menulis file itu dari request path akan balapan dengan `doRefresh()`.
+`markCredentialUsed()` (`src/credentialUsage.ts`) dipanggil di `buildUpstreamRequest()`
+(`src/handlers/proxy.ts`) tiap request Anthropic; in-memory selalu terkini, persist ke DB
+di-throttle 1×/60 detik (`LAST_USED_PERSIST_INTERVAL_MS`). Konsekuensi: nilai di DB bisa
+tertinggal ≤60 detik, dan ≤60 detik terakhir hilang saat restart.
+
+**Invarian penulis file credential:** semua penulis wajib read→mutate→write **sinkron tanpa
+`await` di tengah** dan membaca ulang file saat menulis (`updateCredentialFile()` di
+`src/anthropicAccounts.ts`; `exchangeAndSave`/`handleAuthImport` spread isi file terkini).
+Alasan: `doRefresh()` (`src/upstream.ts`) menulis refresh token single-use yang di-rotate —
+salinan basi yang ditulis balik mematikan akun.
+
+**UI** (`src/components/admin/CredentialRow.tsx`): judul = `label || email`, badge
+"email unknown" kalau `!email_resolved`, stempel relatif Login / Last used / Refreshed
+(tooltip = waktu absolut), edit label inline, tombol resolve email hanya tampil kalau
+`!email_resolved`.
+
+**Debug:** `GET /api/debug/anthropic-accounts` (auth `x-mcp-secret`) — tool MCP
+`check_anthropic_accounts` di `proxy-dev` dan `proxy-stg`. Tiap item `accounts[]` membawa
+`label`, `created_at`, `last_refresh`, `last_used_at`, `email_resolved` (tanpa token), dan root
+membawa `unresolved_count` (jumlah credential yang emailnya masih fallback).
+
+Test: `tests/anthropicAccounts.test.ts`, `tests/oauthProfile.test.ts`, `tests/credentialUsage.test.ts`.
 
 ## Operation Mode (Anthropic optional)
 
@@ -283,6 +350,7 @@ Key settings di tabel `settings` (`{ key, value }`):
 |---|---|---|---|
 | `provider_override` | string | `""` (auto) | Global routing target |
 | `anthropic_account` | string (email) | `""` (auto) | Akun Claude yang melayani request; `""` = akun usable pertama (sorted) |
+| `credential_last_used` | JSON `{ file: iso }` | `{}` | Waktu terakhir tiap credential dipakai request Anthropic; persist throttle 1×/60 detik |
 | `poll_interval_ms` | string (ms) | `60000` | Upstream `/api/oauth/usage` poll frequency |
 | `deepseek_api_key` | string | — | DS Bearer token |
 | `deepseek_base_url` | string | env default | DS endpoint |
@@ -392,7 +460,8 @@ Admin bisa connect Claude account langsung dari admin panel tanpa Claude Code CL
    - Terima `?code=&state=` dari claude.ai redirect
    - Validasi `state` vs in-memory Map, cek TTL 10 menit
    - Exchange code ke token via `POST https://api.anthropic.com/v1/oauth/token`
-   - Resolve email: JWT decode → profile endpoint → timestamp fallback
+   - Resolve email: `account.email_address` dari respons token exchange → profile endpoint (`/api/oauth/profile`) → fallback `account-<ts>` + warning (lihat "Identitas Credential")
+   - Email yang sudah dimiliki file lain → file itu yang ditimpa, bukan duplikat
    - Simpan `CLIPROXY_AUTH_DIR/claude-{email}.json`
    - Bust `upstream.tokenCache` agar next request pakai credential baru
    - Shutdown server setelah callback ditangani
