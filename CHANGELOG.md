@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.1.88] - 2026-11-06
+
+### Added
+- **Identitas credential** di `Admin → Credentials`: tiap baris kini menampilkan label, waktu login (`created_at`), terakhir dipakai (last used), dan terakhir refresh; judul baris = label atau email, dengan badge "email unknown" kalau email belum terselesaikan. Sebelumnya semua credential tampil sebagai `account-<timestamp>`, sehingga admin tidak tahu credential itu milik akun mana
+- Label credential bisa diedit inline — `POST /api/admin/credentials/label` `{ file, label }` → `{ ok, label }`. Label di-trim, maks 60 karakter, dan `""` menghapusnya
+- Tombol resolve email untuk credential lama — `POST /api/admin/credentials/resolve-email` `{ file }` → `{ ok, email, changed }`. Kalau profile endpoint membalas 401, token di-refresh sekali lalu dicoba ulang; gagal → `502`. File tidak di-rename, dan pin `anthropic_account` ikut dipindah kalau email berubah
+- `GET /api/admin/credentials` dan `GET /api/debug/anthropic-accounts` (tool MCP `check_anthropic_accounts`) membawa field additive `label`, `created_at`, `last_refresh`, `last_used_at`, `email_resolved`; endpoint debug juga membawa `unresolved_count`
+- Last used disimpan di `settings.credential_last_used` dengan persist di-throttle 1×/60 detik — nilai di DB bisa tertinggal ≤60 detik, dan ≤60 detik terakhir hilang saat restart
+
+### Fixed
+- Credential baru tidak lagi tersimpan sebagai `claude-account-<ms>.json` tanpa email. Penyebabnya lookup profile memanggil path salah `/api/auth/oauth/profile` (404) dan error-nya ditelan `catch` kosong. Sekarang email diambil dari respons token exchange → `/api/oauth/profile` → fallback `account-<ts>` dengan warning di log
+- Login ulang akun yang sama tidak lagi membuat file credential duplikat — file lama ditimpa dengan token baru, sementara label dan waktu login dipertahankan
+
+### Changed
+- `src/handlers/apiAuth.ts` dipecah: alur OAuth PKCE pindah ke `src/oauthPkce.ts` dan penyimpanan file credential ke `src/credentialSave.ts`, tanpa perubahan perilaku
+- Tidak ada perubahan schema maupun migration; upgrade cukup deploy ulang
+
 ## [2.1.87] - 2026-10-28
 
 ### Added

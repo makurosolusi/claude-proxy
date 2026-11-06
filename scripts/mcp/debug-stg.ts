@@ -597,7 +597,10 @@ const TOOLS = [
     description:
       "List Claude OAuth accounts (claude-*.json) on staging: which is pinned via " +
       "settings.anthropic_account, which is actually serving, and whether a pin is " +
-      "being fallen back on. No token values returned.",
+      "being fallen back on. Per account also returns label, created_at, " +
+      "last_refresh, last_used_at, and email_resolved; root has unresolved_count. " +
+      "Use it to identify `account-<timestamp>` credentials whose email was never " +
+      "resolved. No token values returned.",
     inputSchema: { type: "object", properties: {} },
   },
   {

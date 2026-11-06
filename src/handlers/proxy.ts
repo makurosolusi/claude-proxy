@@ -1,4 +1,6 @@
+import path                from "path";
 import { config }          from "../config";
+import { markCredentialUsed } from "../credentialUsage";
 import { upstream, users, dbLogRequest, dailyUsage, settings, tokens, resolveTokenName, dbSetContextBlock, dbSaveSetting } from "../state";
 import { getPendingTerminalForUser, markTerminalDelivered, formatTerminalAnnouncement } from "./apiNotifications";
 import { checkReset, incrementUsage, getInFlight, reserveInFlight, releaseInFlight, getGeneration, todayKey } from "../tokens";
@@ -255,6 +257,7 @@ function buildUpstreamRequest(
   // Built-in Anthropic (Claude Max OAuth)
   const cred = getOauthCredential();
   if (!cred) return null;
+  markCredentialUsed(path.basename(cred.filePath));
   headers.set("authorization", "Bearer " + cred.token);
   headers.set("anthropic-version", "2023-06-01");
   headers.set("anthropic-beta", "oauth-2025-04-20");

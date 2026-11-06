@@ -24,7 +24,7 @@ import { handleApiCompetition }  from "./handlers/apiCompetition";
 import { handleApiTest }   from "./handlers/apiTest";
 import { handleDeepSeekTest, handleOpenRouterTest, handleCustomProviderTest } from "./handlers/apiTestProviders";
 import { handleAuthStart, handleAuthExchange, handleAuthStatus, handleAuthRemove, handleAuthImport } from "./handlers/apiAuth";
-import { handleAccountEnable, handleAccountActivate } from "./handlers/apiAccounts";
+import { handleAccountEnable, handleAccountActivate, handleAccountLabel, handleAccountResolveEmail } from "./handlers/apiAccounts";
 import { handleDebugQuery } from "./handlers/apiDebug";
 import {
   handleDebugToken, handleDebugUpstreamHistory, handleDebugQuotaPressure,
@@ -789,6 +789,14 @@ server = serve({
     "/api/admin/credentials/activate": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       return handleAccountActivate(req);
+    },
+    "/api/admin/credentials/label": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleAccountLabel(req);
+    },
+    "/api/admin/credentials/resolve-email": async req => {
+      if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return handleAccountResolveEmail(req);
     },
     "/admin/auth/start": async req => {
       if (!await checkAdmin(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });

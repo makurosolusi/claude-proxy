@@ -2,6 +2,7 @@ import { config }   from "../config";
 import { settings } from "../state";
 import { listCredentials, pickCredential } from "../anthropicAccounts";
 import { getOauthCredential, hasAnthropicCredential } from "../upstream";
+import { getCredentialLastUsed } from "../credentialUsage";
 
 function checkMcpSecret(req: Request): boolean {
   if (!config.mcpSecret) return false;
@@ -18,13 +19,19 @@ export function handleDebugAnthropicAccounts(req: Request): Response {
   const servingEmail = getOauthCredential()?.email ?? null;
   const { warning, error } = pickCredential(config.authDir, pinnedEmail);
 
+  const lastUsed = getCredentialLastUsed();
   const accounts = listCredentials(config.authDir).map(r => ({
-    file:     r.file,
-    email:    r.email,
-    disabled: r.disabled,
-    usable:   r.usable,
-    pinned:   !!pinnedEmail && r.email === pinnedEmail,
-    serving:  r.email === servingEmail,
+    file:           r.file,
+    email:          r.email,
+    disabled:       r.disabled,
+    usable:         r.usable,
+    pinned:         !!pinnedEmail && r.email === pinnedEmail,
+    serving:        r.email === servingEmail,
+    label:          r.label,
+    created_at:     r.created_at,
+    last_refresh:   r.last_refresh,
+    last_used_at:   lastUsed[r.file] ?? null,
+    email_resolved: r.email.includes("@"),
   }));
 
   return Response.json({
@@ -38,6 +45,7 @@ export function handleDebugAnthropicAccounts(req: Request): Response {
     error,
     total:                    accounts.length,
     usable_count:             accounts.filter(a => a.usable).length,
+    unresolved_count:         accounts.filter(a => !a.email_resolved).length,
     accounts,
   });
 }

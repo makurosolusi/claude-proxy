@@ -18,7 +18,11 @@ src/
 ├── state.ts          # PostgreSQL runtime state, settings cache, in-flight reservation
 ├── tokens.ts         # Token CRUD, incrementUsage, in-flight reservation system
 ├── upstream.ts       # Poll /api/oauth/usage, backoff, token refresh, window rotation
-├── anthropicAccounts.ts # Multi-account credential listing + selection (pure, testable)
+├── anthropicAccounts.ts # Multi-account credential listing + selection (pure, testable) + label/email writer
+├── oauthProfile.ts   # Resolve email akun: token-exchange response + GET /api/oauth/profile
+├── credentialUsage.ts # Last-used per credential di settings.credential_last_used (persist throttle 60s)
+├── oauthPkce.ts      # PKCE session (state/verifier, TTL 10 menit) + token exchange → simpan credential
+├── credentialSave.ts # Tulis file claude-*.json: resolve email, target file, merge existing (sync read→write)
 ├── customProviders.ts # Custom provider type, validation, getCustomProvider/listCustomProviders
 ├── modelAllowlist.ts # Per-token model allowlist: resolveModel, normalizeAllowed, derivePinnedModel (pure)
 ├── sseRelay.ts       # Pump SSE upstream→client; owns terminal state (abort saat gagal, bukan close)
@@ -31,8 +35,9 @@ src/
     ├── apiStats.ts           # GET /api/stats (analytics aggregation)
     ├── apiMind.ts            # GET /api/mind (User→Date→Hour→Request graph data)
     ├── apiTest.ts            # GET /api/admin/test (connection test)
-    ├── apiAuth.ts            # OAuth PKCE + paste-JSON credential import
-    ├── apiAccounts.ts        # Enable + activate (pin) Anthropic account
+    ├── apiAuth.ts            # HTTP handler OAuth PKCE + paste-JSON import
+    ├── apiAccounts.ts        # Enable + activate (pin) + label + resolve-email Anthropic account
+    ├── apiDebugAccounts.ts   # GET /api/debug/anthropic-accounts (x-mcp-secret)
     ├── apiCustomProviders.ts # CRUD /api/admin/custom-providers
     ├── apiModels.ts          # GET /v1/models, /api/admin/models/:id (provider-aware)
     ├── adminTokenModels.ts   # POST /admin/token/allowed-models + pin-model + pin-all + swap-model
@@ -56,7 +61,7 @@ docs/
 | `tokens` | key, lim, win, used, window_start, paused, dynamic, deleted, **provider** (inherit/anthropic/deepseek/openrouter/custom-slug), **mode** (inherit/direct/cliproxy), **label**, **description**, **allowed_models** (`TEXT[]`, urutan = prioritas), **pinned_model** (turunan read-only dari `allowed_models`), **user_id** (FK) |
 | `users` | id, email, role (USER/ADMIN/SUPER_ADMIN), status (PENDING/APPROVED/REJECTED) — Better Auth synced |
 | `user`, `session`, `account` | Better Auth tables (Google OAuth) |
-| `settings` | key/value — `provider_override`, `poll_interval_ms`, `custom_providers` (JSON), `deepseek_*`, `openrouter_*`, `demo_mode` |
+| `settings` | key/value — `provider_override`, `poll_interval_ms`, `custom_providers` (JSON), `deepseek_*`, `openrouter_*`, `demo_mode`, `anthropic_account`, `credential_last_used` (JSON `{file: iso}`) |
 | `upstream_state` | single row, semua poll data |
 | `daily_usage` | (date, token_key, used) — prune otomatis 30 hari |
 | `request_logs` | ts, token_key, model, input/output/cache tokens, stream, status, stop_reason, tool_use_count, duration_ms, turns, prompt (2000 char), system_prompt (500 char) |
@@ -84,10 +89,12 @@ docs/
 | GET | `/api/usage/hourly` | approved | Hourly usage aggregation — approved user / admin only |
 | GET | `/api/admin/user-activity` | approved | User activity feed — approved user / admin only |
 | GET | `/api/admin/test` | admin | Connection test (credential, usage API, messages API) |
-| GET | `/api/admin/credentials` | admin | List OAuth credential files (`claude-*.json`) + `pinned_email`/`serving_email` |
+| GET | `/api/admin/credentials` | admin | List OAuth credential files (`claude-*.json`) + `pinned_email`/`serving_email`; per credential juga `label`, `created_at`, `last_refresh`, `last_used_at`, `email_resolved` (additive) |
 | POST | `/api/admin/credentials/remove` | admin | Disable credential file (`{ file }`) |
 | POST | `/api/admin/credentials/enable` | admin | Re-enable credential file (`{ file }`) |
 | POST | `/api/admin/credentials/activate` | admin | Pin akun Claude yang melayani (`{ email }`, `""` = auto) |
+| POST | `/api/admin/credentials/label` | admin | Set label credential (`{ file, label }`, trim, maks 60, `""` = hapus) → `{ ok, label }` |
+| POST | `/api/admin/credentials/resolve-email` | admin | Isi email dari profile endpoint (`{ file }`, file tidak di-rename) → `{ ok, email, changed }`; gagal → 502 |
 | GET | `/admin/auth/login` | admin | Mulai OAuth PKCE flow → redirect ke claude.ai |
 | POST | `/admin/reset` | admin | Reset usage token |
 | POST | `/admin/token/add` | admin | Tambah token |
@@ -111,6 +118,7 @@ docs/
 | GET | `/api/admin/models/:id` | admin | Fetch `/v1/models` dari provider (30 min cache) |
 | GET | `/api/admin/test/:id` | admin | Connection test per provider (auto-pick model) |
 | GET | `/api/debug/token-models` | `x-mcp-secret` | Inspeksi allowlist per token (`?limit&key&mode=unrestricted\|pinned\|multi`) — `counts` + daftar token (key masked, `mode`, `mirror_ok`) |
+| GET | `/api/debug/anthropic-accounts` | `x-mcp-secret` | Akun Claude pinned vs serving + per akun `label`/`created_at`/`last_refresh`/`last_used_at`/`email_resolved` + `unresolved_count` (tanpa token) |
 | POST | `/admin/auth/import` | admin | Paste-JSON credential import (no PKCE flow) |
 | POST | `/admin/logs/clear` | admin | Hapus request logs |
 | GET | `/api/profile` | session | Current user profile + tokens (with `effective_provider`, `allowed_models`, `pinned_model` turunan read-only) + `custom_providers` |

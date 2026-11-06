@@ -1,22 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  Stack, Text, Paper, Group, Button, TextInput, Badge,
-  ActionIcon, Tooltip, Center, Loader, Code, ThemeIcon,
+  Stack, Text, Paper, Group, Button, TextInput,
+  Center, Loader, Code, ThemeIcon,
   Divider, Modal, Textarea, Alert,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
-  IconExternalLink, IconCircleCheck, IconKey, IconPlayerStop,
+  IconExternalLink, IconCircleCheck,
   IconUserCircle, IconPlugConnected, IconAlertTriangle,
-  IconAi, IconFileImport, IconPlayerPlay, IconPin, IconPinnedOff,
+  IconAi, IconFileImport,
 } from "@tabler/icons-react";
 import { ApiKeyProvider } from "./ApiKeyProvider";
 import { CustomProvidersSection } from "./CustomProviders";
+import { CredentialRow, type CredentialInfo } from "./CredentialRow";
 
-interface CredentialInfo {
-  file: string; email: string; disabled: boolean; active: boolean;
-  pinned: boolean; serving: boolean;
-}
 type ConnectStep = "idle" | "authorizing" | "done";
 
 
@@ -299,48 +296,10 @@ export function AdminAccounts() {
         {!loading && creds && creds.length > 0 && (
           <Stack gap="xs" mt="sm">
             {creds.map(c => (
-              <Paper key={c.file} withBorder p="sm" radius="md" style={{ opacity: c.active ? 1 : 0.5 }}>
-                <Group justify="space-between" wrap="nowrap">
-                  <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
-                    <ThemeIcon variant="light" color={c.active ? "teal" : "gray"} size="md" radius="md">
-                      <IconKey size={16} />
-                    </ThemeIcon>
-                    <div style={{ minWidth: 0 }}>
-                      <Text fw={500} size="sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {c.email}
-                      </Text>
-                      <Text size="xs" c="dimmed" ff="monospace">{c.file}</Text>
-                    </div>
-                  </Group>
-                  <Group gap="xs" wrap="nowrap">
-                    {c.serving && <Badge size="sm" color="green" variant="filled">serving</Badge>}
-                    {c.pinned  && <Badge size="sm" color="blue"  variant="light">pinned</Badge>}
-                    <Badge size="sm" color={c.active ? "teal" : "gray"} variant="light">
-                      {c.active ? "active" : "disabled"}
-                    </Badge>
-                    {c.active && (
-                      <Tooltip label={c.pinned ? "Back to auto" : "Use this account"} withArrow>
-                        <ActionIcon
-                          size="sm" variant="subtle" color={c.pinned ? "gray" : "blue"}
-                          loading={activating === (c.pinned ? "auto" : c.email)}
-                          onClick={() => activate(c.pinned ? "" : c.email)}
-                        >
-                          {c.pinned ? <IconPinnedOff size={14} /> : <IconPin size={14} />}
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                    <Tooltip label={c.active ? "Disable credential" : "Enable credential"} withArrow>
-                      <ActionIcon
-                        size="sm" variant="subtle" color={c.active ? "red" : "teal"}
-                        loading={toggling === c.file}
-                        onClick={() => setDisabled(c.file, c.active)}
-                      >
-                        {c.active ? <IconPlayerStop size={14} /> : <IconPlayerPlay size={14} />}
-                      </ActionIcon>
-                    </Tooltip>
-                  </Group>
-                </Group>
-              </Paper>
+              <CredentialRow
+                key={c.file} cred={c} activating={activating} toggling={toggling}
+                onActivate={activate} onSetDisabled={setDisabled} onChanged={load}
+              />
             ))}
           </Stack>
         )}
