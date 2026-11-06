@@ -15,6 +15,9 @@ export interface CredentialRecord {
   email:    string;
   disabled: boolean;
   usable:   boolean;
+  label:        string;
+  created_at:   string | null;
+  last_refresh: string | null;
 }
 
 export interface PickResult {
@@ -24,6 +27,8 @@ export interface PickResult {
 }
 
 const CRED_FILE_RE = /^claude-[\w@._+-]+\.json$/;
+const FALLBACK_FILE_RE = /^claude-account-(\d{13})\.json$/;
+export const MAX_LABEL_LEN = 60;
 
 export function isCredentialFileName(file: string): boolean {
   return CRED_FILE_RE.test(file);
@@ -48,11 +53,20 @@ export function listCredentials(dir: string): CredentialRecord[] {
         email:    d.email || file,
         disabled: !!d.disabled,
         usable:   !d.disabled && !!d.access_token && !!d.refresh_token,
+        label:        typeof d.label === "string" ? d.label : "",
+        created_at:   d.created_at || createdAtFromFileName(file),
+        last_refresh: d.last_refresh || null,
       }];
     } catch {
       return [];
     }
   });
+}
+
+// Legacy fallback names embed the creation time: claude-account-<ms epoch>.json.
+function createdAtFromFileName(file: string): string | null {
+  const m = FALLBACK_FILE_RE.exec(file);
+  return m ? new Date(Number(m[1])).toISOString() : null;
 }
 
 function readCredential(rec: CredentialRecord): OauthCredential | null {
@@ -116,4 +130,49 @@ export function setCredentialDisabled(
   } catch (e: any) {
     return { ok: false, error: e.message };
   }
+}
+
+// badInput = caller's fault (bad name, too-long label, missing file) → HTTP 400.
+export type CredentialWriteError = { ok: false; error: string; badInput?: true };
+
+// Read→mutate→write MUST stay synchronous with no await: doRefresh() rewrites the same
+// file with a rotated single-use refresh token, and a stale copy written back kills the account.
+function updateCredentialFile(
+  dir: string, file: string, mutate: (d: any) => void,
+): { ok: true; email: string } | CredentialWriteError {
+  if (!isCredentialFileName(file)) {
+    return { ok: false, error: "Invalid file name", badInput: true };
+  }
+  const filePath = path.join(dir, file);
+  if (!fs.existsSync(filePath)) {
+    return { ok: false, error: `Credential ${file} not found`, badInput: true };
+  }
+  try {
+    const d = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    mutate(d);
+    d.updated_at = new Date().toISOString();
+    fs.writeFileSync(filePath, JSON.stringify(d, null, 2), "utf-8");
+    return { ok: true, email: d.email || file };
+  } catch (e: any) {
+    return { ok: false, error: `Update ${file} failed: ${e.message}` };
+  }
+}
+
+export function setCredentialLabel(
+  dir: string, file: string, label: string,
+): { ok: true; label: string } | CredentialWriteError {
+  const clean = label.trim();
+  if (clean.length > MAX_LABEL_LEN) {
+    return { ok: false, error: `Label too long (max ${MAX_LABEL_LEN} chars)`, badInput: true };
+  }
+  const res = updateCredentialFile(dir, file, d => {
+    if (clean) d.label = clean; else delete d.label;
+  });
+  return res.ok ? { ok: true, label: clean } : res;
+}
+
+export function setCredentialEmail(
+  dir: string, file: string, email: string,
+): { ok: true; email: string } | CredentialWriteError {
+  return updateCredentialFile(dir, file, d => { d.email = email; });
 }

@@ -5,6 +5,8 @@ import { config }   from "../config";
 import { settings } from "../state";
 import { bustCredentialCaches, getOauthCredential } from "../upstream";
 import { listCredentials, setCredentialDisabled }   from "../anthropicAccounts";
+import { emailFromTokenResponse, fetchProfileEmail } from "../oauthProfile";
+import { getCredentialLastUsed } from "../credentialUsage";
 
 const OAUTH_CLIENT_ID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const OAUTH_AUTH_URL    = "https://claude.ai/oauth/authorize";
@@ -20,29 +22,31 @@ function base64url(buf: Buffer): string {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
-function emailFromJwt(token: string): string {
-  try {
-    const [, payload] = token.split(".");
-    const obj = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
-    return obj.email || obj.sub || "";
-  } catch { return ""; }
+async function resolveEmail(accessToken: string, tokenData?: any): Promise<string> {
+  const fromToken = emailFromTokenResponse(tokenData);
+  if (fromToken) return fromToken;
+  const profile = await fetchProfileEmail(accessToken);
+  if (profile.ok) return profile.email;
+  console.warn(`[auth] Account email unresolved (${profile.error}) — using fallback file name`);
+  return `account-${Date.now()}`;
 }
 
-async function resolveEmail(accessToken: string): Promise<string> {
-  const jwtEmail = emailFromJwt(accessToken);
-  if (jwtEmail && jwtEmail.includes("@")) return jwtEmail;
-  try {
-    const r = await fetch("https://api.anthropic.com/api/auth/oauth/profile", {
-      headers: { "Authorization": "Bearer " + accessToken, "anthropic-beta": "oauth-2025-04-20" },
-    });
-    if (r.ok) {
-      const d = await r.json() as any;
-      const e = d.email || d.login_email || "";
-      if (e) return e;
-    }
-  } catch {}
-  if (jwtEmail) return jwtEmail;
-  return `account-${Date.now()}`;
+// Re-login of a known account must update its existing file, not mint a duplicate.
+function credentialTarget(email: string): { file: string; createdAt: string | null } {
+  const existing = email.includes("@")
+    ? listCredentials(config.authDir).find(r => r.email === email)
+    : undefined;
+  if (existing) return { file: existing.file, createdAt: existing.created_at };
+  return { file: `claude-${email.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`, createdAt: null };
+}
+
+function readExisting(filePath: string): any {
+  if (!fs.existsSync(filePath)) return {};
+  try { return JSON.parse(fs.readFileSync(filePath, "utf-8")); }
+  catch (e: any) {
+    console.warn(`[auth] ${path.basename(filePath)} unparseable, overwriting: ${e.message}`);
+    return {};
+  }
 }
 
 async function exchangeAndSave(code: string, codeVerifier: string, state: string): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
@@ -83,16 +87,14 @@ async function exchangeAndSave(code: string, codeVerifier: string, state: string
     return { ok: false, error: "Response missing access_token or refresh_token" };
   }
 
-  const email    = await resolveEmail(accessToken);
-  const safeFile = `claude-${email.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`;
+  const email    = await resolveEmail(accessToken, tokenData);
+  const target   = credentialTarget(email);
+  const safeFile = target.file;
   const filePath = path.join(config.authDir, safeFile);
 
   try {
     fs.mkdirSync(config.authDir, { recursive: true });
-    let existing: any = {};
-    if (fs.existsSync(filePath)) {
-      try { existing = JSON.parse(fs.readFileSync(filePath, "utf-8")); } catch {}
-    }
+    const existing = readExisting(filePath);
     const now = new Date().toISOString();
     fs.writeFileSync(filePath, JSON.stringify({
       ...existing,
@@ -101,7 +103,7 @@ async function exchangeAndSave(code: string, codeVerifier: string, state: string
       email,
       expires_in:    tokenData.expires_in || null,
       updated_at:    now,
-      created_at:    existing.created_at || now,
+      created_at:    existing.created_at || target.createdAt || now,
       disabled:      false,
     }, null, 2), "utf-8");
   } catch (e: any) {
@@ -187,6 +189,7 @@ export async function handleAuthExchange(req: Request): Promise<Response> {
 export function handleAuthStatus(): Response {
   const pinnedEmail  = settings["anthropic_account"] || "";
   const servingEmail = getOauthCredential()?.email ?? null;
+  const lastUsed     = getCredentialLastUsed();
   const credentials = listCredentials(config.authDir).map(r => ({
     file:     r.file,
     email:    r.email,
@@ -194,6 +197,11 @@ export function handleAuthStatus(): Response {
     active:   r.usable,                       // frozen contract: "has usable tokens"
     pinned:   r.email === pinnedEmail,
     serving:  r.email === servingEmail,
+    label:          r.label,
+    created_at:     r.created_at,
+    last_refresh:   r.last_refresh,
+    last_used_at:   lastUsed[r.file] ?? null,
+    email_resolved: r.email.includes("@"),
   }));
   return Response.json({ credentials, pinned_email: pinnedEmail, serving_email: servingEmail });
 }
@@ -220,29 +228,25 @@ export async function handleAuthImport(req: Request): Promise<Response> {
     return Response.json({ ok: false, error: "access_token and refresh_token are required" }, { status: 400 });
   }
 
-  // Resolve email from JWT or profile endpoint if missing/invalid
   if (!email || !email.includes("@")) {
     email = await resolveEmail(accessToken);
   }
 
-  const safeFile = `claude-${email.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`;
+  const target   = credentialTarget(email);
+  const safeFile = target.file;
   const filePath = path.join(config.authDir, safeFile);
 
   try {
     fs.mkdirSync(config.authDir, { recursive: true });
-    const exists = fs.existsSync(filePath);
     const now = new Date().toISOString();
-    let existing: any = {};
-    if (exists) {
-      try { existing = JSON.parse(fs.readFileSync(filePath, "utf-8")); } catch {}
-    }
+    const existing = readExisting(filePath);
     fs.writeFileSync(filePath, JSON.stringify({
       ...existing,
       access_token:  accessToken,
       refresh_token: refreshToken,
       email,
       expires_in:    cred.expires_in || existing.expires_in || null,
-      created_at:    existing.created_at || cred.created_at || now,
+      created_at:    existing.created_at || target.createdAt || cred.created_at || now,
       updated_at:    now,
       imported_at:   now,
       disabled:      false,

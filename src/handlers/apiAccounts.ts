@@ -1,7 +1,12 @@
+import fs   from "fs";
+import path from "path";
 import { config } from "../config";
-import { dbSaveSetting } from "../state";
-import { bustCredentialCaches } from "../upstream";
-import { listCredentials, setCredentialDisabled } from "../anthropicAccounts";
+import { dbSaveSetting, settings } from "../state";
+import { bustCredentialCaches, refreshOauthToken } from "../upstream";
+import {
+  isCredentialFileName, listCredentials, setCredentialDisabled, setCredentialEmail, setCredentialLabel,
+} from "../anthropicAccounts";
+import { fetchProfileEmail } from "../oauthProfile";
 import { triggerBroadcast } from "../broadcast";
 
 // Counterpart of /api/admin/credentials/remove — without it, disabling an
@@ -32,4 +37,49 @@ export async function handleAccountActivate(req: Request): Promise<Response> {
   bustCredentialCaches();
   triggerBroadcast();
   return Response.json({ ok: true, email });
+}
+
+export async function handleAccountLabel(req: Request): Promise<Response> {
+  const body = await req.json().catch(() => null) as any;
+  const file = String(body?.file ?? "");
+  if (!file) return Response.json({ error: "Missing file" }, { status: 400 });
+
+  const res = setCredentialLabel(config.authDir, file, String(body?.label ?? ""));
+  if (!res.ok) return Response.json({ error: res.error }, { status: res.badInput ? 400 : 500 });
+
+  triggerBroadcast();
+  return Response.json({ ok: true, label: res.label });
+}
+
+// Fixes credentials saved under a fallback name. The file is NOT renamed — only its
+// `email` field — so in-flight refreshes keep writing to the same path.
+export async function handleAccountResolveEmail(req: Request): Promise<Response> {
+  const body = await req.json().catch(() => null) as any;
+  const file = String(body?.file ?? "");
+  if (!isCredentialFileName(file)) return Response.json({ error: "Invalid file name" }, { status: 400 });
+
+  const filePath = path.join(config.authDir, file);
+  let cred: any;
+  try { cred = JSON.parse(fs.readFileSync(filePath, "utf-8")); }
+  catch (e: any) { return Response.json({ error: `Cannot read ${file}: ${e.message}` }, { status: 400 }); }
+  if (!cred?.access_token) return Response.json({ error: `${file} has no access_token` }, { status: 400 });
+
+  let profile = await fetchProfileEmail(cred.access_token);
+  if (!profile.ok && profile.status === 401 && cred.refresh_token) {
+    const fresh = await refreshOauthToken(filePath, cred.refresh_token);
+    if (fresh) profile = await fetchProfileEmail(fresh);
+  }
+  if (!profile.ok) return Response.json({ ok: false, error: profile.error }, { status: 502 });
+
+  const oldEmail = String(cred.email || file);
+  const res = setCredentialEmail(config.authDir, file, profile.email);
+  if (!res.ok) return Response.json({ ok: false, error: res.error }, { status: res.badInput ? 400 : 500 });
+
+  const changed = oldEmail !== profile.email;
+  if (changed && settings["anthropic_account"] === oldEmail) {
+    await dbSaveSetting("anthropic_account", profile.email);
+  }
+  bustCredentialCaches();
+  triggerBroadcast();
+  return Response.json({ ok: true, email: profile.email, changed });
 }
