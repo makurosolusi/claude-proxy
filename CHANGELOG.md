@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.89] - 2026-11-17
+
+### Added
+- Opsi "From" baru **(Unrestricted tokens — empty allowlist)** di modal Bulk Switch Model: admin bisa mem-pin satu model ke semua token yang allowlist-nya kosong dalam satu aksi. `POST /admin/token/swap-model` kini menerima `from` kosong asalkan disertai `include_unrestricted` dan `to` (additive — pemanggil lama tidak terpengaruh)
+
+### Fixed
+- Bulk Switch Model tidak lagi bisa mengosongkan allowlist semua token saat model yang sama dipilih di "From" dan "To". Kasus itu sekarang no-op di `swapModel()` dan dibalas `400` oleh `POST /admin/token/swap-model`
+- Daftar "To" sebelumnya hanya menawarkan model yang sudah ada di allowlist token, sehingga model yang sudah di-switch keluar (mis. opus) tidak bisa dipilih lagi. Sekarang daftar itu menawarkan katalog model Anthropic dan menyembunyikan model yang dipilih di "From"
+
 ## [2.1.88] - 2026-11-06
 
 ### Added
