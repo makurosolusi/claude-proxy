@@ -106,7 +106,7 @@ docs/
 | POST | `/admin/token/allowed-models` | admin | Set model allowlist per token (`{ token, models }` comma-separated, kosong = unrestricted) → `{ ok, allowed_models }` |
 | POST | `/admin/token/pin-model` | admin | Set/clear single model per token (`{ key, model }`, `""` = clear) — wrapper tulis `[model]`/`[]` |
 | POST | `/admin/token/pin-all` | admin | Bulk pin (`{ model, user_id?, provider_scope? }`) → `{ ok, count }` |
-| POST | `/admin/token/swap-model` | admin | Bulk switch satu model di allowlist (`{ from, to?, user_id?, provider_scope?, include_unrestricted? }`, `to` kosong = cabut tanpa pengganti) → `{ ok, count }` |
+| POST | `/admin/token/swap-model` | admin | Bulk switch satu model di allowlist (`{ from?, to?, user_id?, provider_scope?, include_unrestricted? }`, `from` opsional hanya bila `include_unrestricted` + `to` (set token unrestricted saja), `to` kosong = cabut tanpa pengganti, `from` = `to` → 400) → `{ ok, count }` |
 | POST | `/admin/token/mode` | admin | Set per-token mode (inherit/direct/cliproxy) |
 | POST | `/admin/token/provider` | admin | Set per-token provider override |
 | POST | `/admin/settings/provider-override` | admin | Set global routing target (`{ value }`) |

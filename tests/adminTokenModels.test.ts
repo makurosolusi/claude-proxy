@@ -151,6 +151,26 @@ describe("POST /admin/token/swap-model — include_unrestricted", () => {
   });
 });
 
+describe("POST /admin/token/swap-model — empty `from` (unrestricted only)", () => {
+  test("sets only unrestricted tokens to [to], restricted ones untouched", async () => {
+    const res = await swap({ from: "", to: "sonnet-5", include_unrestricted: "1" });
+    expect(res!.status).toBe(200);
+    expect((await res!.json()).count).toBe(1);
+    const r = await row(K_FREE);
+    expect(r.allowed).toEqual(["sonnet-5"]);
+    expect(r.pinned).toBe("sonnet-5");
+    expect((await row(K_MULTI_A)).allowed).toEqual(["haiku", "opus-5", "sonnet-4-6"]);
+    expect((await row(K_SINGLE)).allowed).toEqual(["opus-5"]);
+    expect((await row(K_NOMATCH)).pinned).toBe("DRIFT-SENTINEL");
+  });
+
+  test("without include_unrestricted → 400", async () => {
+    const res = await swap({ from: "", to: "sonnet-5" });
+    expect(res!.status).toBe(400);
+    expect((await row(K_FREE)).allowed).toEqual([]);
+  });
+});
+
 describe("POST /admin/token/swap-model — count accuracy", () => {
   test("token without `from` is neither counted nor rewritten", async () => {
     const res = await swap({ from: "opus-5", to: "sonnet-5" });
@@ -190,6 +210,21 @@ describe("POST /admin/token/swap-model — failure mode", () => {
     const res = await swap({ from: "   ", to: "sonnet-5" });
     expect(res!.status).toBe(400);
     expect((await row(K_MULTI_A)).allowed).toEqual(["haiku", "opus-5", "sonnet-4-6"]);
+  });
+
+  test("empty `from` with include_unrestricted but empty `to` → 400", async () => {
+    const res = await swap({ from: "", to: "", include_unrestricted: "1" });
+    expect(res!.status).toBe(400);
+    expect((await row(K_FREE)).allowed).toEqual([]);
+  });
+
+  test("`from` === `to` → 400, nothing changes", async () => {
+    const res = await swap({ from: "opus-5", to: "opus-5", include_unrestricted: "1" });
+    expect(res!.status).toBe(400);
+    expect(await res!.text()).toBe("'from' and 'to' are the same model\n");
+    expect((await row(K_MULTI_A)).allowed).toEqual(["haiku", "opus-5", "sonnet-4-6"]);
+    expect((await row(K_SINGLE)).allowed).toEqual(["opus-5"]);
+    expect((await row(K_FREE)).allowed).toEqual([]);
   });
 
   test("non-POST method is not handled here", async () => {

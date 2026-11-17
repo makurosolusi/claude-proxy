@@ -80,12 +80,13 @@ export async function handleTokenAllowedModels(
   }
 
   if (pathname === "/admin/token/swap-model") {
-    const from = String(form?.get("from") || "").trim();
-    if (!from) return new Response("Field 'from' is required\n", { status: 400 });
+    const from          = String(form?.get("from")           || "").trim();
     const to            = String(form?.get("to")             || "").trim();
     const userId        = String(form?.get("user_id")        || "").trim();
     const inScope       = makeInScope(String(form?.get("provider_scope") || "").trim());
     const unrestricted  = ["1", "true"].includes(String(form?.get("include_unrestricted") || "").trim());
+    if (!from && !(unrestricted && to)) return new Response("Field 'from' is required\n", { status: 400 });
+    if (from && from === to) return new Response("'from' and 'to' are the same model\n", { status: 400 });
 
     let count = 0;
     for (const [k, tk] of Object.entries(tokens)) {
