@@ -69,6 +69,11 @@ describe("swapModel", () => {
     expect(swapModel([SONNET5, HAIKU, OPUS], OPUS, SONNET5)).toEqual([SONNET5, HAIKU]);
   });
 
+  test("target equal to `from` → unchanged, never a removal", () => {
+    expect(swapModel([SONNET], SONNET, SONNET)).toEqual([SONNET]);
+    expect(swapModel([SONNET, HAIKU], SONNET, SONNET)).toEqual([SONNET, HAIKU]);
+  });
+
   test("empty target → revoke without replacement", () => {
     expect(swapModel([HAIKU, OPUS], OPUS, "")).toEqual([HAIKU]);
     expect(swapModel([OPUS], OPUS, "")).toEqual([]);

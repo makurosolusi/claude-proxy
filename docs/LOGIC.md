@@ -263,10 +263,20 @@ Menukar **satu** model di dalam allowlist tiap token tanpa mengganggu model lain
 daftar yang sama. Motivasi: menurunkan sekelompok token dari model mahal (mis. `opus-5`)
 ke yang lebih murah (mis. `sonnet-5`) tanpa menyamakan seluruh allowlist seperti `pin-all`.
 
-Form field: `from` (wajib, 400 kalau kosong), `to` (opsional — kosong = cabut `from` tanpa
-pengganti), `user_id` (opsional), `provider_scope` (opsional, effective routing, sama
-seperti `pin-all`), `include_unrestricted` (`"1"`/`"true"`). Response `{ ok: true, count }`;
-endpoint memanggil `triggerBroadcast()`.
+Form field: `from` (wajib, kecuali mode unrestricted di bawah), `to` (opsional — kosong =
+cabut `from` tanpa pengganti), `user_id` (opsional), `provider_scope` (opsional, effective
+routing, sama seperti `pin-all`), `include_unrestricted` (`"1"`/`"true"`). Response
+`{ ok: true, count }`; endpoint memanggil `triggerBroadcast()`.
+
+Validasi (400, plain text):
+- `from` kosong tanpa (`include_unrestricted` **dan** `to`) → `Field 'from' is required`.
+- `from` = `to` → `'from' and 'to' are the same model`. Latar: dulu kombinasi ini jatuh ke
+  kasus "`to` sudah terdaftar" sehingga `from` dihapus — admin yang memilih model yang sama
+  di kedua field mengosongkan allowlist semua token.
+
+**Mode unrestricted saja:** `from` kosong + `include_unrestricted` + `to` → hanya token
+dengan allowlist kosong yang di-set ke `[to]`; token ber-allowlist tidak tersentuh
+(`swapModel` dengan `from` kosong = no-op).
 
 Logika murni di `swapModel(allowed, from, to)` (`src/modelAllowlist.ts`) — **swap di
 tempat, urutan terjaga** supaya prioritas (elemen 0) tidak bergeser:
@@ -274,6 +284,7 @@ tempat, urutan terjaga** supaya prioritas (elemen 0) tidak bergeser:
 | Kondisi | Hasil |
 |---|---|
 | `from` tidak ada di allowlist | array dikembalikan apa adanya (token tidak ikut dihitung) |
+| `to` = `from` | array dikembalikan apa adanya (no-op, bukan penghapusan) |
 | `to` kosong | `from` dihapus |
 | `to` sudah terdaftar | `from` dihapus, bukan ditimpa |
 | selain itu | `from` diganti `to` di indeks yang sama |

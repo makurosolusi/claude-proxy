@@ -26,7 +26,7 @@ export function normalizeAllowed(raw: string[] | string): string[] {
 // result never duplicates a model or moves an existing one out of priority.
 export function swapModel(allowed: string[], from: string, to: string): string[] {
   const i = from ? allowed.indexOf(from) : -1;
-  if (i === -1) return allowed;
+  if (i === -1 || to === from) return allowed;
   if (!to || allowed.includes(to)) return allowed.filter((_, n) => n !== i);
   return allowed.map((m, n) => (n === i ? to : m));
 }
