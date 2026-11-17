@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Paper, Group, ThemeIcon, Text, Modal, Stack, Select, Autocomplete,
   Checkbox, Button, Alert,
@@ -8,6 +8,8 @@ import { notifications } from "@mantine/notifications";
 import type { TokenStatus } from "../../contexts";
 import type { ApiUser } from "./UserModals";
 import { swapModel } from "../../modelAllowlist";
+
+const UNRESTRICTED = "__unrestricted__";
 
 interface Props {
   tokens:   Record<string, TokenStatus>;
@@ -22,6 +24,15 @@ export function SwapModelCard({ tokens, apiUsers, reload }: Props) {
   const [userId, setUser] = useState<string | null>(null);
   const [sweep, setSweep] = useState(false);
   const [busy, setBusy]   = useState(false);
+  const [catalog, setCatalog] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/admin/models/anthropic", { credentials: "include" })
+      .then(r => r.json())
+      .then(d => setCatalog(Array.isArray(d?.models) ? d.models.map((m: { id: string }) => m.id) : []))
+      .catch((e: any) => console.warn("[swap-model] catalog fetch failed:", e?.message));
+  }, [open]);
 
   const entries = useMemo(() => Object.entries(tokens), [tokens]);
 
@@ -30,9 +41,15 @@ export function SwapModelCard({ tokens, apiUsers, reload }: Props) {
     [entries],
   );
 
+  const fromData = useMemo(
+    () => [{ value: UNRESTRICTED, label: "(Unrestricted tokens — empty allowlist)" }, ...fromOptions],
+    [fromOptions],
+  );
+
   const toOptions = useMemo(
-    () => [...new Set([...fromOptions, ...entries.map(([, t]) => t.activeModel || "")])].filter(Boolean).sort(),
-    [fromOptions, entries],
+    () => [...new Set([...catalog, ...fromOptions, ...entries.map(([, t]) => t.activeModel || "")])]
+      .filter(m => m && m !== from).sort(),
+    [catalog, fromOptions, entries, from],
   );
 
   const userOptions = useMemo(
@@ -41,7 +58,8 @@ export function SwapModelCard({ tokens, apiUsers, reload }: Props) {
   );
 
   const target = to.trim();
-  const sweepable = sweep && !!target;
+  const unrestricted = from === UNRESTRICTED;
+  const sweepable = (unrestricted || sweep) && !!target;
 
   // Mirrors the backend loop in adminTokenModels.ts so the preview cannot drift.
   const affected = useMemo(() => {
@@ -51,25 +69,25 @@ export function SwapModelCard({ tokens, apiUsers, reload }: Props) {
       if (userId && t.user_id !== userId) continue;
       const current = t.allowed_models || [];
       if (current.length === 0) { if (sweepable) n++; continue; }
+      if (unrestricted) continue;
       const next = swapModel(current, from, target);
       if (next.length !== current.length || next.some((m, i) => m !== current[i])) n++;
     }
     return n;
-  }, [entries, from, target, userId, sweepable]);
+  }, [entries, from, target, userId, sweepable, unrestricted]);
 
   const submit = async () => {
     if (!from) return;
     setBusy(true);
     try {
       const form = new FormData();
-      form.set("from", from);
+      form.set("from", unrestricted ? "" : from);
       form.set("to", target);
       if (userId) form.set("user_id", userId);
       if (sweepable) form.set("include_unrestricted", "1");
       const r = await fetch("/admin/token/swap-model", { method: "POST", body: form, credentials: "include" });
       const text = await r.text();
-      let d: any = {};
-      try { d = JSON.parse(text); } catch {}
+      const d: any = r.headers.get("content-type")?.includes("application/json") ? JSON.parse(text) : {};
       if (!r.ok || d.ok === false) {
         notifications.show({ color: "red", title: "Switch failed", message: d.error || text.slice(0, 200) || `HTTP ${r.status}`, autoClose: 4000 });
         return;
@@ -78,12 +96,14 @@ export function SwapModelCard({ tokens, apiUsers, reload }: Props) {
       setOpen(false);
       await reload();
       if (count === 0) {
-        notifications.show({ color: "yellow", title: "No tokens changed", message: `No token matched ${from} in this scope.`, autoClose: 4000 });
+        notifications.show({ color: "yellow", title: "No tokens changed", message: unrestricted ? "No unrestricted token in this scope." : `No token matched ${from} in this scope.`, autoClose: 4000 });
         return;
       }
       notifications.show({
         color: "teal",
-        message: target
+        message: unrestricted
+          ? `${count} unrestricted token(s) set to ${target}`
+          : target
           ? `${count} token(s) switched from ${from} to ${target}`
           : `${from} removed from ${count} token(s)`,
         autoClose: 3000,
@@ -111,32 +131,31 @@ export function SwapModelCard({ tokens, apiUsers, reload }: Props) {
         <Stack gap="sm">
           <Select
             label="From" placeholder="Model to replace" searchable
-            data={fromOptions} value={from} onChange={setFrom}
-            nothingFoundMessage="No model is currently allowlisted"
+            data={fromData} value={from} onChange={setFrom}
           />
           <Autocomplete
             label="To"
-            description="Leave empty to remove the model without a replacement"
-            placeholder="Replacement model (optional)"
+            description={unrestricted ? "Model to pin on every unrestricted token" : "Leave empty to remove the model without a replacement"}
+            placeholder={unrestricted ? "Model (required)" : "Replacement model (optional)"}
             data={toOptions} value={to} onChange={setTo}
           />
           <Select
             label="Limit to user" placeholder="All users" searchable clearable
             data={userOptions} value={userId} onChange={setUser}
           />
-          <Checkbox
+          {!unrestricted && <Checkbox
             checked={sweep} disabled={!target}
             onChange={e => setSweep(e.currentTarget.checked)}
             label="Also pin unrestricted tokens"
             description="Tokens with an empty allowlist may call any model today — checking this sets them to the To model instead."
-          />
+          />}
           <Alert color={affected > 0 ? "orange" : "gray"} variant="light" p="xs">
             <Text size="sm">{affected} token(s) will change</Text>
           </Alert>
           <Group justify="flex-end" gap="xs">
             <Button variant="subtle" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="sm" color="orange" loading={busy} disabled={!from || affected === 0} onClick={submit}>
-              {target ? "Switch" : "Remove"}
+            <Button size="sm" color="orange" loading={busy} disabled={!from || affected === 0 || target === from || (unrestricted && !target)} onClick={submit}>
+              {unrestricted ? "Set" : target ? "Switch" : "Remove"}
             </Button>
           </Group>
         </Stack>
