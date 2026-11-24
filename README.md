@@ -1,63 +1,63 @@
 # claude-proxy
 
-Proxy untuk satu akun Claude Max (OAuth) yang dibagi ke banyak user lewat API key masing-masing, lengkap dengan quota, dashboard admin, dan fallback ke provider lain (OpenRouter, DeepSeek, atau custom).
+A proxy that shares one Claude Max (OAuth) account across many users through per-user API keys, with quota management, an admin dashboard, and fallback to other providers (OpenRouter, DeepSeek, or custom).
 
-- Klien (Claude Code, SDK Anthropic, curl) cukup mengarah ke proxy ini dan memakai API key `sk-cp-...`.
-- Admin mengatur user, quota, model yang boleh dipakai, dan akun Claude dari dashboard web.
-- Akun Claude **opsional**: tanpa credential Claude, proxy tetap jalan lewat OpenRouter/DeepSeek/custom provider.
+- Clients (Claude Code, the Anthropic SDK, curl) point at this proxy and use an `sk-cp-...` API key.
+- Admins manage users, quotas, allowed models, and Claude accounts from a web dashboard.
+- A Claude account is **optional**: without Claude credentials the proxy still runs through OpenRouter, DeepSeek, or a custom provider.
 
-## Persyaratan
+## Requirements
 
-| Kebutuhan | Keterangan |
+| Requirement | Notes |
 |---|---|
-| [Bun](https://bun.sh) ≥ 1.3 | Runtime + package manager |
-| PostgreSQL ≥ 14 | Penyimpanan utama (lewat Prisma) |
-| Google OAuth Client | Login dashboard hanya lewat Google. Buat di [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → *OAuth client ID* → *Web application*. Authorized redirect URI: `<BETTER_AUTH_URL>/api/auth/callback/google` |
-| Akun Claude Max/Pro | Opsional. Atau siapkan API key OpenRouter/DeepSeek sebagai gantinya |
-| Docker | Opsional, hanya untuk jalur Docker |
+| [Bun](https://bun.sh) ≥ 1.3 | Runtime and package manager |
+| PostgreSQL ≥ 14 | Primary storage (via Prisma) |
+| Google OAuth client | Dashboard login is Google-only. Create one in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → *OAuth client ID* → *Web application*. Authorized redirect URI: `<BETTER_AUTH_URL>/api/auth/callback/google` |
+| Claude Max/Pro account | Optional. Alternatively provide an OpenRouter or DeepSeek API key |
+| Docker | Optional, only for the Docker route |
 
-## Env minimum
+## Minimum environment
 
-Salin `.env.example` ke `.env`, lalu isi 7 variabel ini. Yang lain punya default.
+Copy `.env.example` to `.env` and fill in these 7 variables. Everything else has a default.
 
-| Variabel | Contoh | Fungsi |
+| Variable | Example | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://user:pass@localhost:5432/claude_proxy` | Koneksi PostgreSQL |
-| `BETTER_AUTH_URL` | `http://localhost:8080` | URL publik aplikasi (dipakai callback Google; wajib sama dengan yang diakses browser) |
-| `BETTER_AUTH_SECRET` | `openssl rand -base64 32` | Penanda tangan cookie sesi |
-| `GOOGLE_CLIENT_ID` | `xxx.apps.googleusercontent.com` | Dari Google Cloud Console |
-| `GOOGLE_CLIENT_SECRET` | `GOCSPX-...` | Dari Google Cloud Console |
-| `SUPER_ADMIN_EMAILS` | `anda@gmail.com` | Email (pisah koma) yang otomatis jadi `SUPER_ADMIN` dan `approved` saat login pertama |
-| `ADMIN_KEY` | `openssl rand -hex 24` | Header `x-admin-key` untuk akses admin via API/skrip |
+| `DATABASE_URL` | `postgresql://user:pass@localhost:5432/claude_proxy` | PostgreSQL connection |
+| `BETTER_AUTH_URL` | `http://localhost:8080` | Public URL of the app (used for the Google callback; must match what the browser visits) |
+| `BETTER_AUTH_SECRET` | output of `openssl rand -base64 32` | Signs session cookies |
+| `GOOGLE_CLIENT_ID` | `xxx.apps.googleusercontent.com` | From the Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | `GOCSPX-...` | From the Google Cloud Console |
+| `SUPER_ADMIN_EMAILS` | `you@gmail.com` | Comma-separated emails that become `SUPER_ADMIN` and `approved` on first login |
+| `ADMIN_KEY` | output of `openssl rand -hex 24` | `x-admin-key` header for admin access via API or scripts |
 
-Variabel opsional yang sering dipakai: `PORT` (default `8080`), `CLIPROXY_AUTH_DIR` (folder `claude-*.json`; lokal pakai `./credentials`), `DEFAULT_TOKEN_LIMIT`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`. Daftar lengkap ada di [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#env-vars) dan `.env.example`.
+Commonly used optional variables: `PORT` (default `8080`), `CLIPROXY_AUTH_DIR` (folder holding `claude-*.json`; use `./credentials` locally), `DEFAULT_TOKEN_LIMIT`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`. The full list is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#env-vars) and `.env.example`.
 
-## Menjalankan (lokal)
+## Run locally
 
 ```bash
-# 1. Dependency
+# 1. Dependencies
 bun install
 
-# 2. Database kosong, lalu env
+# 2. Empty database, then env
 createdb claude_proxy
-cp .env.example .env          # isi 7 variabel di atas
+cp .env.example .env          # fill in the 7 variables above
 mkdir -p credentials state
 
-# 3. Generate Prisma client + terapkan migration
+# 3. Generate the Prisma client and apply migrations
 bunx prisma generate
 bunx prisma migrate deploy
 
-# 4. Jalankan
-bun dev                        # dev (HMR), http://localhost:8080
-# atau produksi:
+# 4. Start
+bun dev                        # development (HMR), http://localhost:8080
+# or production:
 bun run build && bun start
 ```
 
-Cek berjalan: `curl http://localhost:8080/api/version` → `{"version":"..."}`.
+Check it is running: `curl http://localhost:8080/api/version` → `{"version":"..."}`.
 
-## Menjalankan (Docker)
+## Run with Docker
 
-Image dibangun dari `Dockerfile` (port `8080` aplikasi, `54545` callback OAuth). `compose.yml` di repo ini adalah konfigurasi staging pemilik (Traefik + jaringan eksternal), jadi sesuaikan dulu. Versi minimal:
+The image is built from the `Dockerfile` (app on port `8080`, OAuth callback on `54545`). The `compose.yml` in this repo is the owner's staging setup (Traefik plus external networks), so adapt it before use. Minimal version:
 
 ```bash
 docker build -t claude-proxy .
@@ -68,40 +68,40 @@ docker run -d --name claude-proxy --env-file .env \
   claude-proxy
 ```
 
-Migration tidak dijalankan otomatis oleh image. Jalankan sekali sebelum start pertama dan setiap upgrade:
+The image does not run migrations on its own. Run them once before the first start and on every upgrade:
 
 ```bash
 docker run --rm --env-file .env claude-proxy bunx prisma migrate deploy
 ```
 
-`DATABASE_URL` harus bisa dijangkau dari dalam container (jangan pakai `localhost` kecuali `--network host`).
+`DATABASE_URL` must be reachable from inside the container (do not use `localhost` unless you pass `--network host`).
 
-## Tutorial penggunaan
+## Usage guide
 
-### 1. Login pertama
+### 1. First login
 
-1. Buka `BETTER_AUTH_URL` → **Login dengan Google** memakai email yang ada di `SUPER_ADMIN_EMAILS`.
-2. Anda otomatis menjadi `SUPER_ADMIN` dengan status `approved`. Masuk ke menu **Admin**.
-3. User lain yang login akan berstatus `pending` dan harus Anda setujui di **Admin → Users**.
+1. Open `BETTER_AUTH_URL` and choose **Sign in with Google** using an email listed in `SUPER_ADMIN_EMAILS`.
+2. You become `SUPER_ADMIN` with status `approved`. Open the **Admin** menu.
+3. Other users who sign in start as `pending`; approve them under **Admin → Users**.
 
-### 2. Hubungkan akun Claude (opsional)
+### 2. Connect a Claude account (optional)
 
 1. **Admin → Accounts → Connect Account**.
-2. Browser diarahkan ke claude.ai, lalu kembali ke `http://localhost:54545/callback`. **Port 54545 harus bisa dijangkau browser yang Anda pakai.** Di server remote, buka tunnel: `ssh -L 54545:localhost:54545 user@server`.
-3. Credential tersimpan di `CLIPROXY_AUTH_DIR/claude-<email>.json`. Tanpa restart, proxy langsung memakainya.
-4. Beberapa akun boleh dipasang bersamaan. Pin akun yang melayani lewat tombol aktifkan di daftar.
+2. The browser goes to claude.ai and returns to `http://localhost:54545/callback`. **Port 54545 must be reachable from the browser you use.** On a remote server, open a tunnel: `ssh -L 54545:localhost:54545 user@server`.
+3. The credential is saved to `CLIPROXY_AUTH_DIR/claude-<email>.json`. The proxy uses it immediately, no restart needed.
+4. Several accounts can coexist. Pin the serving account from the list.
 
-Tanpa akun Claude: isi `OPENROUTER_API_KEY` / `DEEPSEEK_API_KEY` di `.env`, atau tambahkan custom provider di **Admin → Credentials → Custom Providers**.
+Without a Claude account: set `OPENROUTER_API_KEY` / `DEEPSEEK_API_KEY` in `.env`, or add a custom provider under **Admin → Credentials → Custom Providers**.
 
-### 3. Beri user API key
+### 3. Give users API keys
 
-1. Setujui user di **Admin → Users**. Tiap user mendapat token berformat `sk-cp-...` yang terlihat di halaman **Profile**-nya.
-2. Atur batas pemakaian per token (`limit`) dan model yang diizinkan (allowlist) dari dashboard.
-3. Alternatif tanpa Google: seed token statis lewat env `TOKENS="sk-user-alice:60000"` (format `key:limit`).
+1. Approve users under **Admin → Users**. Each user gets an `sk-cp-...` token, visible on their **Profile** page.
+2. Set a per-token usage `limit` and the allowed models (allowlist) from the dashboard.
+3. Alternative without Google: seed static tokens with the `TOKENS` env var, e.g. `TOKENS="sk-user-alice:60000"` (format `key:limit`).
 
-Mode reset quota (global, **Admin → Providers**): `manual` (default, admin yang reset), `auto` (ikut window Anthropic 5 jam), `daily` (tengah malam).
+Quota reset mode (global, **Admin → Providers**): `manual` (default, admin resets), `auto` (follows the Anthropic 5-hour window), `daily` (midnight).
 
-### 4. Pakai dari klien
+### 4. Use it from a client
 
 **Claude Code**
 
@@ -118,12 +118,12 @@ curl http://localhost:8080/v1/messages \
   -H "x-api-key: sk-cp-xxxxxxxx" \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
-  -d '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"Halo"}]}'
+  -d '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-Autentikasi menerima `x-api-key` atau `Authorization: Bearer <token>`. Endpoint lain: `GET /v1/models`, `GET /v1/usage` (sisa quota token Anda).
+Authentication accepts `x-api-key` or `Authorization: Bearer <token>`. Other endpoints: `GET /v1/models`, `GET /v1/usage` (remaining quota for your token).
 
-### 5. Akses admin via API
+### 5. Admin access via API
 
 ```bash
 curl http://localhost:8080/api/status -H "x-admin-key: $ADMIN_KEY"
@@ -131,26 +131,28 @@ curl http://localhost:8080/api/status -H "x-admin-key: $ADMIN_KEY"
 
 ## Troubleshooting
 
-| Gejala | Penyebab umum |
+| Symptom | Common cause |
 |---|---|
-| Login Google gagal `redirect_uri_mismatch` | Redirect URI di Google Console tidak sama persis dengan `<BETTER_AUTH_URL>/api/auth/callback/google` |
-| Error tabel/kolom tidak ada | `prisma migrate deploy` belum dijalankan |
-| `Cannot find module '.prisma/client'` | `bunx prisma generate` belum dijalankan |
-| Connect Account tidak kembali | Port `54545` tidak terjangkau dari browser (lihat tunnel di atas) |
-| Request `503 No provider is configured` | Belum ada akun Claude maupun provider lain |
-| Request `429` | Quota token habis atau 5h utilization Anthropic ≥ `UPSTREAM_HARD_CAP_PCT` |
-| "System prompt tidak dipatuhi" dari klien non-Claude-Code | Batasan upstream OAuth, bukan bug proxy. Lihat [`docs/LOGIC.md`](docs/LOGIC.md) |
+| Google login fails with `redirect_uri_mismatch` | The redirect URI in the Google Console does not exactly match `<BETTER_AUTH_URL>/api/auth/callback/google` |
+| Table or column does not exist | `prisma migrate deploy` has not been run |
+| `Cannot find module '.prisma/client'` | `bunx prisma generate` has not been run |
+| Connect Account never returns | Port `54545` is not reachable from the browser (see the tunnel above) |
+| Request returns `503 No provider is configured` | No Claude account and no other provider is set up |
+| Request returns `429` | Token quota exhausted, or Anthropic 5h utilization ≥ `UPSTREAM_HARD_CAP_PCT` |
+| "System prompt is ignored" from a non-Claude-Code client | Upstream OAuth limitation, not a proxy bug. See [`docs/LOGIC.md`](docs/LOGIC.md) |
 
-## Test
+## Tests
 
 ```bash
-bun test              # unit test (tests/unit.test.ts)
-bun run test:all      # semua test (db.test.ts butuh PostgreSQL test, bukan dev/prod)
+bun test              # unit tests (tests/unit.test.ts)
+bun run test:all      # all tests (db.test.ts needs a test PostgreSQL, never dev/prod)
 ```
 
-## Dokumentasi lanjutan
+## Further documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): struktur file, schema DB, endpoint, env
-- [`docs/LOGIC.md`](docs/LOGIC.md): quota, pemilihan provider/akun, translasi OpenAI
-- [`docs/DEPLOY.md`](docs/DEPLOY.md): deploy dan infrastruktur
-- [`CHANGELOG.md`](CHANGELOG.md): riwayat perubahan
+Note: the documents below are written in Indonesian.
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): file structure, DB schema, endpoints, env vars
+- [`docs/LOGIC.md`](docs/LOGIC.md): quota, provider and account selection, OpenAI translation
+- [`docs/DEPLOY.md`](docs/DEPLOY.md): deployment and infrastructure
+- [`CHANGELOG.md`](CHANGELOG.md): change history
